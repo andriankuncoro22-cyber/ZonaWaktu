@@ -1,0 +1,12 @@
+# Firebase App Hosting configuration
+kind: apphosting.yaml
+version: v1
+env:
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    value: "AIzaSyARQJvG1Lt8-NgrcGctWSso9kaHOxBDyNc"
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    value: "sistempakyani.firebaseapp.com"
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    value: "sistempakyani"
+  - variable: DATABASE_URL
+    value: "postgresql://user:password@localhost:5432/sistempakyani" # Placeholder

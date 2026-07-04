@@ -1,0 +1,50 @@
+query ListLowStockProducts @auth(expr: "auth.uid != nil && auth.token.firebase.sign_in_provider != 'anonymous'") {
+  products(where: {
+    currentStock: { lt: 1 }
+  }) {
+    id
+    name
+    currentStock
+    minStock
+  }
+}
+
+mutation AddSupplier($name: String! @allow(fields: ["name"]), $email: String! @allow(fields: ["email"])) @auth(level: USER) {
+  supplier_insert(data: {
+    name: $name,
+    email: $email
+  })
+}
+
+mutation CreateSale(
+  $customerId: UUID! @allow(fields: ["customer"]),
+  $totalAmount: Float! @allow(fields: ["totalAmount"]),
+  $paymentMethod: String! @allow(fields: ["paymentMethod"]),
+  $items: [TransactionItem_Data!]! @allow(fields: ["product", "quantity", "priceAtTime"])
+) @auth(level: USER) @transaction {
+  transaction_insert(data: {
+    type: "SALE",
+    totalAmount: $totalAmount,
+    paymentMethod: $paymentMethod,
+    timestamp: { now: true },
+    user: { firebaseAuthUid_expr: "auth.uid" },
+    customer: { id: $customerId },
+    transactionItems_on_transaction: $items
+  })
+}
+
+query AuditLogRecent @auth(level: USER) {
+  auditLogs(
+    where: { user: { firebaseAuthUid: { eq_expr: "auth.uid" } } },
+    orderBy: [{ timestamp: DESC }],
+    limit: 50
+  ) {
+    action
+    entityType
+    entityId
+    timestamp
+    user {
+      name
+    }
+  }
+}

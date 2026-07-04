@@ -1,0 +1,83 @@
+type User @table {
+  firebaseAuthUid: String! @unique
+  name: String!
+  role: String!
+  phoneNumber: String
+  lastLogin: Timestamp
+}
+
+type Category @table {
+  name: String!
+  description: String
+}
+
+type Supplier @table {
+  name: String!
+  contactPerson: String
+  email: String
+  phone: String
+}
+
+type Product @table {
+  barcode: String! @unique
+  sku: String! @unique
+  name: String!
+  purchasePrice: Float!
+  sellingPrice: Float!
+  currentStock: Int!
+  minStock: Int!
+  unit: String!
+  description: String
+  category: Category
+  supplier: Supplier
+}
+
+type Customer @table {
+  name: String!
+  phoneNumber: String
+  email: String
+  totalSpent: Float!
+}
+
+type Transaction @table {
+  type: String! # "SALE" or "PURCHASE"
+  totalAmount: Float!
+  paymentMethod: String!
+  timestamp: Timestamp!
+  discount: Float
+  notes: String
+  user: User!
+  customer: Customer
+}
+
+type TransactionItem @table {
+  transaction: Transaction!
+  product: Product!
+  quantity: Int!
+  priceAtTime: Float!
+}
+
+type Expense @table {
+  amount: Float!
+  category: String!
+  date: Date!
+  description: String
+  user: User!
+}
+
+type InventoryAdjustment @table {
+  product: Product!
+  quantityChange: Int!
+  reason: String!
+  timestamp: Timestamp!
+  user: User!
+}
+
+type AuditLog @table {
+  action: String!
+  entityType: String!
+  entityId: UUID!
+  timestamp: Timestamp!
+  user: User!
+  details: String
+}

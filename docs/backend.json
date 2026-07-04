@@ -1,0 +1,90 @@
+
+{
+  "entities": {
+    "BahanBaku": {
+      "title": "Bahan Baku",
+      "description": "Data persediaan bahan baku mentah",
+      "type": "object",
+      "properties": {
+        "nama": { "type": "string" },
+        "kategoriId": { "type": "string" },
+        "satuanId": { "type": "string" },
+        "stokMinimal": { "type": "number" },
+        "stokAktual": { "type": "number" },
+        "hargaRataRata": { "type": "number" }
+      },
+      "required": ["nama", "satuanId"]
+    },
+    "Produk": {
+      "title": "Produk Jadi",
+      "description": "Data produk hasil produksi yang siap dijual",
+      "type": "object",
+      "properties": {
+        "nama": { "type": "string" },
+        "kategoriId": { "type": "string" },
+        "hargaJual": { "type": "number" },
+        "stok": { "type": "number" }
+      },
+      "required": ["nama", "hargaJual"]
+    },
+    "Resep": {
+      "title": "Resep Produk",
+      "description": "Komposisi bahan baku untuk setiap produk",
+      "type": "object",
+      "properties": {
+        "produkId": { "type": "string" },
+        "komposisi": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "bahanBakuId": { "type": "string" },
+              "jumlah": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    "Penjualan": {
+      "title": "Transaksi Penjualan",
+      "description": "Catatan penjualan harian",
+      "type": "object",
+      "properties": {
+        "tanggal": { "type": "string", "format": "date-time" },
+        "total": { "type": "number" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "produkId": { "type": "string" },
+              "jumlah": { "type": "number" },
+              "harga": { "type": "number" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "auth": {
+    "providers": ["google.com", "password"]
+  },
+  "firestore": {
+    "/bahan-baku/{bahanId}": {
+      "schema": "BahanBaku",
+      "description": "Koleksi data bahan baku"
+    },
+    "/produk/{produkId}": {
+      "schema": "Produk",
+      "description": "Koleksi data produk jadi"
+    },
+    "/resep/{resepId}": {
+      "schema": "Resep",
+      "description": "Koleksi data resep produk"
+    },
+    "/penjualan/{transaksiId}": {
+      "schema": "Penjualan",
+      "description": "Koleksi data transaksi penjualan"
+    }
+  }
+}

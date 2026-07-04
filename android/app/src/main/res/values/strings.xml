@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">sistem.zona.waktu</string>
+    <string name="title_activity_main">sistem.zona.waktu</string>
+    <string name="package_name">com.zonawaktu.sistem</string>
+    <string name="custom_url_scheme">com.zonawaktu.sistem</string>
+</resources>

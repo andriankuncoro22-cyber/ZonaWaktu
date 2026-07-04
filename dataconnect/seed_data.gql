@@ -1,0 +1,16 @@
+mutation CreateDemoData @transaction {
+  user_insertMany(data: [
+    {
+      id: "550e8400-e29b-41d4-a716-446655440000",
+      firebaseAuthUid: "user1",
+      name: "Alice Smith",
+      role: "ADMIN"
+    },
+    {
+      id: "550e8400-e29b-41d4-a716-446655440001",
+      firebaseAuthUid: "user2",
+      name: "Bob Jones",
+      role: "STAFF"
+    }
+  ])
+}
