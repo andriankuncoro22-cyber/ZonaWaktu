@@ -148,6 +148,11 @@ export default function AbsensiKaryawanPage() {
   };
 
   const startCamera = async () => {
+    if (!isWithinRadius) {
+      alert("Anda berada di luar radius kantor. Mendekat terlebih dahulu sebelum membuka kamera.");
+      return;
+    }
+
     if (!navigator.mediaDevices?.getUserMedia) {
       alert("Browser ini tidak mendukung kamera. Gunakan perangkat mobile atau browser modern.");
       return;
@@ -400,7 +405,7 @@ export default function AbsensiKaryawanPage() {
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Selfie Absensi</p>
             <p className="text-sm font-black text-slate-800">Foto wajib diambil langsung dari kamera</p>
           </div>
-          <Button onClick={startCamera} className="rounded-xl bg-primary text-white h-10 px-4 text-[9px] font-black uppercase">Buka Kamera</Button>
+          <Button onClick={startCamera} disabled={!isWithinRadius} className="rounded-xl bg-primary text-white h-10 px-4 text-[9px] font-black uppercase disabled:opacity-50 disabled:cursor-not-allowed">Buka Kamera</Button>
         </div>
         <div className="grid md:grid-cols-[1.2fr_0.8fr] gap-4 items-start">
           <div className="rounded-[1.5rem] border border-slate-200 overflow-hidden bg-slate-50 min-h-[240px] flex items-center justify-center">
