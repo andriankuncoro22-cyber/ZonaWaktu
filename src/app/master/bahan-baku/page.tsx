@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { 
   Plus, 
   Database, 
@@ -43,7 +43,10 @@ interface BahanBaku {
   qtyMin?: number;
   qtyMinGudang?: number;
   qtyMinKontainer?: number;
-    gramPerBesar?: number;
+  gramPerBesar?: number;
+  beratBungkusProduk?: number;
+  totalGramasiPerProduk?: number;
+  kalibrasiNote?: string;
 }
 
 export default function MasterBahanBakuPage() {
@@ -58,6 +61,9 @@ export default function MasterBahanBakuPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [editingItem, setEditingItem] = useState<BahanBaku | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [totalGramasiInput, setTotalGramasiInput] = useState(0);
+  const [beratBungkusInput, setBeratBungkusInput] = useState(0);
+  const [gramPerBesarInput, setGramPerBesarInput] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const filteredMaterials = (materials as BahanBaku[])
@@ -71,6 +77,28 @@ export default function MasterBahanBakuPage() {
     const num = Number(val);
     return isNaN(num) ? 0 : num;
   };
+
+  const getGramasiPerProduk = (item?: Partial<BahanBaku> | null) => {
+    const gramPerBesar = Number(item?.gramPerBesar || 0);
+    const beratBungkus = Number(item?.beratBungkusProduk || 0);
+    return gramPerBesar + beratBungkus;
+  };
+
+  const getGramPerBesarFromTotal = (totalGrams: number, beratBungkus: number) => {
+    return Math.max(0, totalGrams - beratBungkus);
+  };
+
+  useEffect(() => {
+    if (editingItem) {
+      setTotalGramasiInput(getGramasiPerProduk(editingItem));
+      setBeratBungkusInput(Number(editingItem.beratBungkusProduk || 0));
+      setGramPerBesarInput(Number(editingItem.gramPerBesar || 0));
+    } else {
+      setTotalGramasiInput(0);
+      setBeratBungkusInput(0);
+      setGramPerBesarInput(0);
+    }
+  }, [editingItem]);
 
   const toTitleCase = (str: string) => {
     if (!str) return "-";
@@ -219,6 +247,11 @@ export default function MasterBahanBakuPage() {
   const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    const qtyKecil = formatNumber(formData.get("qtyKecil") || 1);
+    const gramPerBesar = getGramPerBesarFromTotal(totalGramasiInput, beratBungkusInput);
+    const beratBungkusProduk = beratBungkusInput;
+    const totalGramasiPerProduk = totalGramasiInput;
+
     const data = {
       code: String(formData.get("code") || "").trim(),
       nama: String(formData.get("nama") || "").trim(),
@@ -227,9 +260,11 @@ export default function MasterBahanBakuPage() {
       qtyMin: formatNumber(formData.get("qtyMin") || 5),
       qtyMinGudang: formatNumber(formData.get("qtyMinGudang") || formData.get("qtyMin") || 5),
       qtyMinKontainer: formatNumber(formData.get("qtyMinKontainer") || formData.get("qtyMin") || 5),
-      qtyKecil: formatNumber(formData.get("qtyKecil")),
+      qtyKecil,
       satuanKecil: String(formData.get("satuanKecil") || "").trim(),
-      gramPerBesar: formatNumber(formData.get("gramPerBesar") || 0),
+      gramPerBesar,
+      beratBungkusProduk,
+      totalGramasiPerProduk,
       kalibrasiNote: String(formData.get("kalibrasiNote") || "").trim(),
     };
 
@@ -308,13 +343,13 @@ export default function MasterBahanBakuPage() {
                 Bahan Baru
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-xl rounded-[2.5rem] p-10 border-none shadow-2xl">
+            <DialogContent className="w-[95vw] max-w-3xl max-h-[90vh] overflow-y-auto rounded-[1.25rem] border-none p-4 shadow-2xl sm:rounded-[2rem] sm:p-6 md:p-8 lg:p-10">
               <DialogHeader>
-                <DialogTitle className="text-2xl font-black uppercase italic tracking-tighter text-slate-900">
+                <DialogTitle className="text-xl font-black uppercase italic tracking-tighter text-slate-900 sm:text-2xl">
                   {editingItem ? "Edit Bahan Baku" : "Tambah Bahan Baku"}
                 </DialogTitle>
               </DialogHeader>
-              <form onSubmit={handleSave} className="grid grid-cols-2 gap-6 mt-6">
+              <form onSubmit={handleSave} className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6">
                 <div className="space-y-2">
                   <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">Code Bahan</Label>
                   <Input name="code" defaultValue={editingItem?.code} placeholder="BB-001" className="rounded-xl border-slate-200 h-11" required />
@@ -324,7 +359,7 @@ export default function MasterBahanBakuPage() {
                   <Input name="nama" defaultValue={editingItem?.nama} placeholder="Contoh: Kopi Arabika" className="rounded-xl border-slate-200 h-11" required />
                 </div>
                 
-                <div className="bg-slate-50 p-6 rounded-3xl space-y-4 border border-slate-100">
+                <div className="rounded-3xl border border-slate-100 bg-slate-50 p-4 space-y-4 sm:p-6">
                   <h4 className="text-[9px] font-black uppercase tracking-widest text-primary">Konfigurasi Besar</h4>
                   <div className="grid gap-4">
                     <div className="space-y-2">
@@ -346,7 +381,7 @@ export default function MasterBahanBakuPage() {
                   </div>
                 </div>
 
-                <div className="bg-slate-50 p-6 rounded-3xl space-y-4 border border-slate-100">
+                <div className="rounded-3xl border border-slate-100 bg-slate-50 p-4 space-y-4 sm:p-6">
                    <h4 className="text-[9px] font-black uppercase tracking-widest text-primary">Konfigurasi Kecil</h4>
                    <div className="grid gap-4">
                     <div className="space-y-2">
@@ -360,24 +395,52 @@ export default function MasterBahanBakuPage() {
                   </div>
                 </div>
 
-                <div className="col-span-2 bg-slate-50 p-6 rounded-3xl space-y-4 border border-slate-100">
+                <div className="col-span-1 rounded-3xl border border-slate-100 bg-slate-50 p-4 space-y-4 sm:p-6 md:col-span-2">
                   <h4 className="text-[9px] font-black uppercase tracking-widest text-primary">Kalibrasi Gramasi (Acuan)</h4>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">Total Gramasi per Produk (g)</Label>
+                      <Input
+                        type="number"
+                        step="any"
+                        value={totalGramasiInput}
+                        onChange={(e) => setTotalGramasiInput(formatNumber(e.target.value))}
+                        className="rounded-xl bg-white border-slate-200"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">Berat Bungkus Produk (g)</Label>
+                      <Input
+                        name="beratBungkusProduk"
+                        type="number"
+                        step="any"
+                        value={beratBungkusInput}
+                        onChange={(e) => setBeratBungkusInput(formatNumber(e.target.value))}
+                        className="rounded-xl bg-white border-slate-200"
+                      />
+                    </div>
                     <div className="space-y-2">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">Gram per Satuan Besar</Label>
-                      <Input name="gramPerBesar" type="number" step="any" defaultValue={editingItem?.gramPerBesar ?? 0} className="rounded-xl bg-white border-slate-200" />
+                      <Input
+                        name="gramPerBesar"
+                        type="number"
+                        step="any"
+                        readOnly
+                        value={getGramPerBesarFromTotal(totalGramasiInput, beratBungkusInput)}
+                        className="rounded-xl bg-white border-slate-200 cursor-not-allowed"
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">Catatan Kalibrasi</Label>
-                      <Input name="kalibrasiNote" defaultValue={""} placeholder="Opsional: mis. 1 pack = 250 g" className="rounded-xl bg-white border-slate-200" />
+                      <Input name="kalibrasiNote" defaultValue={editingItem?.kalibrasiNote || ""} placeholder="Opsional: mis. 1 pack = 250 g" className="rounded-xl bg-white border-slate-200" />
                     </div>
                   </div>
-                  <p className="text-[10px] text-slate-500 mt-2">Nilai gramasi ini hanya sebagai acuan untuk stock opname kontainer (qty aktif) saat penimbangan bahan yang sudah dibuka.</p>
+                  <p className="text-[10px] text-slate-500 mt-2">Saat stock opname ditimbang, sistem akan otomatis mengurangi berat bungkus dari total gram sebelum menghitung qty aktif.</p>
                 </div>
 
-                <div className="col-span-2 flex justify-end gap-3 mt-4">
+                <div className="col-span-1 mt-4 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end md:col-span-2">
                   <Button type="button" variant="ghost" onClick={() => setIsDialogOpen(false)} className="rounded-xl px-6 text-[10px] font-black uppercase tracking-widest text-slate-400">Batal</Button>
-                  <Button type="submit" className="rounded-xl bg-primary px-8 font-black uppercase tracking-widest text-[10px] h-11 shadow-lg shadow-primary/20">
+                  <Button type="submit" className="h-11 rounded-xl bg-primary px-8 text-[10px] font-black uppercase tracking-widest shadow-lg shadow-primary/20">
                     <Save className="h-4 w-4 mr-2" />
                     Simpan Data
                   </Button>
@@ -414,6 +477,8 @@ export default function MasterBahanBakuPage() {
                 <th className="px-6 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-left">Nama Bahan</th>
                 <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-right">Qty Besar</th>
                 <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-right">Gram/Sat.B</th>
+                <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-right">Bungkus (g)</th>
+                <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-right">Total/Produk (g)</th>
                 <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-right">Min Stok Gudang</th>
                 <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-right">Min Stok Kontainer</th>
                 <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-left">Satuan</th>
@@ -452,6 +517,12 @@ export default function MasterBahanBakuPage() {
                     </td>
                     <td className="px-4 py-5 text-right font-medium text-slate-900 tabular-nums">
                       {formatNumber(item.gramPerBesar || 0).toLocaleString('id-ID')} g
+                    </td>
+                    <td className="px-4 py-5 text-right font-medium text-slate-900 tabular-nums">
+                      {formatNumber(item.beratBungkusProduk || 0).toLocaleString('id-ID')}
+                    </td>
+                    <td className="px-4 py-5 text-right font-medium text-slate-900 tabular-nums">
+                      {formatNumber(item.totalGramasiPerProduk ?? getGramasiPerProduk(item)).toLocaleString('id-ID')}
                     </td>
                     <td className="px-4 py-5 text-right font-medium text-slate-900 tabular-nums">
                       {formatNumber(item.qtyMinGudang ?? item.qtyMin ?? 5).toLocaleString('id-ID')}

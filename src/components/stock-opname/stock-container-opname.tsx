@@ -40,6 +40,24 @@ export function StockContainerOpnameView({
   const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
   const { data: settings } = useDoc(settingsRef);
 
+  const getUnitWeight = (item: any) => {
+    const gramPerBesar = Number(item.gramPerBesar || 0);
+    const konversi = Number(item.qtyKecil || 1);
+    return konversi > 0 ? gramPerBesar / konversi : 0;
+  };
+
+  const getTotalWeightFromAktif = (item: any, aktifQty: number) => {
+    const beratBungkus = Number(item.beratBungkusProduk || 0);
+    return Number(aktifQty || 0) * getUnitWeight(item) + beratBungkus;
+  };
+
+  const getAktifFromGrams = (item: any, gramsValue: number) => {
+    const beratBungkus = Number(item.beratBungkusProduk || 0);
+    const netGrams = Math.max(0, Number(gramsValue || 0) - beratBungkus);
+    const unitWeight = getUnitWeight(item);
+    return unitWeight > 0 ? netGrams / unitWeight : 0;
+  };
+
   const [kontainerInputs, setKontainerInputs] = useState<Record<string, { aktif: number; grams: number }>>({});
 
   const filteredMaterials = (materials as any[])?.filter(
@@ -60,14 +78,17 @@ export function StockContainerOpnameView({
     const next: Record<string, { aktif: number; grams: number }> = {};
     filtered.forEach((item: any) => {
       const aktif = Number(item.qtyKontainerKecil || 0);
-      const gramPerBesar = Number(item.gramPerBesar || 0);
-      const konversi = Number(item.qtyKecil || 1);
-      const grams = gramPerBesar > 0 ? (aktif * (gramPerBesar / konversi)) : 0;
+      const grams = getTotalWeightFromAktif(item, aktif);
       next[item.id] = { aktif, grams };
     });
 
     setKontainerInputs(next);
   }, [materials, searchTerm]);
+
+  const formatNumber = (value: number | string | undefined) => {
+    const num = Number(value || 0);
+    return new Intl.NumberFormat("id-ID").format(num);
+  };
 
   const formatTotalStock = (item: any) => {
     const qtyGudang = Number(item.qtyBesar || 0);
@@ -186,8 +207,8 @@ export function StockContainerOpnameView({
         </div>
       </div>
 
-      <Card className="overflow-hidden rounded-[1.5rem] border-none bg-white shadow-sm sm:rounded-[2rem]">
-        <div className="flex flex-col gap-4 border-b border-slate-50 bg-slate-50/30 p-4 sm:p-6 md:flex-row md:items-center md:justify-between">
+      <Card className="overflow-hidden rounded-[1.25rem] border-none bg-white shadow-sm sm:rounded-[2rem]">
+        <div className="flex flex-col gap-4 border-b border-slate-50 bg-slate-50/30 p-3 sm:p-6 md:flex-row md:items-center md:justify-between">
           <div className="relative w-full md:w-96">
             <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
@@ -209,15 +230,15 @@ export function StockContainerOpnameView({
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[920px] text-left sm:min-w-[1000px]">
+          <table className="w-full min-w-[980px] text-left sm:min-w-[1100px]">
             <thead>
               <tr className="bg-slate-50/50">
-                <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 sm:px-6 sm:py-6 lg:px-10">Bahan Baku</th>
-                <th className="px-3 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500 sm:px-4 sm:py-6 lg:px-6">Bulk (Sistem)</th>
-                <th className="px-3 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500 sm:px-4 sm:py-6 lg:px-6">Aktif (Sistem)</th>
-                <th className="px-3 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 sm:px-4 sm:py-6 lg:px-8">Input Fisik (Bulk)</th>
-                <th className="px-3 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 sm:px-4 sm:py-6 lg:px-8">Input Fisik (Aktif)</th>
-                <th className="px-4 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500 sm:px-6 sm:py-6 lg:px-10">Aksi</th>
+                <th className="px-3 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 sm:px-4 sm:py-6 lg:px-8">Bahan Baku</th>
+                <th className="px-2 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500 sm:px-3 sm:py-6 lg:px-4">Bulk (Sistem)</th>
+                <th className="px-2 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500 sm:px-3 sm:py-6 lg:px-4">Aktif (Sistem)</th>
+                <th className="px-2 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 sm:px-3 sm:py-6 lg:px-4">Input Fisik (Bulk)</th>
+                <th className="px-2 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 sm:px-3 sm:py-6 lg:px-4">Input Fisik (Aktif)</th>
+                <th className="px-3 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500 sm:px-4 sm:py-6 lg:px-8">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -230,27 +251,40 @@ export function StockContainerOpnameView({
               ) : (
                 filteredMaterials?.map((item: any) => (
                   <tr key={item.id} className="transition-colors hover:bg-slate-50/50">
-                    <td className="px-4 py-5 sm:px-6 lg:px-10">
+                    <td className="px-3 py-5 sm:px-4 lg:px-8">
                       <p className="mb-1 text-[10px] font-bold text-primary">{item.code}</p>
                       <p className="text-sm font-black uppercase italic text-slate-900">{item.nama}</p>
+                      <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
+                        <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-600">
+                          Bungkus: {Number(item.beratBungkusProduk || 0).toLocaleString("id-ID")} g
+                        </span>
+                        <span className="rounded-full bg-primary/5 px-2 py-1 font-semibold text-primary">
+                          Total/produk: {Number(item.totalGramasiPerProduk ?? (Number(item.gramPerBesar || 0) + Number(item.beratBungkusProduk || 0))).toLocaleString("id-ID")} g
+                        </span>
+                      </div>
                     </td>
-                    <td className="px-3 py-5 text-right sm:px-4 lg:px-6">
-                      <p className="text-lg font-black tabular-nums text-indigo-600 sm:text-xl">{item.qtyKontainerBesar || 0}</p>
+                    <td className="px-2 py-5 text-right sm:px-3 lg:px-4">
+                      <p className="text-lg font-black tabular-nums text-indigo-600 sm:text-xl">{formatNumber(item.qtyKontainerBesar || 0)}</p>
                       <p className="text-[8px] font-bold uppercase text-slate-400">{item.satuanBesar}</p>
                     </td>
-                    <td className="px-3 py-5 text-right sm:px-4 lg:px-6">
-                      <p className="text-lg font-black tabular-nums text-emerald-600 sm:text-xl">{Math.round(item.qtyKontainerKecil || 0)}</p>
+                    <td className="px-2 py-5 text-right sm:px-3 lg:px-4">
+                      <p className="text-lg font-black tabular-nums text-emerald-600 sm:text-xl">{formatNumber(Math.round(item.qtyKontainerKecil || 0))}</p>
                       <p className="text-[8px] font-bold uppercase text-slate-400">{item.satuanKecil}</p>
                     </td>
-                    <td className="px-3 py-5 sm:px-4 lg:px-8">
-                      <div className="relative w-full max-w-[8rem] sm:max-w-[9rem]">
-                        <Input type="number" placeholder="0" className="h-11 rounded-xl border-none bg-slate-50 pr-12 text-center text-base font-black sm:h-12 sm:text-lg" />
+                    <td className="px-2 py-5 sm:px-3 lg:px-4">
+                      <div className="relative w-full max-w-[7rem] sm:max-w-[8rem]">
+                        <Input
+                          type="number"
+                          placeholder="0"
+                          inputMode="decimal"
+                          className="h-11 rounded-xl border-none bg-slate-50 pr-12 text-center text-base font-black sm:h-12 sm:text-lg"
+                        />
                         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black uppercase text-indigo-300">{item.satuanBesar}</span>
                       </div>
                     </td>
-                    <td className="px-3 py-5 sm:px-4 lg:px-8">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                        <div className="relative w-full max-w-[8rem] sm:max-w-[8rem]">
+                    <td className="px-2 py-5 sm:px-3 lg:px-4">
+                      <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+                        <div className="relative w-full max-w-[7rem] sm:max-w-[8rem]">
                           <Input
                             type="number"
                             value={kontainerInputs[item.id]?.aktif ?? ""}
@@ -261,28 +295,20 @@ export function StockContainerOpnameView({
                           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black uppercase text-emerald-300">{item.satuanKecil}</span>
                         </div>
 
-                        <div className="relative w-full max-w-[8rem] sm:max-w-[8rem]">
+                        <div className="relative w-full max-w-[7rem] sm:max-w-[8rem]">
                           <Input
                             type="number"
                             value={kontainerInputs[item.id]?.grams ?? ""}
                             onChange={(e) => {
                               const gramsVal = Number(e.target.value || 0);
-                              setKontainerInputs((prev) => {
-                                const gramPerBesar = Number(item.gramPerBesar || 0);
-                                const konversi = Number(item.qtyKecil || 1);
-                                let aktifFromGrams = 0;
-                                if (gramPerBesar > 0) {
-                                  aktifFromGrams = gramsVal / (gramPerBesar / konversi);
-                                }
-                                return {
-                                  ...prev,
-                                  [item.id]: {
-                                    ...(prev[item.id] || { aktif: 0, grams: 0 }),
-                                    grams: gramsVal,
-                                    aktif: Math.round(aktifFromGrams * 100) / 100,
-                                  },
-                                };
-                              });
+                              setKontainerInputs((prev) => ({
+                                ...prev,
+                                [item.id]: {
+                                  ...(prev[item.id] || { aktif: 0, grams: 0 }),
+                                  grams: gramsVal,
+                                  aktif: Math.round(getAktifFromGrams(item, gramsVal) * 100) / 100,
+                                },
+                              }));
                             }}
                             placeholder="0 g"
                             className="h-11 rounded-xl border-none bg-slate-50 pr-12 text-center text-base font-black sm:h-12 sm:text-lg"
@@ -291,7 +317,7 @@ export function StockContainerOpnameView({
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-5 text-right sm:px-6 lg:px-10">
+                    <td className="px-3 py-5 text-right sm:px-4 lg:px-8">
                       <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl text-primary hover:bg-primary/5">
                         <CheckCircle2 className="h-5 w-5" />
                       </Button>

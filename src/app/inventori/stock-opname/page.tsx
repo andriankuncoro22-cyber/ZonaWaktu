@@ -44,6 +44,24 @@ export default function StockOpnamePage() {
     item.code?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const getUnitWeight = (item: any) => {
+    const gramPerBesar = Number(item.gramPerBesar || 0);
+    const konversi = Number(item.qtyKecil || 1);
+    return konversi > 0 ? gramPerBesar / konversi : 0;
+  };
+
+  const getTotalWeightFromAktif = (item: any, aktifQty: number) => {
+    const beratBungkus = Number(item.beratBungkusProduk || 0);
+    return Number(aktifQty || 0) * getUnitWeight(item) + beratBungkus;
+  };
+
+  const getAktifFromGrams = (item: any, gramsValue: number) => {
+    const beratBungkus = Number(item.beratBungkusProduk || 0);
+    const netGrams = Math.max(0, Number(gramsValue || 0) - beratBungkus);
+    const unitWeight = getUnitWeight(item);
+    return unitWeight > 0 ? netGrams / unitWeight : 0;
+  };
+
   // Local state to hold kontainer opname inputs per item
   const [kontainerInputs, setKontainerInputs] = useState<Record<string, { aktif: number; grams: number }>>({});
 
@@ -55,9 +73,7 @@ export default function StockOpnamePage() {
     const next: Record<string, { aktif: number; grams: number }> = {};
     filtered.forEach((it: any) => {
       const aktif = Number(it.qtyKontainerKecil || 0);
-      const gramPerBesar = Number(it.gramPerBesar || 0);
-      const konversi = Number(it.qtyKecil || 1);
-      const grams = gramPerBesar > 0 ? (aktif * (gramPerBesar / konversi)) : 0;
+      const grams = getTotalWeightFromAktif(it, aktif);
       next[it.id] = { aktif, grams };
     });
     setKontainerInputs(next);
@@ -230,6 +246,14 @@ export default function StockOpnamePage() {
                       <td className="px-10 py-6">
                         <p className="text-[10px] font-bold text-primary mb-1">{item.code}</p>
                         <p className="text-sm font-black text-slate-900 uppercase italic">{item.nama}</p>
+                        <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
+                          <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-600">
+                            Bungkus: {Number(item.beratBungkusProduk || 0).toLocaleString('id-ID')} g
+                          </span>
+                          <span className="rounded-full bg-primary/5 px-2 py-1 font-semibold text-primary">
+                            Total/produk: {Number(item.totalGramasiPerProduk ?? (Number(item.gramPerBesar || 0) + Number(item.beratBungkusProduk || 0))).toLocaleString('id-ID')} g
+                          </span>
+                        </div>
                       </td>
                       <td className="px-8 py-6 text-right font-black text-slate-900 text-xl tabular-nums">{(item.qtyBesar || 0)}</td>
                       <td className="px-8 py-6 text-center text-[10px] font-black uppercase text-slate-400">{item.satuanBesar}</td>
@@ -291,12 +315,14 @@ export default function StockOpnamePage() {
                                value={kontainerInputs[item.id]?.aktif ?? ''}
                                onChange={(e) => {
                                  const val = Number(e.target.value || 0);
-                                 setKontainerInputs(prev => {
-                                   const gramPerBesar = Number(item.gramPerBesar || 0);
-                                   const konversi = Number(item.qtyKecil || 1);
-                                   const grams = gramPerBesar > 0 ? val * (gramPerBesar / konversi) : 0;
-                                   return { ...prev, [item.id]: { ...(prev[item.id] || { aktif: 0, grams: 0 }), aktif: val, grams } };
-                                 });
+                                 setKontainerInputs(prev => ({
+                                   ...prev,
+                                   [item.id]: {
+                                     ...(prev[item.id] || { aktif: 0, grams: 0 }),
+                                     aktif: val,
+                                     grams: getTotalWeightFromAktif(item, val),
+                                   },
+                                 }));
                                }}
                                placeholder="0"
                                className="rounded-xl h-12 bg-slate-50 border-none font-black text-center text-lg pr-12"
@@ -310,15 +336,14 @@ export default function StockOpnamePage() {
                                value={kontainerInputs[item.id]?.grams ?? ''}
                                onChange={(e) => {
                                  const gramsVal = Number(e.target.value || 0);
-                                 setKontainerInputs(prev => {
-                                   const gramPerBesar = Number(item.gramPerBesar || 0);
-                                   const konversi = Number(item.qtyKecil || 1);
-                                   let aktifFromGrams = 0;
-                                   if (gramPerBesar > 0) {
-                                     aktifFromGrams = gramsVal / (gramPerBesar / konversi);
-                                   }
-                                   return { ...prev, [item.id]: { ...(prev[item.id] || { aktif: 0, grams: 0 }), grams: gramsVal, aktif: Math.round(aktifFromGrams * 100) / 100 } };
-                                 });
+                                 setKontainerInputs(prev => ({
+                                   ...prev,
+                                   [item.id]: {
+                                     ...(prev[item.id] || { aktif: 0, grams: 0 }),
+                                     grams: gramsVal,
+                                     aktif: Math.round(getAktifFromGrams(item, gramsVal) * 100) / 100,
+                                   },
+                                 }));
                                }}
                                placeholder="0 g"
                                className="rounded-xl h-12 bg-slate-50 border-none font-black text-center text-lg pr-12"
