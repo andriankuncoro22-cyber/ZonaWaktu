@@ -1,9 +1,12 @@
 export function getTotalAvailableQty(material) {
   if (!material) return 0;
+
   const qtyBesar = Number(material.qtyBesar || 0);
   const qtyKontainerBesar = Number(material.qtyKontainerBesar || 0);
   const qtyKontainerKecil = Number(material.qtyKontainerKecil || 0);
-  return qtyBesar + qtyKontainerBesar + qtyKontainerKecil;
+  const conversionRate = Number(material.qtyKecil || 1);
+
+  return (qtyBesar + qtyKontainerBesar) * conversionRate + qtyKontainerKecil;
 }
 
 export function getAverageCost(material) {
@@ -60,18 +63,30 @@ export function applyPriceUpdate(material, price) {
 
 export function applyUsage(material, qty) {
   const usageQty = Number(qty || 0);
+  const currentQty = getTotalAvailableQty(material);
+
   if (usageQty <= 0) {
     return {
-      qty: getTotalAvailableQty(material),
+      qty: currentQty,
       avgPrice: getAverageCost(material),
       stockValue: Number(material?.stockValue || 0),
       cost: 0,
+      insufficientStock: false,
+      availableQty: currentQty,
+      requiredQty: usageQty,
     };
   }
 
-  const currentQty = getTotalAvailableQty(material);
   if (currentQty < usageQty) {
-    throw new Error("Insufficient stock for HPP calculation");
+    return {
+      qty: 0,
+      avgPrice: getAverageCost(material),
+      stockValue: Number(material?.stockValue || 0),
+      cost: 0,
+      insufficientStock: true,
+      availableQty: currentQty,
+      requiredQty: usageQty,
+    };
   }
 
   const currentAvg = getAverageCost(material);
@@ -85,5 +100,8 @@ export function applyUsage(material, qty) {
     avgPrice: newQty > 0 ? newValue / newQty : 0,
     stockValue: newValue,
     cost,
+    insufficientStock: false,
+    availableQty: currentQty,
+    requiredQty: usageQty,
   };
 }

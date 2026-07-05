@@ -62,6 +62,11 @@ export function StockContainerOpnameView({
   const [bulkInputs, setBulkInputs] = useState<Record<string, number>>({});
   const [processing, setProcessing] = useState(false);
 
+  const resetInputs = () => {
+    setKontainerInputs({});
+    setBulkInputs({});
+  };
+
   const filteredMaterials = (materials as any[])?.filter(
     (item) =>
       item.nama?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -69,26 +74,8 @@ export function StockContainerOpnameView({
   );
 
   useEffect(() => {
-    if (!materials) return;
-
-    const filtered = (materials as any[]).filter(
-      (item) =>
-        item.nama?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.code?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-
-    const next: Record<string, { aktif: number; grams: number }> = {};
-    const nextBulk: Record<string, number> = {};
-    filtered.forEach((item: any) => {
-      const aktif = Number(item.qtyKontainerKecil || 0);
-      const grams = getTotalWeightFromAktif(item, aktif);
-      next[item.id] = { aktif, grams };
-      nextBulk[item.id] = Number(item.qtyKontainerBesar || 0);
-    });
-
-    setKontainerInputs(next);
-    setBulkInputs(nextBulk);
-  }, [materials, searchTerm]);
+    resetInputs();
+  }, []);
 
   const formatNumber = (value: number | string | undefined) => {
     const num = Number(value || 0);
@@ -212,6 +199,7 @@ export function StockContainerOpnameView({
         note: "Finalisasi Opnam Harian",
         items: historyItems,
       });
+      resetInputs();
       window.alert("Finalisasi berhasil dan stok sistem diperbarui.");
     } catch (err) {
       console.error(err);
@@ -234,6 +222,13 @@ export function StockContainerOpnameView({
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Button
+            variant="outline"
+            onClick={resetInputs}
+            className="h-11 rounded-2xl border-slate-200 bg-white px-4 text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 sm:h-12 sm:px-6"
+          >
+            <RefreshCcw className="mr-2 h-4 w-4 text-slate-600" /> Bersihkan
+          </Button>
           <Button
             variant="outline"
             onClick={handleExportExcel}

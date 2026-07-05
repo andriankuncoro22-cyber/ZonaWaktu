@@ -48,6 +48,7 @@ const menuGroups = [
       { name: "Laporan Belanja Bahan Baku", icon: Package, href: "/operasional/laporan-belanja-bahan-baku" },
       { name: "Laporan Pemakaian Bahan Baku", icon: Activity, href: "/operasional/laporan-pemakaian-bahan-baku" },
       { name: "Laporan Pemindahan Barang", icon: ArrowRightLeft, href: "/operasional/laporan-pemindahan-barang" },
+      { name: "Laporan Stock Opnam", icon: ClipboardList, href: "/laporan/stock-opname" },
     ]
   },
   {

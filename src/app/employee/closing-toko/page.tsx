@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   FileSpreadsheet,
   TrendingUp,
+  Trash2,
   Wallet,
   ShoppingBag,
   Loader2,
@@ -82,9 +83,14 @@ interface UploadedExcelReport {
   fileName: string;
 }
 
-export default function EmployeeClosingTokoPage() {
+export default function EmployeeClosingTokoPage({
+  variant = "employee",
+}: {
+  variant?: "employee" | "owner";
+}) {
   const db = useFirestore();
   const { toast } = useToast();
+  const isOwnerView = variant === "owner";
   const [selectedDate, setSelectedDate] = useState("");
   const [saving, setSaving] = useState(false);
   const [activeStep, setActiveStep] = useState(1);
@@ -123,6 +129,22 @@ export default function EmployeeClosingTokoPage() {
     [db]
   );
   const { data: historyList } = useCollection(historyQuery);
+
+  const keuanganHistoryQuery = useMemoFirebase(() => 
+    query(collection(db, "keuangan-kontainer"), orderBy("createdAt", "desc"), limit(10)),
+    [db]
+  );
+  const { data: keuanganHistoryList } = useCollection(keuanganHistoryQuery);
+
+  const ownerHistoryList = useMemo(() => {
+    const closingEntries = (historyList || []).map((item: any) => ({ ...item, kind: "closing" }));
+    const keuanganEntries = (keuanganHistoryList || []).map((item: any) => ({ ...item, kind: "keuangan" }));
+    return [...closingEntries, ...keuanganEntries].sort((a, b) => {
+      const timeA = a.createdAt?.seconds || 0;
+      const timeB = b.createdAt?.seconds || 0;
+      return timeB - timeA;
+    });
+  }, [historyList, keuanganHistoryList]);
 
   const stats = useMemo(() => {
     if (!currentDayData || currentDayData.length === 0) {
@@ -164,6 +186,32 @@ export default function EmployeeClosingTokoPage() {
       return isNaN(num) ? 0 : num;
     }
     return 0;
+  };
+
+  const normalizeExcelHeader = (value: any) => {
+    if (value === null || value === undefined) return "";
+    return String(value)
+      .trim()
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "");
+  };
+
+  const getExcelCellValue = (row: Record<string, any>, aliases: string[]) => {
+    const normalizedRow = Object.entries(row).reduce((acc, [key, value]) => {
+      acc[normalizeExcelHeader(key)] = value;
+      return acc;
+    }, {} as Record<string, any>);
+
+    for (const alias of aliases) {
+      const normalizedAlias = normalizeExcelHeader(alias);
+      if (normalizedRow[normalizedAlias] !== undefined) {
+        return normalizedRow[normalizedAlias];
+      }
+    }
+
+    return undefined;
   };
 
   const handleAddProductionItem = () => {
@@ -418,6 +466,14 @@ export default function EmployeeClosingTokoPage() {
     } catch (e) { console.error(e); }
   };
 
+  const handleDeleteKeuanganHistory = async (id: string) => {
+    if (!confirm("Hapus histori keuangan kontainer ini?")) return;
+    try {
+      await deleteDoc(doc(db, "keuangan-kontainer", id));
+      toast({ title: "Histori Dihapus" });
+    } catch (e) { console.error(e); }
+  };
+
   const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -429,15 +485,18 @@ export default function EmployeeClosingTokoPage() {
         const wb = XLSX.read(bstr, { type: "binary" });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws);
+        const data = XLSX.utils.sheet_to_json(ws, { defval: "" });
 
-        const items: SaleItem[] = data.map((row: any) => ({
-          name: String(row["Name"] || row["Nama"] || ""),
-          code: String(row["Code"] || row["Kode"] || ""),
-          total: parseNumber(row["Total"] || row["Jumlah"] || 0),
-          pendapatan: parseNumber(row["Pendapatan"] || 0),
-          keuntungan: parseNumber(row["Keuntungan"] || 0)
-        })).filter(item => item.name || item.code);
+        const items: SaleItem[] = data.map((row: any) => {
+          const itemRow = row as Record<string, any>;
+          return {
+            name: String(getExcelCellValue(itemRow, ["nama", "name"]) ?? "").trim(),
+            code: String(getExcelCellValue(itemRow, ["code", "kode"]) ?? "").trim(),
+            total: parseNumber(getExcelCellValue(itemRow, ["total", "jumlah", "amount"]) ?? 0),
+            pendapatan: parseNumber(getExcelCellValue(itemRow, ["pendapatan", "income", "revenue"]) ?? 0),
+            keuntungan: parseNumber(getExcelCellValue(itemRow, ["keuntungan", "profit", "laba"]) ?? 0)
+          };
+        }).filter(item => item.name || item.code);
 
         if (items.length > 0) {
           const totalPendapatan = items.reduce((sum, item) => sum + item.pendapatan, 0);
@@ -556,7 +615,7 @@ export default function EmployeeClosingTokoPage() {
                 <FileSpreadsheet className="h-5 w-5 text-primary" />
                 <h2 className="text-lg font-black uppercase italic text-slate-900">Upload Laporan Excel</h2>
               </div>
-              <p className="mt-3 text-sm text-slate-500">Unggah file Excel untuk mengambil daftar produk dan pendapatan.</p>
+              <p className="mt-3 text-sm text-slate-500">Unggah file Excel dengan kolom nama, code, total, pendapatan, dan keuntungan. Kolom No. dapat ada dan akan diabaikan.</p>
               <input type="file" ref={fileInputRef} onChange={handleImportExcel} accept=".xlsx, .xls" className="hidden" />
               <div className={cn(
                 "mt-6 flex flex-col items-center justify-center rounded-[2rem] border-2 border-dashed border-slate-200 p-10 text-center transition-all",
@@ -690,25 +749,59 @@ export default function EmployeeClosingTokoPage() {
           <div className="space-y-4 md:space-y-6">
             <div className="flex items-center gap-3 px-4">
               <History className="h-5 w-5 text-primary" />
-              <h3 className="text-[11px] md:text-sm font-black uppercase tracking-widest text-slate-900">Histori Closing Terbaru</h3>
+              <h3 className="text-[11px] md:text-sm font-black uppercase tracking-widest text-slate-900">Histori Closing & Keuangan Kontainer</h3>
             </div>
             <div className="grid gap-3 md:gap-4">
-              {historyList?.map((hist: any) => (
+              {ownerHistoryList?.map((hist: any) => (
                 <Card key={hist.id} className="flex items-center justify-between rounded-2xl border-none bg-white p-4 shadow-sm transition-all hover:shadow-md md:p-6">
                   <div className="flex items-center gap-4 md:gap-6">
                     <CheckCircle2 className="h-5 w-5 text-slate-400 group-hover:text-primary md:h-6 md:w-6" />
                     <div>
                       <p className="text-[12px] font-black uppercase italic leading-tight text-slate-900 md:text-sm">{hist.tanggal}</p>
-                      <p className="mt-0.5 text-[8px] font-bold uppercase tracking-widest text-slate-400 md:text-[9px]">{hist.items?.length || 0} Produk</p>
+                      <p className="mt-0.5 text-[8px] font-bold uppercase tracking-widest text-slate-400 md:text-[9px]">
+                        {hist.kind === "keuangan" ? "Keuangan Kontainer" : `${hist.items?.length || 0} Produk`}
+                      </p>
+                      {hist.kind === "keuangan" && (
+                        <div className="mt-2 space-y-1 rounded-xl bg-slate-50 p-2 text-[8px] font-black uppercase tracking-widest text-slate-500">
+                          <p>Setoran: Rp {Number(hist.expectedCashToSettle || 0).toLocaleString("id-ID")}</p>
+                          <p>Di pegang: Rp {Number(hist.cashOnHand || 0).toLocaleString("id-ID")}</p>
+                          <p>Selisih: Rp {Number(hist.difference || 0).toLocaleString("id-ID")}</p>
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <div className="hidden text-right xs:block">
-                    <p className="text-[12px] font-black tabular-nums text-primary md:text-sm">Rp {hist.total?.toLocaleString("id-ID")}</p>
-                    <span className="text-[7px] font-black uppercase text-slate-300 md:text-[8px]">Total</span>
+                  <div className="flex items-center gap-3 md:gap-4">
+                    <div className="hidden text-right xs:block">
+                      {hist.kind === "keuangan" ? (
+                        <>
+                          <p className="text-[12px] font-black tabular-nums text-primary md:text-sm">Rp {Number(hist.expectedCashToSettle || 0).toLocaleString("id-ID")}</p>
+                          <span className="text-[7px] font-black uppercase text-slate-300 md:text-[8px]">Setoran</span>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-[12px] font-black tabular-nums text-primary md:text-sm">Rp {hist.total?.toLocaleString("id-ID")}</p>
+                          <span className="text-[7px] font-black uppercase text-slate-300 md:text-[8px]">Total</span>
+                          {isOwnerView && hist.keuntunganTotal != null && (
+                            <p className="mt-1 text-[10px] font-black text-emerald-600 tabular-nums">Untung Rp {Number(hist.keuntunganTotal).toLocaleString("id-ID")}</p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                    {isOwnerView && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => hist.kind === "keuangan" ? handleDeleteKeuanganHistory(hist.id) : handleDeleteHistory(hist.id)}
+                        className="h-9 w-9 rounded-xl text-slate-300 hover:text-rose-600 md:h-10 md:w-10"
+                        title={hist.kind === "keuangan" ? "Hapus histori keuangan kontainer" : "Hapus histori closing"}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
                   </div>
                 </Card>
               ))}
-              {(!historyList || historyList.length === 0) && (
+              {(!ownerHistoryList || ownerHistoryList.length === 0) && (
                 <div className="py-16 text-center text-[10px] font-black uppercase tracking-widest italic opacity-30 md:py-20">
                   Belum ada riwayat closing
                 </div>
@@ -737,13 +830,15 @@ export default function EmployeeClosingTokoPage() {
                   <p className="text-2xl font-black tabular-nums text-primary md:text-3xl">Rp {stats.totalPendapatan.toLocaleString("id-ID")}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-4 md:gap-5">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 shadow-inner md:h-14 md:w-14 md:rounded-2xl"><TrendingUp className="h-6 w-6 md:h-7 md:w-7" /></div>
-                <div>
-                  <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400">Keuntungan</p>
-                  <p className="text-2xl font-black tabular-nums text-emerald-600 md:text-3xl">Rp {stats.totalKeuntungan.toLocaleString("id-ID")}</p>
+              {isOwnerView && (
+                <div className="flex items-center gap-4 md:gap-5">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 shadow-inner md:h-14 md:w-14 md:rounded-2xl"><TrendingUp className="h-6 w-6 md:h-7 md:w-7" /></div>
+                  <div>
+                    <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400">Keuntungan</p>
+                    <p className="text-2xl font-black tabular-nums text-emerald-600 md:text-3xl">Rp {stats.totalKeuntungan.toLocaleString("id-ID")}</p>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </Card>
         </div>

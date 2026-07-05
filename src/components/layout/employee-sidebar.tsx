@@ -9,7 +9,8 @@ import {
   Truck,
   Home,
   ClipboardList,
-  Layers
+  Layers,
+  Wallet
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -25,6 +26,7 @@ const menuGroups = [
     items: [
       { name: "Closing Toko", icon: PlusCircle, href: "/employee/closing-toko" },
       { name: "Operasional Kontainer", icon: ClipboardList, href: "/employee/operasional-kontainer" },
+      { name: "Keuangan Kontainer", icon: Wallet, href: "/employee/keuangan-kontainer" },
     ]
   },
   {

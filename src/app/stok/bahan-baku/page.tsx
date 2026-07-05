@@ -11,7 +11,8 @@ import {
   Save,
   FileDown,
   FileSpreadsheet,
-  Edit2
+  Edit2,
+  Trash2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -48,6 +49,7 @@ export default function StokBahanBakuPage() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [transferring, setTransferring] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [resetting, setResetting] = useState(false);
   
   const [transferData, setTransferData] = useState({
     materialId: "",
@@ -86,6 +88,37 @@ export default function StokBahanBakuPage() {
       label: isCritical ? "Kritis" : "Aman",
       color: isCritical ? "text-rose-600 bg-rose-50 border-rose-100" : "text-emerald-700 bg-emerald-50 border-emerald-100"
     };
+  };
+
+  const handleResetAllStock = async () => {
+    if (!confirm("Semua stok bahan baku akan diatur menjadi 0. Lanjutkan?")) return;
+
+    setResetting(true);
+    try {
+      const batch = writeBatch(db);
+      (materials || []).forEach((item: any) => {
+        const ref = doc(db, "bahan-baku", item.id);
+        batch.update(ref, {
+          qtyBesar: 0,
+          qtyKontainerBesar: 0,
+          qtyKontainerKecil: 0,
+        });
+      });
+
+      await batch.commit();
+      toast({
+        title: "Semua Stok Dikosongkan",
+        description: "Seluruh stok gudang dan kontainer telah diatur menjadi 0.",
+      });
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Gagal Mengosongkan Stok",
+        description: "Terjadi kesalahan sistem.",
+      });
+    } finally {
+      setResetting(false);
+    }
   };
 
   const handleTransfer = async (e: React.FormEvent) => {
@@ -272,6 +305,15 @@ export default function StokBahanBakuPage() {
             className="rounded-xl border-slate-200 px-4 h-12 font-black uppercase tracking-widest text-[9px] gap-2 bg-white"
           >
             <FileDown className="h-4 w-4 text-primary" /> PDF
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleResetAllStock}
+            disabled={resetting}
+            className="rounded-xl border-rose-200 bg-rose-50 px-4 h-12 font-black uppercase tracking-widest text-[9px] gap-2 text-rose-600 hover:bg-rose-100"
+          >
+            {resetting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            Hapus Semua Stok
           </Button>
           <Dialog open={isTransferOpen} onOpenChange={setIsTransferOpen}>
             <DialogTrigger asChild>
