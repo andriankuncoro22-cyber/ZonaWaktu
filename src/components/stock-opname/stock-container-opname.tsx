@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useCollection, useDoc, useFirestore, useMemoFirebase } from "@/firebase";
-import { collection, doc, orderBy, query } from "firebase/firestore";
+import { collection, doc, orderBy, query, writeBatch, addDoc, serverTimestamp } from "firebase/firestore";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
@@ -59,6 +59,8 @@ export function StockContainerOpnameView({
   };
 
   const [kontainerInputs, setKontainerInputs] = useState<Record<string, { aktif: number; grams: number }>>({});
+  const [bulkInputs, setBulkInputs] = useState<Record<string, number>>({});
+  const [processing, setProcessing] = useState(false);
 
   const filteredMaterials = (materials as any[])?.filter(
     (item) =>
@@ -76,13 +78,16 @@ export function StockContainerOpnameView({
     );
 
     const next: Record<string, { aktif: number; grams: number }> = {};
+    const nextBulk: Record<string, number> = {};
     filtered.forEach((item: any) => {
       const aktif = Number(item.qtyKontainerKecil || 0);
       const grams = getTotalWeightFromAktif(item, aktif);
       next[item.id] = { aktif, grams };
+      nextBulk[item.id] = Number(item.qtyKontainerBesar || 0);
     });
 
     setKontainerInputs(next);
+    setBulkInputs(nextBulk);
   }, [materials, searchTerm]);
 
   const formatNumber = (value: number | string | undefined) => {
@@ -177,6 +182,45 @@ export function StockContainerOpnameView({
     docPDF.save(`Stock_Opname_${new Date().toISOString().split("T")[0]}.pdf`);
   };
 
+  const finalizeAll = async () => {
+    if (processing) return;
+    setProcessing(true);
+    try {
+      const batch = writeBatch(db);
+      const historyItems: any[] = [];
+      (filteredMaterials || []).forEach((it: any) => {
+        const beforeBulk = Number(it.qtyKontainerBesar || 0);
+        const beforeAktif = Number(it.qtyKontainerKecil || 0);
+        const afterBulk = Number(bulkInputs[it.id] ?? beforeBulk);
+        const afterAktif = Number(kontainerInputs[it.id]?.aktif ?? beforeAktif);
+
+        const ref = doc(db, "bahan-baku", it.id);
+        batch.update(ref, { qtyKontainerBesar: afterBulk, qtyKontainerKecil: afterAktif });
+
+        historyItems.push({
+          id: it.id,
+          code: it.code,
+          nama: it.nama,
+          before: { qtyKontainerBesar: beforeBulk, qtyKontainerKecil: beforeAktif },
+          after: { qtyKontainerBesar: afterBulk, qtyKontainerKecil: afterAktif },
+        });
+      });
+
+      await batch.commit();
+      await addDoc(collection(db, "opnam_harian"), {
+        date: serverTimestamp(),
+        note: "Finalisasi Opnam Harian",
+        items: historyItems,
+      });
+      window.alert("Finalisasi berhasil dan stok sistem diperbarui.");
+    } catch (err) {
+      console.error(err);
+      window.alert("Terjadi kesalahan saat finalisasi. Cek console.");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20 sm:space-y-8">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -229,104 +273,94 @@ export function StockContainerOpnameView({
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] text-left sm:min-w-[1100px]">
-            <thead>
-              <tr className="bg-slate-50/50">
-                <th className="px-3 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 sm:px-4 sm:py-6 lg:px-8">Bahan Baku</th>
-                <th className="px-2 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500 sm:px-3 sm:py-6 lg:px-4">Bulk (Sistem)</th>
-                <th className="px-2 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500 sm:px-3 sm:py-6 lg:px-4">Aktif (Sistem)</th>
-                <th className="px-2 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 sm:px-3 sm:py-6 lg:px-4">Input Fisik (Bulk)</th>
-                <th className="px-2 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 sm:px-3 sm:py-6 lg:px-4">Input Fisik (Aktif)</th>
-                <th className="px-3 py-4 text-right text-[10px] font-black uppercase tracking-widest text-slate-500 sm:px-4 sm:py-6 lg:px-8">Aksi</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {loading ? (
-                <tr>
-                  <td colSpan={6} className="py-24 text-center">
-                    <RefreshCcw className="mx-auto h-8 w-8 animate-spin text-primary opacity-20" />
-                  </td>
-                </tr>
-              ) : (
-                filteredMaterials?.map((item: any) => (
-                  <tr key={item.id} className="transition-colors hover:bg-slate-50/50">
-                    <td className="px-3 py-5 sm:px-4 lg:px-8">
-                      <p className="mb-1 text-[10px] font-bold text-primary">{item.code}</p>
-                      <p className="text-sm font-black uppercase italic text-slate-900">{item.nama}</p>
-                      <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
-                        <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-600">
-                          Bungkus: {Number(item.beratBungkusProduk || 0).toLocaleString("id-ID")} g
-                        </span>
-                        <span className="rounded-full bg-primary/5 px-2 py-1 font-semibold text-primary">
-                          Total/produk: {Number(item.totalGramasiPerProduk ?? (Number(item.gramPerBesar || 0) + Number(item.beratBungkusProduk || 0))).toLocaleString("id-ID")} g
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-2 py-5 text-right sm:px-3 lg:px-4">
-                      <p className="text-lg font-black tabular-nums text-indigo-600 sm:text-xl">{formatNumber(item.qtyKontainerBesar || 0)}</p>
-                      <p className="text-[8px] font-bold uppercase text-slate-400">{item.satuanBesar}</p>
-                    </td>
-                    <td className="px-2 py-5 text-right sm:px-3 lg:px-4">
-                      <p className="text-lg font-black tabular-nums text-emerald-600 sm:text-xl">{formatNumber(Math.round(item.qtyKontainerKecil || 0))}</p>
-                      <p className="text-[8px] font-bold uppercase text-slate-400">{item.satuanKecil}</p>
-                    </td>
-                    <td className="px-2 py-5 sm:px-3 lg:px-4">
-                      <div className="relative w-full max-w-[7rem] sm:max-w-[8rem]">
-                        <Input
-                          type="number"
-                          placeholder="0"
-                          inputMode="decimal"
-                          className="h-11 rounded-xl border-none bg-slate-50 pr-12 text-center text-base font-black sm:h-12 sm:text-lg"
-                        />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black uppercase text-indigo-300">{item.satuanBesar}</span>
-                      </div>
-                    </td>
-                    <td className="px-2 py-5 sm:px-3 lg:px-4">
-                      <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
-                        <div className="relative w-full max-w-[7rem] sm:max-w-[8rem]">
-                          <Input
-                            type="number"
-                            value={kontainerInputs[item.id]?.aktif ?? ""}
-                            readOnly
-                            placeholder="Auto"
-                            className="h-11 cursor-not-allowed rounded-xl border-none bg-slate-100 pr-12 text-center text-base font-black sm:h-12 sm:text-lg"
-                          />
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black uppercase text-emerald-300">{item.satuanKecil}</span>
-                        </div>
+        <div className="grid gap-4 grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 p-4">
+          {loading ? (
+            <div className="col-span-full rounded-[2rem] border border-slate-200 bg-white p-8 text-center text-slate-500 shadow-sm">
+              <RefreshCcw className="mx-auto mb-3 h-8 w-8 animate-spin text-primary opacity-20" />
+              Memuat data...
+            </div>
+          ) : (
+            filteredMaterials?.map((item: any) => (
+              <Card key={item.id} className="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{item.code}</p>
+                    <p className="text-base font-black uppercase tracking-tight text-slate-900">{item.nama}</p>
+                    <div className="mt-3 flex flex-wrap gap-2 text-[10px]">
+                      <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-600">
+                        Bungkus: {Number(item.beratBungkusProduk || 0).toLocaleString("id-ID")} g
+                      </span>
+                      <span className="rounded-full bg-primary/5 px-2 py-1 font-semibold text-primary">
+                        Total/produk: {Number(item.totalGramasiPerProduk ?? (Number(item.gramPerBesar || 0) + Number(item.beratBungkusProduk || 0))).toLocaleString("id-ID")} g
+                      </span>
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl text-primary hover:bg-primary/5">
+                    <CheckCircle2 className="h-5 w-5" />
+                  </Button>
+                </div>
 
-                        <div className="relative w-full max-w-[7rem] sm:max-w-[8rem]">
-                          <Input
-                            type="number"
-                            value={kontainerInputs[item.id]?.grams ?? ""}
-                            onChange={(e) => {
-                              const gramsVal = Number(e.target.value || 0);
-                              setKontainerInputs((prev) => ({
-                                ...prev,
-                                [item.id]: {
-                                  ...(prev[item.id] || { aktif: 0, grams: 0 }),
-                                  grams: gramsVal,
-                                  aktif: Math.round(getAktifFromGrams(item, gramsVal) * 100) / 100,
-                                },
-                              }));
-                            }}
-                            placeholder="0 g"
-                            className="h-11 rounded-xl border-none bg-slate-50 pr-12 text-center text-base font-black sm:h-12 sm:text-lg"
-                          />
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black uppercase text-slate-400">g</span>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-3 py-5 text-right sm:px-4 lg:px-8">
-                      <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl text-primary hover:bg-primary/5">
-                        <CheckCircle2 className="h-5 w-5" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                <div className="mt-4 grid gap-3 text-[10px]">
+                  <div className="flex justify-between rounded-2xl bg-slate-50 p-3">
+                    <span className="font-black text-slate-600">Bulk (Sistem)</span>
+                    <span className="font-black text-indigo-600 tabular-nums">{formatNumber(item.qtyKontainerBesar || 0)} {item.satuanBesar}</span>
+                  </div>
+                  <div className="flex justify-between rounded-2xl bg-slate-50 p-3">
+                    <span className="font-black text-slate-600">Aktif (Sistem)</span>
+                    <span className="font-black text-emerald-600 tabular-nums">{formatNumber(Math.round(item.qtyKontainerKecil || 0))} {item.satuanKecil}</span>
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  <div className="relative">
+                    <Input
+                      type="number"
+                      value={bulkInputs[item.id] ?? ""}
+                      onChange={(e) => {
+                        const val = Number(e.target.value || 0);
+                        setBulkInputs((prev) => ({ ...prev, [item.id]: val }));
+                      }}
+                      placeholder="0"
+                      inputMode="decimal"
+                      className="h-11 w-full rounded-2xl border-none bg-slate-50 pr-12 text-center text-base font-black"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black uppercase text-indigo-300">{item.satuanBesar}</span>
+                  </div>
+                  <div className="relative">
+                    <Input
+                      type="number"
+                      value={kontainerInputs[item.id]?.grams ?? ""}
+                      onChange={(e) => {
+                        const gramsVal = Number(e.target.value || 0);
+                        setKontainerInputs((prev) => ({
+                          ...prev,
+                          [item.id]: {
+                            ...(prev[item.id] || { aktif: 0, grams: 0 }),
+                            grams: gramsVal,
+                            aktif: Math.round(getAktifFromGrams(item, gramsVal) * 100) / 100,
+                          },
+                        }));
+                      }}
+                      placeholder="0 g"
+                      inputMode="decimal"
+                      className="h-11 w-full rounded-2xl border-none bg-slate-50 pr-12 text-center text-base font-black"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black uppercase text-slate-400">g</span>
+                  </div>
+                  <div className="relative">
+                    <Input
+                      type="number"
+                      value={kontainerInputs[item.id]?.aktif ?? ""}
+                      readOnly
+                      placeholder="0"
+                      className="h-11 w-full cursor-not-allowed rounded-2xl border-none bg-slate-100 pr-12 text-center text-base font-black"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black uppercase text-emerald-300">{item.satuanKecil}</span>
+                  </div>
+                </div>
+              </Card>
+            ))
+          )}
         </div>
 
         <div className="flex flex-col items-start justify-between gap-4 bg-slate-900 p-4 text-white sm:p-6 md:flex-row md:items-center md:gap-6 lg:p-8">
@@ -341,11 +375,17 @@ export function StockContainerOpnameView({
               </p>
             </div>
           </div>
-          <Button className="h-12 w-full rounded-2xl bg-primary px-6 text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-primary/20 hover:bg-primary/90 sm:h-14 sm:px-10 sm:text-[11px] md:w-auto">
-            Finalisasi & Update Stok Sistem
-          </Button>
         </div>
       </Card>
-    </div>
+      <div className="mt-4">
+        <Button
+          onClick={finalizeAll}
+          className="mt-3 h-12 w-full rounded-2xl bg-emerald-600 px-6 text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-emerald-200 hover:bg-emerald-700 sm:h-14 sm:px-10 sm:text-[11px] md:w-auto"
+          disabled={processing}
+        >
+          {processing ? "Memproses..." : "Finalisasi & Update Stok Sistem (langsung)"}
+        </Button>
+      </div>
+  </div>
   );
 }

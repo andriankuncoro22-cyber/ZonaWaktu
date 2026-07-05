@@ -17,7 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useFirestore, useCollection, useMemoFirebase, useDoc } from "@/firebase";
-import { collection, query, orderBy, doc } from "firebase/firestore";
+import { collection, query, orderBy, doc, writeBatch, addDoc, serverTimestamp } from "firebase/firestore";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -64,6 +64,12 @@ export default function StockOpnamePage() {
 
   // Local state to hold kontainer opname inputs per item
   const [kontainerInputs, setKontainerInputs] = useState<Record<string, { aktif: number; grams: number }>>({});
+  const [bulkInputs, setBulkInputs] = useState<Record<string, number>>({});
+  const [processing, setProcessing] = useState(false);
+
+  // history
+  const historyQuery = useMemoFirebase(() => query(collection(db, "opnam_harian"), orderBy("date", "desc")), [db]);
+  const { data: histories } = useCollection(historyQuery);
 
   useEffect(() => {
     // initialize inputs from materials (depend on raw materials + searchTerm to avoid loop)
@@ -71,12 +77,15 @@ export default function StockOpnamePage() {
     const filtered = (materials as any[])
       .filter(item => item.nama?.toLowerCase().includes(searchTerm.toLowerCase()) || item.code?.toLowerCase().includes(searchTerm.toLowerCase()));
     const next: Record<string, { aktif: number; grams: number }> = {};
+    const nextBulk: Record<string, number> = {};
     filtered.forEach((it: any) => {
       const aktif = Number(it.qtyKontainerKecil || 0);
       const grams = getTotalWeightFromAktif(it, aktif);
       next[it.id] = { aktif, grams };
+      nextBulk[it.id] = Number(it.qtyKontainerBesar || 0);
     });
     setKontainerInputs(next);
+    setBulkInputs(nextBulk);
   }, [materials, searchTerm]);
 
   const formatTotalStock = (item: any) => {
@@ -303,7 +312,13 @@ export default function StockOpnamePage() {
                       </td>
                       <td className="px-8 py-6">
                          <div className="relative w-36">
-                           <Input type="number" placeholder="0" className="rounded-xl h-12 bg-slate-50 border-none font-black text-center text-lg pr-12" />
+                           <Input
+                             type="number"
+                             value={bulkInputs[item.id] ?? ""}
+                             onChange={(e) => setBulkInputs(prev => ({ ...prev, [item.id]: Number(e.target.value || 0) }))}
+                             placeholder="0"
+                             className="rounded-xl h-12 bg-slate-50 border-none font-black text-center text-lg pr-12"
+                           />
                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black text-indigo-300 uppercase">{item.satuanBesar}</span>
                          </div>
                       </td>
@@ -442,6 +457,53 @@ export default function StockOpnamePage() {
              <Button className="w-full md:w-auto rounded-2xl bg-primary hover:bg-primary/90 text-white px-10 h-14 font-black uppercase tracking-widest text-[11px] shadow-xl shadow-primary/20">
                 Finalisasi & Update Stok Sistem
              </Button>
+            <div className="mt-3">
+              <Button
+                onClick={async () => {
+                  if (processing) return;
+                  setProcessing(true);
+                  try {
+                    const batch = writeBatch(db);
+                    const historyItems: any[] = [];
+                    (filteredMaterials || []).forEach((it: any) => {
+                      const beforeBulk = Number(it.qtyKontainerBesar || 0);
+                      const beforeAktif = Number(it.qtyKontainerKecil || 0);
+                      const afterBulk = Number(bulkInputs[it.id] ?? beforeBulk);
+                      const afterAktif = Number(kontainerInputs[it.id]?.aktif ?? beforeAktif);
+                      const ref = doc(db, "bahan-baku", it.id);
+                      batch.update(ref, { qtyKontainerBesar: afterBulk, qtyKontainerKecil: afterAktif });
+                      historyItems.push({ id: it.id, code: it.code, nama: it.nama, before: { qtyKontainerBesar: beforeBulk, qtyKontainerKecil: beforeAktif }, after: { qtyKontainerBesar: afterBulk, qtyKontainerKecil: afterAktif } });
+                    });
+                    await batch.commit();
+                    await addDoc(collection(db, "opnam_harian"), { date: serverTimestamp(), note: "Finalisasi Opnam Harian (manual)", items: historyItems });
+                    window.alert("Finalisasi berhasil dan stok sistem diperbarui.");
+                  } catch (err) {
+                    console.error(err);
+                    window.alert("Terjadi kesalahan saat finalisasi. Cek console.");
+                  } finally {
+                    setProcessing(false);
+                  }
+                }}
+                className="w-full md:w-auto rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white px-10 h-14 font-black uppercase tracking-widest text-[11px] shadow-xl shadow-emerald-200"
+                disabled={processing}
+              >
+                {processing ? "Memproses..." : "Finalisasi & Update Stok Sistem (langsung)"}
+              </Button>
+            </div>
+          </div>
+          <div className="p-6 bg-white border-t">
+            <h3 className="text-sm font-black uppercase text-slate-700 mb-2">Histori Opnam Harian Terakhir</h3>
+            <div className="space-y-3">
+              {(histories || []).slice(0, 10).map((h: any) => (
+                <div key={h.id || h.date?.seconds} className="rounded-md border p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-bold">{h.note || "Opnam Harian"}</div>
+                    <div className="text-xs text-slate-400">{h.date?.toDate ? h.date.toDate().toLocaleString() : "-"}</div>
+                  </div>
+                  <div className="text-[12px] text-slate-600 mt-2">Items: {Array.isArray(h.items) ? h.items.length : 0}</div>
+                </div>
+              ))}
+            </div>
           </div>
         </Card>
       </Tabs>
