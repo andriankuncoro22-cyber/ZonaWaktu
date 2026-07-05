@@ -71,6 +71,23 @@ export default function StokBahanBakuPage() {
     item.code?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const getMinStockGudang = (item: any) => Number(item.qtyMinGudang ?? item.qtyMin ?? 5);
+  const getMinStockKontainer = (item: any) => Number(item.qtyMinKontainer ?? item.qtyMin ?? 5);
+  const getKontainerTotal = (item: any) => {
+    const qtyBulk = Number(item.qtyKontainerBesar || 0);
+    const qtyAktif = Number(item.qtyKontainerKecil || 0);
+    const konversi = Number(item.qtyKecil || 1);
+    return qtyBulk + (qtyAktif / (konversi || 1));
+  };
+
+  const getStatusLabel = (value: number, threshold: number) => {
+    const isCritical = value <= threshold;
+    return {
+      label: isCritical ? "Kritis" : "Aman",
+      color: isCritical ? "text-rose-600 bg-rose-50 border-rose-100" : "text-emerald-700 bg-emerald-50 border-emerald-100"
+    };
+  };
+
   const handleTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!transferData.materialId || transferData.qty <= 0) return;
@@ -140,7 +157,10 @@ export default function StokBahanBakuPage() {
       await updateDoc(materialRef, {
         qtyBesar: Number(editingItem.qtyBesar || 0),
         qtyKontainerBesar: Number(editingItem.qtyKontainerBesar || 0),
-        qtyKontainerKecil: Number(editingItem.qtyKontainerKecil || 0)
+        qtyKontainerKecil: Number(editingItem.qtyKontainerKecil || 0),
+        qtyMin: Number(editingItem.qtyMinGudang ?? editingItem.qtyMin ?? 5),
+        qtyMinGudang: Number(editingItem.qtyMinGudang ?? editingItem.qtyMin ?? 5),
+        qtyMinKontainer: Number(editingItem.qtyMinKontainer ?? editingItem.qtyMin ?? 5)
       });
       
       toast({ title: "Stok Diperbarui", description: "Perubahan data stok telah berhasil disimpan." });
@@ -158,9 +178,11 @@ export default function StokBahanBakuPage() {
       "Kode": item.code,
       "Nama Bahan": item.nama,
       "Stok Gudang": item.qtyBesar || 0,
+      "Estimasi Kritis Gudang": getMinStockGudang(item),
       "Satuan Besar": item.satuanBesar,
       "Qty Bulk Kontainer": item.qtyKontainerBesar || 0,
       "Qty Aktif Kontainer": item.qtyKontainerKecil || 0,
+      "Estimasi Kritis Kontainer": getMinStockKontainer(item),
       "Satuan Kecil": item.satuanKecil
     }));
 
@@ -206,14 +228,16 @@ export default function StokBahanBakuPage() {
       item.code,
       item.nama,
       item.qtyBesar || 0,
+      getMinStockGudang(item),
       item.satuanBesar,
       item.qtyKontainerBesar || 0,
       item.qtyKontainerKecil || 0,
+      getMinStockKontainer(item),
       item.satuanKecil
     ]);
 
     autoTable(docPDF, {
-      head: [["KODE", "NAMA BAHAN", "GUDANG", "SAT. B", "BULK", "AKTIF", "SAT. K"]],
+      head: [["KODE", "NAMA BAHAN", "GUDANG", "MIN STOK GUDANG", "SAT. B", "BULK", "AKTIF", "MIN STOK KONTAINER", "SAT. K"]],
       body: tableData,
       startY: 48,
       theme: 'grid',
@@ -343,18 +367,30 @@ export default function StokBahanBakuPage() {
                     <th className="px-6 md:px-10 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500">Code</th>
                     <th className="px-4 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500">Nama Bahan</th>
                     <th className="px-4 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-right">Stok Gudang</th>
+                    <th className="px-4 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Estimasi Kritis</th>
                     <th className="px-6 md:px-10 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Satuan</th>
                     <th className="px-6 md:px-10 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-right">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {loading ? (
-                    <tr><td colSpan={5} className="py-20 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></td></tr>
+                    <tr><td colSpan={6} className="py-20 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></td></tr>
                   ) : filteredMaterials?.map((item: any) => (
                     <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 md:px-10 py-4 md:py-6 text-[10px] font-black text-slate-900">{item.code}</td>
                       <td className="px-4 md:px-8 py-4 md:py-6 text-xs md:text-sm font-black text-slate-900 uppercase italic">{item.nama}</td>
                       <td className="px-4 md:px-8 py-4 md:py-6 text-right font-black text-primary tabular-nums italic text-xl md:text-2xl">{(item.qtyBesar || 0)}</td>
+                      {(() => {
+                        const minStock = getMinStockGudang(item);
+                        const status = getStatusLabel(Number(item.qtyBesar || 0), minStock);
+                        return (
+                          <td className="px-4 md:px-8 py-4 md:py-6 text-center">
+                            <span className={`inline-flex items-center justify-center rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${status.color}`}>
+                              {status.label} ({minStock})
+                            </span>
+                          </td>
+                        );
+                      })()}
                       <td className="px-6 md:px-10 py-4 md:py-6 text-center text-[9px] md:text-[10px] font-black uppercase text-primary tracking-widest">{item.satuanBesar}</td>
                       <td className="px-6 md:px-10 py-4 md:py-6 text-right">
                          <Button variant="ghost" size="icon" onClick={() => { setEditingItem(item); setIsEditOpen(true); }} className="h-10 w-10 rounded-xl hover:bg-primary/10 hover:text-primary">
@@ -374,6 +410,7 @@ export default function StokBahanBakuPage() {
                     <th className="px-6 md:px-10 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500">Code</th>
                     <th className="px-4 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500">Nama Bahan</th>
                     <th className="px-4 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-right">Qty Bulk</th>
+                    <th className="px-4 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Estimasi Kritis</th>
                     <th className="px-4 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Sat. Besar</th>
                     <th className="px-4 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-right">Qty Aktif</th>
                     <th className="px-6 md:px-10 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Sat. Kecil</th>
@@ -386,6 +423,18 @@ export default function StokBahanBakuPage() {
                       <td className="px-6 md:px-10 py-4 md:py-6 text-[10px] font-black text-slate-900">{item.code}</td>
                       <td className="px-4 md:px-8 py-4 md:py-6 text-xs md:text-sm font-black text-slate-900 uppercase italic">{item.nama}</td>
                       <td className="px-4 md:px-8 py-4 md:py-6 text-right font-black text-indigo-600 tabular-nums italic text-xl md:text-2xl">{(item.qtyKontainerBesar || 0)}</td>
+                      {(() => {
+                        const minStock = getMinStockKontainer(item);
+                        const totals = getKontainerTotal(item);
+                        const status = getStatusLabel(totals, minStock);
+                        return (
+                          <td className="px-4 md:px-8 py-4 md:py-6 text-center">
+                            <span className={`inline-flex items-center justify-center rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${status.color}`}>
+                              {status.label} ({minStock})
+                            </span>
+                          </td>
+                        );
+                      })()}
                       <td className="px-4 md:px-8 py-4 md:py-6 text-center text-[8px] md:text-[9px] font-black uppercase text-indigo-400">{item.satuanBesar}</td>
                       <td className="px-4 md:px-8 py-4 md:py-6 text-right font-black text-emerald-600 tabular-nums italic text-xl md:text-2xl">
                         {Math.round(item.qtyKontainerKecil || 0).toLocaleString('id-ID')}
@@ -467,6 +516,30 @@ export default function StokBahanBakuPage() {
                     onChange={(e) => setEditingItem({...editingItem, qtyKontainerKecil: Number(e.target.value)})}
                     className="rounded-xl h-12 border-slate-100 font-black"
                   />
+                </div>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase text-slate-500">Estimasi Kritis Gudang</Label>
+                    <Input 
+                      type="number" 
+                      step="any"
+                      min={0}
+                      value={editingItem.qtyMinGudang ?? editingItem.qtyMin ?? 5}
+                      onChange={(e) => setEditingItem({...editingItem, qtyMinGudang: Number(e.target.value)})}
+                      className="rounded-xl h-12 border-slate-100 font-black"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase text-slate-500">Estimasi Kritis Kontainer</Label>
+                    <Input 
+                      type="number" 
+                      step="any"
+                      min={0}
+                      value={editingItem.qtyMinKontainer ?? editingItem.qtyMin ?? 5}
+                      onChange={(e) => setEditingItem({...editingItem, qtyMinKontainer: Number(e.target.value)})}
+                      className="rounded-xl h-12 border-slate-100 font-black"
+                    />
+                  </div>
                 </div>
               </div>
 

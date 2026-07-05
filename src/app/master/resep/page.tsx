@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { 
   Plus, 
   Search, 
@@ -14,7 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { collection, addDoc, doc, updateDoc, deleteDoc, query, orderBy } from "firebase/firestore";
+import { collection, doc, updateDoc, deleteDoc, query, orderBy, setDoc } from "firebase/firestore";
 import { errorEmitter } from "@/firebase/error-emitter";
 import { FirestorePermissionError, type SecurityRuleContext } from "@/firebase/errors";
 import { cn } from "@/lib/utils";
@@ -77,6 +77,7 @@ export default function ResepProdukPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [localRecipes, setLocalRecipes] = useState<Recipe[]>([]);
   
   const [selectedProductId, setSelectedProductId] = useState("");
   const [namaPelengkap, setNamaPelengkap] = useState("");
@@ -92,10 +93,19 @@ export default function ResepProdukPage() {
     return [...materials].sort((a: any, b: any) => (a.code || "").localeCompare(b.code || ""));
   }, [materials]);
 
+  useEffect(() => {
+    if (recipes) {
+      setLocalRecipes(recipes as Recipe[]);
+    }
+  }, [recipes]);
+
+  const recipeList = useMemo(() => {
+    return ((localRecipes.length > 0 ? localRecipes : recipes) as Recipe[]) || [];
+  }, [localRecipes, recipes]);
+
   // Filter resep berdasarkan tipe dan search
   const filteredRecipes = useMemo(() => {
-    if (!recipes) return [];
-    return (recipes as Recipe[]).filter(r => {
+    return recipeList.filter(r => {
       const typeMatch = activeTab === 'produk' 
         ? (r.type === 'produk' || (!r.type && r.produkId))
         : (r.type === 'pelengkap');
@@ -110,7 +120,7 @@ export default function ResepProdukPage() {
         return r.namaPelengkap?.toLowerCase().includes(search);
       }
     });
-  }, [recipes, activeTab, searchTerm, products]);
+  }, [recipeList, activeTab, searchTerm, products]);
 
   // List Produk untuk Tab 1 (Resep Produk)
   const sortedAndFilteredProducts = useMemo(() => {
@@ -124,7 +134,7 @@ export default function ResepProdukPage() {
   }, [products, searchTerm, activeTab]);
 
   const getProductRecipe = (productId: string) => {
-    return recipes?.find(r => (r.produkId === productId && (r.type === 'produk' || !r.type))) as Recipe | undefined;
+    return recipeList.find(r => (r.produkId === productId && (r.type === 'produk' || !r.type))) as Recipe | undefined;
   };
 
   const getMaterialDetail = (id: string) => {
@@ -145,52 +155,58 @@ export default function ResepProdukPage() {
     setComposition(newComposition);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
+    const formType = editingRecipe?.type === 'pelengkap' ? 'pelengkap' : activeTab;
+    const normalizedComposition = composition
+      .filter((c) => c.bahanBakuId)
+      .map((c) => ({
+        bahanBakuId: c.bahanBakuId,
+        jumlah: Number(c.jumlah) || 0,
+      }));
+
     const data: any = {
-      type: activeTab,
-      komposisi: composition.filter(c => c.bahanBakuId && c.jumlah > 0)
+      type: formType,
+      komposisi: normalizedComposition
     };
 
-    if (activeTab === 'produk') {
+    if (formType === 'produk') {
       data.produkId = selectedProductId;
+      delete data.namaPelengkap;
     } else {
-      data.namaPelengkap = namaPelengkap;
+      data.namaPelengkap = namaPelengkap.trim();
+      delete data.produkId;
     }
 
-    if (editingRecipe) {
-      const docRef = doc(db, "resep", editingRecipe.id);
-      updateDoc(docRef, data)
-        .then(() => {
-          toast({ title: "Resep diperbarui", description: "Perubahan resep telah disimpan." });
-        })
-        .catch(async (err) => {
-          const permissionError = new FirestorePermissionError({
-            path: docRef.path,
-            operation: 'update',
-            requestResourceData: data,
-          } satisfies SecurityRuleContext);
-          errorEmitter.emit('permission-error', permissionError);
-        });
-    } else {
-      const colRef = collection(db, "resep");
-      addDoc(colRef, data)
-        .then(() => {
-          toast({ title: "Resep dibuat", description: "Resep baru telah berhasil ditambahkan." });
-        })
-        .catch(async (err) => {
-          const permissionError = new FirestorePermissionError({
-            path: colRef.path,
-            operation: 'create',
-            requestResourceData: data,
-          } satisfies SecurityRuleContext);
-          errorEmitter.emit('permission-error', permissionError);
-        });
+    try {
+      if (editingRecipe) {
+        const docRef = doc(db, "resep", editingRecipe.id);
+        await setDoc(docRef, data, { merge: true });
+        setLocalRecipes(prev => prev.map((recipe) =>
+          recipe.id === editingRecipe.id ? { ...recipe, ...data, id: editingRecipe.id } : recipe
+        ));
+        toast({ title: "Resep diperbarui", description: "Perubahan resep telah disimpan." });
+      } else {
+        const docRef = doc(collection(db, "resep"));
+        await setDoc(docRef, data);
+        setLocalRecipes(prev => [{ ...data, id: docRef.id } as Recipe, ...prev]);
+        toast({ title: "Resep dibuat", description: "Resep baru telah berhasil ditambahkan." });
+      }
+
+      setIsDialogOpen(false);
+      resetForm();
+    } catch (err) {
+      const targetPath = editingRecipe
+        ? doc(db, "resep", editingRecipe.id).path
+        : collection(db, "resep").path;
+      const permissionError = new FirestorePermissionError({
+        path: targetPath,
+        operation: editingRecipe ? 'update' : 'create',
+        requestResourceData: data,
+      } satisfies SecurityRuleContext);
+      errorEmitter.emit('permission-error', permissionError);
     }
-    
-    setIsDialogOpen(false);
-    resetForm();
   };
 
   const resetForm = () => {
@@ -202,12 +218,20 @@ export default function ResepProdukPage() {
 
   const openEdit = (recipe: Recipe) => {
     setEditingRecipe(recipe);
+    setActiveTab(recipe.type === 'pelengkap' ? 'pelengkap' : 'produk');
+
     if (recipe.type === 'pelengkap') {
       setNamaPelengkap(recipe.namaPelengkap || "");
+      setSelectedProductId("");
     } else {
       setSelectedProductId(recipe.produkId || "");
+      setNamaPelengkap("");
     }
-    setComposition(recipe.komposisi);
+
+    setComposition((recipe.komposisi || []).map((item: Ingredient) => ({ ...item })));
+    if (!recipe.komposisi?.length) {
+      setComposition([{ bahanBakuId: "", jumlah: 0 }]);
+    }
     setIsDialogOpen(true);
   };
 

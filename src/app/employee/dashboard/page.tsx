@@ -60,7 +60,7 @@ export default function DashboardPage() {
       .length || 0;
 
     const lowStockItems = bahanBakuData
-      ?.filter(b => (b.qtyBesar || 0) <= 5) || [];
+      ?.filter(b => (b.qtyBesar || 0) <= (Number(b.qtyMinGudang ?? b.qtyMin ?? 5))) || [];
 
     return {
       totalSalesMonth,

@@ -26,6 +26,7 @@ import {
 import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, query, orderBy, limit, where } from "firebase/firestore";
 import Link from "next/link";
+import { getTotalAvailableQty, getAverageCost } from "@/lib/hpp";
 
 export default function DashboardPage() {
   const [mounted, setMounted] = useState(false);
@@ -47,6 +48,13 @@ export default function DashboardPage() {
   );
   const { data: bahanBakuData } = useCollection(bahanBakuQuery);
 
+  const resepQuery = useMemoFirebase(() => query(collection(db, "resep"), orderBy("namaPelengkap", "asc")), [db]);
+  const { data: resepData } = useCollection(resepQuery);
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const pemakaianQuery = useMemoFirebase(() => query(collection(db, "log_produksi_pelengkap"), where("tanggal", "==", todayStr)), [db, todayStr]);
+  const { data: pemakaianData } = useCollection(pemakaianQuery);
+
   const stats = useMemo(() => {
     const today = new Date().toISOString().split('T')[0];
     const thisMonth = new Date().toISOString().slice(0, 7);
@@ -60,14 +68,33 @@ export default function DashboardPage() {
       .length || 0;
 
     const lowStockItems = bahanBakuData
-      ?.filter(b => (b.qtyBesar || 0) <= 5) || [];
+      ?.filter(b => (b.qtyBesar || 0) <= (Number(b.qtyMinGudang ?? b.qtyMin ?? 5))) || [];
+
+    const getMinStockKontainer = (item: any) => Number(item.qtyMinKontainer ?? item.qtyMin ?? 5);
+    const getKontainerTotal = (item: any) => {
+      const qtyBulk = Number(item.qtyKontainerBesar || 0);
+      const qtyAktif = Number(item.qtyKontainerKecil || 0);
+      const konversi = Number(item.qtyKecil || 1);
+      return qtyBulk + (qtyAktif / (konversi || 1));
+    };
+
+    const lowKontainerItems = bahanBakuData
+      ?.filter(b => getKontainerTotal(b) <= getMinStockKontainer(b)) || [];
+
+    const hppMonth = penjualanData
+      ?.filter(p => p.tanggal.startsWith(thisMonth))
+      .reduce((sum, p) => sum + (p.hpp || 0), 0) || 0;
 
     return {
       totalSalesMonth,
       ordersToday,
       totalMaterials: bahanBakuData?.length || 0,
       lowStockCount: lowStockItems.length,
-      lowStockItems
+      lowStockItems,
+      lowKontainerCount: lowKontainerItems.length,
+      lowKontainerItems,
+      hppMonth,
+      salesMonth: totalSalesMonth
     };
   }, [penjualanData, bahanBakuData]);
 
@@ -89,6 +116,46 @@ export default function DashboardPage() {
     return days;
   }, [penjualanData]);
 
+  const dailyUsage = useMemo(() => {
+    const agg: { [id: string]: number } = {};
+    if (!pemakaianData || !resepData) return [];
+    const resepMap: any = {};
+    resepData.forEach((r: any) => { resepMap[r.id] = r; });
+
+    pemakaianData.forEach((log: any) => {
+      const items = log.items || [];
+      items.forEach((it: any) => {
+        const resep = resepMap[it.resepId];
+        if (!resep) return;
+        (resep.komposisi || []).forEach((ing: any) => {
+          agg[ing.bahanBakuId] = (agg[ing.bahanBakuId] || 0) + (ing.jumlah * (it.jumlah || 1));
+        });
+      });
+    });
+
+    const rows = Object.entries(agg).map(([id, qty]) => {
+      const mat = bahanBakuData?.find(b => b.id === id);
+      return { id, code: mat?.code || "-", nama: mat?.nama || "-", qty };
+    }).sort((a: any, b: any) => b.qty - a.qty);
+
+    return rows;
+  }, [pemakaianData, resepData, bahanBakuData]);
+
+  const bestSellers = useMemo(() => {
+    const thisMonth = new Date().toISOString().slice(0,7);
+    const agg: { [code: string]: { name: string; qty: number } } = {};
+    (penjualanData || []).filter((p: any) => p.tanggal?.startsWith(thisMonth)).forEach((p: any) => {
+      (p.items || []).forEach((it: any) => {
+        const code = it.code || it.kode || "-";
+        if (!agg[code]) agg[code] = { name: it.name || it.nama || code, qty: 0 };
+        agg[code].qty += Number(it.total || it.qty || 0);
+      });
+    });
+    return Object.values(agg).sort((a:any,b:any)=>b.qty-a.qty).slice(0,5);
+  }, [penjualanData]);
+
+  const bb043 = useMemo(() => (bahanBakuData || []).find(b => (b.code || '').toUpperCase() === 'BB043') || null, [bahanBakuData]);
+
   return (
     <div className="space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-1000">
       {/* Welcome Header */}
@@ -102,6 +169,79 @@ export default function DashboardPage() {
             Input Closing Harian
           </Button>
         </Link>
+      </div>
+
+      {/* Additional KPIs: HPP, Critical Stocks, Usage & Best Sellers */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
+        <Card className="border-none shadow-sm rounded-3xl bg-white p-6 md:p-8">
+          <h4 className="text-sm font-black uppercase tracking-widest text-slate-600 mb-2">HPP & Selisih Penjualan</h4>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[9px] text-slate-500 uppercase font-black">Penjualan Bulan Ini</p>
+              <p className="text-2xl font-black text-slate-900">Rp {(stats.salesMonth || 0).toLocaleString('id-ID')}</p>
+            </div>
+            <div>
+              <p className="text-[9px] text-slate-500 uppercase font-black">HPP Bulan Ini</p>
+              <p className="text-2xl font-black text-primary">Rp {(stats.hppMonth || 0).toLocaleString('id-ID')}</p>
+            </div>
+          </div>
+          <div className="mt-4 text-sm font-black">
+            <p className="text-slate-600">Selisih: <span className="text-slate-900">Rp {((stats.salesMonth || 0) - (stats.hppMonth || 0)).toLocaleString('id-ID')}</span></p>
+          </div>
+        </Card>
+
+        <Card className="border-none shadow-sm rounded-3xl bg-white p-6 md:p-8">
+          <h4 className="text-sm font-black uppercase tracking-widest text-slate-600 mb-2">Stock Kritis</h4>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-black uppercase">Kontainer</p>
+              <p className="text-lg font-black text-rose-600">{stats.lowKontainerCount || 0}</p>
+            </div>
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-black uppercase">Gudang</p>
+              <p className="text-lg font-black text-rose-600">{stats.lowStockCount || 0}</p>
+            </div>
+            <div className="pt-2">
+              <Link href="/stok/bahan-baku">
+                <Button variant="ghost" className="w-full rounded-xl text-[9px] font-black uppercase tracking-widest">Lihat Detail Stok</Button>
+              </Link>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="border-none shadow-sm rounded-3xl bg-white p-6 md:p-8">
+          <h4 className="text-sm font-black uppercase tracking-widest text-slate-600 mb-2">Pemakaian Hari Ini & Best Seller</h4>
+          <div className="grid grid-cols-1 gap-3">
+            <div>
+              <p className="text-[9px] text-slate-500 uppercase font-black">Top Pemakaian (hari ini)</p>
+              <ul className="mt-2 space-y-1">
+                {dailyUsage.slice(0,3).map((r: any) => (
+                  <li key={r.id} className="text-sm font-black">{r.nama} — {r.qty.toLocaleString('id-ID')} {r.code}</li>
+                ))}
+                {dailyUsage.length === 0 && <li className="text-xs text-slate-400 font-black">Tidak ada pemakaian hari ini</li>}
+              </ul>
+            </div>
+
+            <div>
+              <p className="text-[9px] text-slate-500 uppercase font-black">Best Seller (Top 5 bulan ini)</p>
+              <ul className="mt-2 space-y-1">
+                {bestSellers.map((b: any, i: number) => (
+                  <li key={i} className="text-sm font-black">{b.name} — {b.qty}</li>
+                ))}
+                {bestSellers.length === 0 && <li className="text-xs text-slate-400 font-black">Belum ada penjualan bulan ini</li>}
+              </ul>
+            </div>
+
+            <div className="pt-3 border-t border-slate-50 mt-3">
+              <p className="text-[9px] text-slate-500 uppercase font-black">Sisa Stock BB043 (Roti Toast)</p>
+              {bb043 ? (
+                <p className="text-lg font-black text-slate-900 mt-1">Gudang: {bb043.qtyBesar || 0} — Kontainer Aktif: {bb043.qtyKontainerKecil || 0}</p>
+              ) : (
+                <p className="text-xs text-slate-400 font-black">BB043 tidak ditemukan</p>
+              )}
+            </div>
+          </div>
+        </Card>
       </div>
 
       {/* Stats Bento Box */}

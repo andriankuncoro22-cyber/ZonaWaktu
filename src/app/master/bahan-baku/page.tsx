@@ -10,6 +10,7 @@ import {
   Trash2, 
   FileUp, 
   FileDown, 
+  FileSpreadsheet,
   Save,
   Trash
 } from "lucide-react";
@@ -39,6 +40,10 @@ interface BahanBaku {
   satuanBesar: string;
   qtyKecil: number;
   satuanKecil: string;
+  qtyMin?: number;
+  qtyMinGudang?: number;
+  qtyMinKontainer?: number;
+    gramPerBesar?: number;
 }
 
 export default function MasterBahanBakuPage() {
@@ -70,6 +75,25 @@ export default function MasterBahanBakuPage() {
   const toTitleCase = (str: string) => {
     if (!str) return "-";
     return str.toLowerCase().replace(/\b\w/g, s => s.toUpperCase());
+  };
+
+  const handleExportExcel = () => {
+    const exportData = (filteredMaterials || []).map((item) => ({
+      Code: item.code || "-",
+      "Nama Barang": item.nama || "-",
+      "Qty Besar": formatNumber(item.qtyBesar),
+      "Satuan Besar": item.satuanBesar || "-",
+      "Gram per Satuan Besar": formatNumber(item.gramPerBesar || 0),
+      "Qty Kecil": formatNumber(item.qtyKecil),
+      "Satuan Kecil": item.satuanKecil || "-",
+      "Min Stok Gudang": formatNumber(item.qtyMinGudang ?? item.qtyMin ?? 5),
+      "Min Stok Kontainer": formatNumber(item.qtyMinKontainer ?? item.qtyMin ?? 5),
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Master Bahan Baku");
+    XLSX.writeFile(wb, "master-bahan-baku-zonawaktu.xlsx");
   };
 
   const handleExportPDF = async () => {
@@ -109,12 +133,13 @@ export default function MasterBahanBakuPage() {
       toTitleCase(item.nama),
       formatNumber(item.qtyBesar).toLocaleString('id-ID'),
       item.satuanBesar || "-",
+          formatNumber(item.gramPerBesar || 0).toLocaleString('id-ID') + ' g',
       formatNumber(item.qtyKecil).toLocaleString('id-ID'),
       item.satuanKecil || "-",
     ]);
 
     autoTable(docPDF, {
-      head: [["Code", "Nama Barang", "Qty Besar", "Satuan", "Konversi Kecil", "Sat. Kecil"]],
+      head: [["Code", "Nama Barang", "Qty Besar", "Satuan", "Gram/Sat.B", "Konversi Kecil", "Sat. Kecil"]],
       body: tableData,
       startY: 48,
       theme: 'grid',
@@ -157,6 +182,7 @@ export default function MasterBahanBakuPage() {
             satuanBesar: String(row["Satuan Besar"] || "").trim(),
             qtyKecil: formatNumber(row["Qty Kecil"] || row["Konversi"] || 0),
             satuanKecil: String(row["Satuan Kecil"] || "").trim(),
+            gramPerBesar: formatNumber(row["Gram per Satuan Besar"] || row["Gram/Sat.B"] || 0),
           });
         });
 
@@ -198,14 +224,19 @@ export default function MasterBahanBakuPage() {
       nama: String(formData.get("nama") || "").trim(),
       qtyBesar: formatNumber(formData.get("qtyBesar")),
       satuanBesar: String(formData.get("satuanBesar") || "").trim(),
+      qtyMin: formatNumber(formData.get("qtyMin") || 5),
+      qtyMinGudang: formatNumber(formData.get("qtyMinGudang") || formData.get("qtyMin") || 5),
+      qtyMinKontainer: formatNumber(formData.get("qtyMinKontainer") || formData.get("qtyMin") || 5),
       qtyKecil: formatNumber(formData.get("qtyKecil")),
       satuanKecil: String(formData.get("satuanKecil") || "").trim(),
+      gramPerBesar: formatNumber(formData.get("gramPerBesar") || 0),
+      kalibrasiNote: String(formData.get("kalibrasiNote") || "").trim(),
     };
 
     if (editingItem) {
-      updateDoc(doc(db, "bahan-baku", editingItem.id), data);
+      await updateDoc(doc(db, "bahan-baku", editingItem.id), data);
     } else {
-      addDoc(collection(db, "bahan-baku"), data);
+      await addDoc(collection(db, "bahan-baku"), data);
     }
     
     setIsDialogOpen(false);
@@ -237,6 +268,15 @@ export default function MasterBahanBakuPage() {
             >
               <FileUp className="h-4 w-4 text-primary" />
               Import
+            </Button>
+            <div className="w-[1px] h-6 bg-slate-100" />
+            <Button 
+              variant="ghost"
+              onClick={handleExportExcel}
+              className="rounded-xl px-4 font-bold h-10 text-[10px] uppercase tracking-wider gap-2 text-slate-700 hover:bg-slate-50"
+            >
+              <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+              XLSX
             </Button>
             <div className="w-[1px] h-6 bg-slate-100" />
             <Button 
@@ -295,6 +335,14 @@ export default function MasterBahanBakuPage() {
                       <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">Satuan Besar</Label>
                       <Input name="satuanBesar" defaultValue={editingItem?.satuanBesar} placeholder="Sak / Dus" className="rounded-xl bg-white border-slate-200" required />
                     </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">Batas Minimum Stok Gudang</Label>
+                      <Input name="qtyMinGudang" type="number" step="any" defaultValue={editingItem?.qtyMinGudang ?? editingItem?.qtyMin ?? 5} className="rounded-xl bg-white border-slate-200" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">Batas Minimum Stok Kontainer</Label>
+                      <Input name="qtyMinKontainer" type="number" step="any" defaultValue={editingItem?.qtyMinKontainer ?? editingItem?.qtyMin ?? 5} className="rounded-xl bg-white border-slate-200" />
+                    </div>
                   </div>
                 </div>
 
@@ -310,6 +358,21 @@ export default function MasterBahanBakuPage() {
                       <Input name="satuanKecil" defaultValue={editingItem?.satuanKecil} placeholder="Pack / Pcs / Kg" className="rounded-xl bg-white border-slate-200" required />
                     </div>
                   </div>
+                </div>
+
+                <div className="col-span-2 bg-slate-50 p-6 rounded-3xl space-y-4 border border-slate-100">
+                  <h4 className="text-[9px] font-black uppercase tracking-widest text-primary">Kalibrasi Gramasi (Acuan)</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">Gram per Satuan Besar</Label>
+                      <Input name="gramPerBesar" type="number" step="any" defaultValue={editingItem?.gramPerBesar ?? 0} className="rounded-xl bg-white border-slate-200" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">Catatan Kalibrasi</Label>
+                      <Input name="kalibrasiNote" defaultValue={""} placeholder="Opsional: mis. 1 pack = 250 g" className="rounded-xl bg-white border-slate-200" />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-2">Nilai gramasi ini hanya sebagai acuan untuk stock opname kontainer (qty aktif) saat penimbangan bahan yang sudah dibuka.</p>
                 </div>
 
                 <div className="col-span-2 flex justify-end gap-3 mt-4">
@@ -350,6 +413,9 @@ export default function MasterBahanBakuPage() {
                 <th className="pl-8 pr-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5">Code</th>
                 <th className="px-6 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-left">Nama Bahan</th>
                 <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-right">Qty Besar</th>
+                <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-right">Gram/Sat.B</th>
+                <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-right">Min Stok Gudang</th>
+                <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-right">Min Stok Kontainer</th>
                 <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-left">Satuan</th>
                 <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-right">Konversi</th>
                 <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-left">Sat. Kecil</th>
@@ -383,6 +449,15 @@ export default function MasterBahanBakuPage() {
                     </td>
                     <td className="px-4 py-5 text-right font-medium text-slate-900 tabular-nums">
                       {formatNumber(item.qtyBesar).toLocaleString('id-ID')}
+                    </td>
+                    <td className="px-4 py-5 text-right font-medium text-slate-900 tabular-nums">
+                      {formatNumber(item.gramPerBesar || 0).toLocaleString('id-ID')} g
+                    </td>
+                    <td className="px-4 py-5 text-right font-medium text-slate-900 tabular-nums">
+                      {formatNumber(item.qtyMinGudang ?? item.qtyMin ?? 5).toLocaleString('id-ID')}
+                    </td>
+                    <td className="px-4 py-5 text-right font-medium text-slate-900 tabular-nums">
+                      {formatNumber(item.qtyMinKontainer ?? item.qtyMin ?? 5).toLocaleString('id-ID')}
                     </td>
                     <td className="px-4 py-5 text-left">
                       <span className="text-[10px] font-black text-slate-600 uppercase tracking-tighter">{item.satuanBesar}</span>

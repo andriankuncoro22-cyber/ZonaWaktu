@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   ClipboardList, 
   Search, 
@@ -43,6 +43,25 @@ export default function StockOpnamePage() {
     item.nama?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.code?.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  // Local state to hold kontainer opname inputs per item
+  const [kontainerInputs, setKontainerInputs] = useState<Record<string, { aktif: number; grams: number }>>({});
+
+  useEffect(() => {
+    // initialize inputs from materials (depend on raw materials + searchTerm to avoid loop)
+    if (!materials) return;
+    const filtered = (materials as any[])
+      .filter(item => item.nama?.toLowerCase().includes(searchTerm.toLowerCase()) || item.code?.toLowerCase().includes(searchTerm.toLowerCase()));
+    const next: Record<string, { aktif: number; grams: number }> = {};
+    filtered.forEach((it: any) => {
+      const aktif = Number(it.qtyKontainerKecil || 0);
+      const gramPerBesar = Number(it.gramPerBesar || 0);
+      const konversi = Number(it.qtyKecil || 1);
+      const grams = gramPerBesar > 0 ? (aktif * (gramPerBesar / konversi)) : 0;
+      next[it.id] = { aktif, grams };
+    });
+    setKontainerInputs(next);
+  }, [materials, searchTerm]);
 
   const formatTotalStock = (item: any) => {
     const qtyGudang = Number(item.qtyBesar || 0);
@@ -265,9 +284,47 @@ export default function StockOpnamePage() {
                          </div>
                       </td>
                       <td className="px-8 py-6">
-                         <div className="relative w-36">
-                           <Input type="number" placeholder="0" className="rounded-xl h-12 bg-slate-50 border-none font-black text-center text-lg pr-12" />
-                           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black text-emerald-300 uppercase">{item.satuanKecil}</span>
+                         <div className="flex items-center gap-2">
+                           <div className="relative w-36">
+                             <Input
+                               type="number"
+                               value={kontainerInputs[item.id]?.aktif ?? ''}
+                               onChange={(e) => {
+                                 const val = Number(e.target.value || 0);
+                                 setKontainerInputs(prev => {
+                                   const gramPerBesar = Number(item.gramPerBesar || 0);
+                                   const konversi = Number(item.qtyKecil || 1);
+                                   const grams = gramPerBesar > 0 ? val * (gramPerBesar / konversi) : 0;
+                                   return { ...prev, [item.id]: { ...(prev[item.id] || { aktif: 0, grams: 0 }), aktif: val, grams } };
+                                 });
+                               }}
+                               placeholder="0"
+                               className="rounded-xl h-12 bg-slate-50 border-none font-black text-center text-lg pr-12"
+                             />
+                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black text-emerald-300 uppercase">{item.satuanKecil}</span>
+                           </div>
+
+                           <div className="relative w-36">
+                             <Input
+                               type="number"
+                               value={kontainerInputs[item.id]?.grams ?? ''}
+                               onChange={(e) => {
+                                 const gramsVal = Number(e.target.value || 0);
+                                 setKontainerInputs(prev => {
+                                   const gramPerBesar = Number(item.gramPerBesar || 0);
+                                   const konversi = Number(item.qtyKecil || 1);
+                                   let aktifFromGrams = 0;
+                                   if (gramPerBesar > 0) {
+                                     aktifFromGrams = gramsVal / (gramPerBesar / konversi);
+                                   }
+                                   return { ...prev, [item.id]: { ...(prev[item.id] || { aktif: 0, grams: 0 }), grams: gramsVal, aktif: Math.round(aktifFromGrams * 100) / 100 } };
+                                 });
+                               }}
+                               placeholder="0 g"
+                               className="rounded-xl h-12 bg-slate-50 border-none font-black text-center text-lg pr-12"
+                             />
+                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black text-slate-400 uppercase">g</span>
+                           </div>
                          </div>
                       </td>
                       <td className="px-10 py-6 text-right">
