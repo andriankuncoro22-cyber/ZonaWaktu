@@ -57,6 +57,14 @@ export default function EmployeeKeuanganKontainerPage() {
     return (operationalLogs || []).reduce((sum: number, item: any) => sum + Number(item.nominal || 0), 0);
   }, [operationalLogs]);
 
+  const getPurchaseSubtotal = (log: any) => {
+    return (log.items || []).reduce((sum: number, item: any) => {
+      const qty = Number(item.qty || 0);
+      const price = Number(item.price ?? item.purchasePrice ?? 0);
+      return sum + qty * price;
+    }, 0);
+  };
+
   const purchaseTotal = useMemo(() => {
     return (purchaseLogs || [])
       .filter((log: any) => {
@@ -64,10 +72,7 @@ export default function EmployeeKeuanganKontainerPage() {
         if (!createdAt) return false;
         return createdAt.toISOString().split("T")[0] === selectedDate;
       })
-      .reduce((sum: number, log: any) => {
-        const subtotal = (log.items || []).reduce((inner: number, item: any) => inner + Number(item.qty || 0) * Number(item.price || 0), 0);
-        return sum + subtotal;
-      }, 0);
+      .reduce((sum: number, log: any) => sum + getPurchaseSubtotal(log), 0);
   }, [purchaseLogs, selectedDate]);
 
   const expectedCashToSettle = useMemo(() => {
@@ -113,7 +118,7 @@ export default function EmployeeKeuanganKontainerPage() {
           .map((log: any) => ({
             id: log.id,
             nomorNota: log.nomorNota || "-",
-            total: (log.items || []).reduce((sum: number, item: any) => sum + Number(item.qty || 0) * Number(item.price || 0), 0),
+            total: getPurchaseSubtotal(log),
             items: (log.items || []).map((item: any) => ({
               materialName: item.materialName || item.materialCode || "-",
               qty: Number(item.qty || 0),
@@ -262,7 +267,7 @@ export default function EmployeeKeuanganKontainerPage() {
                       <p className="text-sm font-black text-slate-900">Nota {log.nomorNota || "-"}</p>
                       <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleString("id-ID") : "-"}</p>
                     </div>
-                    <p className="text-sm font-black text-rose-600">{formatCurrency((log.items || []).reduce((sum: number, item: any) => sum + Number(item.qty || 0) * Number(item.price || 0), 0))}</p>
+                    <p className="text-sm font-black text-rose-600">{formatCurrency(getPurchaseSubtotal(log))}</p>
                   </div>
                   <div className="mt-3 space-y-2">
                     {(log.items || []).map((item: any, idx: number) => (

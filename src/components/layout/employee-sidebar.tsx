@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
-  PlusCircle,
   Truck,
   Home,
   ClipboardList,
@@ -24,7 +23,6 @@ const menuGroups = [
   {
     title: "Operasional",
     items: [
-      { name: "Closing Toko", icon: PlusCircle, href: "/employee/closing-toko" },
       { name: "Operasional Kontainer", icon: ClipboardList, href: "/employee/operasional-kontainer" },
       { name: "Keuangan Kontainer", icon: Wallet, href: "/employee/keuangan-kontainer" },
     ]

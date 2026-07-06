@@ -19,6 +19,19 @@ export function getAverageCost(material) {
   return Number(material.avgPrice || material.hargaRataRata || 0);
 }
 
+export function calculateRecipeIngredientCost(ingredient, material, soldQty = 1) {
+  const qtyNeeded = Number(ingredient?.jumlah || 0);
+  const conversionRate = Number(material?.qtyKecil || 1);
+  const unitPrice = Number(material?.currentPrice ?? material?.avgPrice ?? material?.hargaBeliSatuanBesar ?? 0);
+  const soldUnits = Number(soldQty || 0);
+
+  if (qtyNeeded <= 0 || soldUnits <= 0 || conversionRate <= 0 || unitPrice <= 0) {
+    return 0;
+  }
+
+  return (qtyNeeded / conversionRate) * soldUnits * unitPrice;
+}
+
 export function applyPurchase(material, qty, price) {
   const purchaseQty = Number(qty || 0);
   const purchasePrice = Number(price || 0);

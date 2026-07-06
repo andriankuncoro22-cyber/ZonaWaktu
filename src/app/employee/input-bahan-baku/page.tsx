@@ -40,7 +40,9 @@ import {
   updateDoc, 
   increment,
   deleteDoc,
-  writeBatch
+  writeBatch,
+  where,
+  getDocs
 } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -51,7 +53,7 @@ interface InputItem {
   price: number;
 }
 
-type ActiveTab = "pembelian" | "ambil" | "kembali";
+type ActiveTab = "pembelian" | "ambil" | "kembali" | "pemakaian";
 
 export default function EmployeeInputBahanBakuPage() {
   const db = useFirestore();
@@ -64,6 +66,8 @@ export default function EmployeeInputBahanBakuPage() {
   const [items, setItems] = useState<InputItem[]>([{ materialId: "", qty: 0, price: 0 }]);
   const [movementItems, setMovementItems] = useState<InputItem[]>([{ materialId: "", qty: 0, price: 0 }]);
   const [returnItems, setReturnItems] = useState<InputItem[]>([{ materialId: "", qty: 0, price: 0 }]);
+  const [productionBatch, setProductionBatch] = useState([{ resepId: "", qty: 1 }]);
+  const [selectedPemakaianDate, setSelectedPemakaianDate] = useState(new Date().toISOString().split("T")[0]);
   const [saving, setSaving] = useState(false);
   const [expandedLog, setExpandedLog] = useState<string | null>(null);
 
@@ -71,12 +75,24 @@ export default function EmployeeInputBahanBakuPage() {
   const materialsQuery = useMemoFirebase(() => query(collection(db, "bahan-baku"), orderBy("nama", "asc")), [db]);
   const { data: materials } = useCollection(materialsQuery);
 
+  const resepQuery = useMemoFirebase(() =>
+    query(collection(db, "resep"), where("type", "==", "pelengkap")),
+    [db]
+  );
+  const { data: listResep } = useCollection(resepQuery);
+
   // Fetch Histori Input Bahan (limit 100 untuk difilter secara client-side)
   const historyQuery = useMemoFirebase(() => 
     query(collection(db, "log_pembelian_bahan"), orderBy("createdAt", "desc"), limit(100)), 
     [db]
   );
   const { data: history } = useCollection(historyQuery);
+
+  const pemakaianHistoryQuery = useMemoFirebase(() =>
+    query(collection(db, "log_produksi_pelengkap"), orderBy("createdAt", "desc"), limit(50)),
+    [db]
+  );
+  const { data: pemakaianHistory } = useCollection(pemakaianHistoryQuery);
 
   const activeHistorySection = useMemo(() => {
     const filteredHistory = history?.filter((log: any) => log.location === "kontainer") || [];
@@ -98,6 +114,14 @@ export default function EmployeeInputBahanBakuPage() {
           accent: "bg-emerald-50 text-emerald-600",
           logs: filteredHistory.filter((log: any) => log.type === "kembali-gudang"),
         };
+      case "pemakaian":
+        return {
+          key: "pemakaian",
+          title: "Histori Input Pemakaian",
+          icon: Package,
+          accent: "bg-violet-50 text-violet-600",
+          logs: pemakaianHistory || [],
+        };
       default:
         return {
           key: "pembelian",
@@ -107,7 +131,7 @@ export default function EmployeeInputBahanBakuPage() {
           logs: filteredHistory.filter((log: any) => log.type === "belanja" || log.type === "supplier"),
         };
     }
-  }, [activeTab, history]);
+  }, [activeTab, history, pemakaianHistory]);
 
   const handleAddItem = () => {
     setItems([...items, { materialId: "", qty: 0, price: 0 }]);
@@ -136,6 +160,21 @@ export default function EmployeeInputBahanBakuPage() {
     setReturnItems(returnItems.filter((_, i) => i !== index));
   };
 
+  const handleAddProductionItem = () => {
+    setProductionBatch([...productionBatch, { resepId: "", qty: 1 }]);
+  };
+
+  const handleRemoveProductionItem = (index: number) => {
+    if (productionBatch.length === 1) return;
+    setProductionBatch(productionBatch.filter((_, i) => i !== index));
+  };
+
+  const handleProductionItemChange = (index: number, field: "resepId" | "qty", value: any) => {
+    const newBatch = [...productionBatch];
+    newBatch[index] = { ...newBatch[index], [field]: value } as { resepId: string; qty: number };
+    setProductionBatch(newBatch);
+  };
+
   const handleItemChange = (index: number, field: keyof InputItem, value: any) => {
     const newItems = [...items];
     newItems[index] = { ...newItems[index], [field]: value };
@@ -152,6 +191,115 @@ export default function EmployeeInputBahanBakuPage() {
     const newItems = [...returnItems];
     newItems[index] = { ...newItems[index], [field]: value };
     setReturnItems(newItems);
+  };
+
+  const handleSavePemakaian = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const validBatch = productionBatch.filter((item) => item.resepId && item.qty > 0);
+    if (validBatch.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Input Tidak Lengkap",
+        description: "Pilih minimal satu pemakaian bahan dan tentukan jumlahnya.",
+      });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const batch = writeBatch(db);
+      const materialsSnap = await getDocs(collection(db, "bahan-baku"));
+      const materialMap: { [key: string]: any } = {};
+      materialsSnap.forEach((d) => {
+        materialMap[d.id] = { id: d.id, ...d.data() };
+      });
+
+      const totalDeductions: { [key: string]: number } = {};
+      const totalAdditions: { [key: string]: number } = {};
+
+      validBatch.forEach((item) => {
+        const resep = listResep?.find((entry: any) => entry.id === item.resepId);
+        if (!resep) return;
+
+        resep.komposisi?.forEach((ing: any) => {
+          const deduction = ing.jumlah * item.qty;
+          totalDeductions[ing.bahanBakuId] = (totalDeductions[ing.bahanBakuId] || 0) + deduction;
+        });
+
+        const nameNormalized = resep.namaPelengkap?.trim().toLowerCase();
+        if (nameNormalized === "creamy foam") {
+          const creamyFoamMat = Object.values(materialMap).find((m: any) => m.code?.trim().toUpperCase() === "BB065");
+          if (creamyFoamMat) {
+            totalAdditions[creamyFoamMat.id] = (totalAdditions[creamyFoamMat.id] || 0) + item.qty;
+          }
+        } else if (nameNormalized === "teh tarik") {
+          const tehTarikMat = Object.values(materialMap).find((m: any) => m.code?.trim().toUpperCase() === "BB064");
+          if (tehTarikMat) {
+            totalAdditions[tehTarikMat.id] = (totalAdditions[tehTarikMat.id] || 0) + item.qty;
+          }
+        }
+      });
+
+      const modifiedIds = new Set<string>([
+        ...Object.keys(totalDeductions),
+        ...Object.keys(totalAdditions)
+      ]);
+
+      modifiedIds.forEach((matId) => {
+        const material = materialMap[matId];
+        if (!material) return;
+
+        let bulkQty = Number(material.qtyKontainerBesar || 0);
+        let activeQty = Number(material.qtyKontainerKecil || 0);
+        const conversionRate = Number(material.qtyKecil || 1);
+
+        const addition = totalAdditions[matId] || 0;
+        bulkQty += addition;
+
+        const deduction = totalDeductions[matId] || 0;
+        activeQty -= deduction;
+
+        while (activeQty < 0 && bulkQty > 0) {
+          bulkQty -= 1;
+          activeQty += conversionRate;
+        }
+
+        const materialRef = doc(db, "bahan-baku", matId);
+        batch.update(materialRef, {
+          qtyKontainerBesar: bulkQty,
+          qtyKontainerKecil: activeQty
+        });
+      });
+
+      const logRef = doc(collection(db, "log_produksi_pelengkap"));
+      batch.set(logRef, {
+        items: validBatch.map((item) => ({
+          resepId: item.resepId,
+          namaResep: listResep?.find((entry: any) => entry.id === item.resepId)?.namaPelengkap,
+          jumlah: item.qty
+        })),
+        tanggal: selectedPemakaianDate,
+        createdAt: serverTimestamp()
+      });
+
+      await batch.commit();
+
+      toast({
+        title: "Pemakaian Dicatat",
+        description: `${validBatch.length} jenis bahan telah dicatat & stok terpotong.`,
+      });
+      setProductionBatch([{ resepId: "", qty: 1 }]);
+    } catch (error) {
+      console.error("Gagal simpan pemakaian:", error);
+      toast({
+        variant: "destructive",
+        title: "Gagal Menyimpan",
+        description: "Terjadi kesalahan sistem saat mencatat pemakaian.",
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -187,10 +335,13 @@ export default function EmployeeInputBahanBakuPage() {
 
         return {
           materialId: item.materialId,
-          materialName: material.nama,
-          materialCode: material.code,
+          materialName: material?.nama || "-",
+          materialCode: material?.code || "-",
           qty: item.qty,
-          unit: material.satuanBesar
+          unit: material?.satuanBesar || "-",
+          price: item.price,
+          purchasePrice: item.price,
+          subtotal: item.qty * item.price,
         };
       });
 
@@ -202,6 +353,7 @@ export default function EmployeeInputBahanBakuPage() {
         items: logItems,
         totalItems: logItems.length,
         location: "kontainer",
+        tanggal: new Date().toISOString().split("T")[0],
         createdAt: serverTimestamp(),
       });
 
@@ -361,7 +513,7 @@ export default function EmployeeInputBahanBakuPage() {
     <div className="space-y-6 sm:space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-1">
-          <h1 className="text-2xl sm:text-4xl font-black tracking-tighter text-slate-900 uppercase italic leading-none">Pembelian Bahan Baku</h1>
+          <h1 className="text-2xl sm:text-4xl font-black tracking-tighter text-slate-900 uppercase italic leading-none">Input Bahan Baku</h1>
           <p className="text-[9px] sm:text-[10px] text-slate-600 font-black uppercase tracking-[0.2em] mt-2">
             Area Kontainer (Update Stok Kontainer per Nota)
           </p>
@@ -376,6 +528,7 @@ export default function EmployeeInputBahanBakuPage() {
                 { key: "pembelian", label: "Pembelian Bahan Baku" },
                 { key: "ambil", label: "Ambil Stock Gudang" },
                 { key: "kembali", label: "Pengembalian Barang" },
+                { key: "pemakaian", label: "Input Pemakaian" },
               ].map((tab) => (
                 <button
                   key={tab.key}
@@ -524,6 +677,65 @@ export default function EmployeeInputBahanBakuPage() {
                   )}
                 </Button>
               </div>
+              </form>
+            )}
+
+            {activeTab === "pemakaian" && (
+              <form onSubmit={handleSavePemakaian} className="mt-8 space-y-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="space-y-2">
+                    <Label className="text-[11px] md:text-[12px] font-black uppercase tracking-widest text-slate-600">Tanggal Pemakaian</Label>
+                    <Input
+                      type="date"
+                      value={selectedPemakaianDate}
+                      onChange={(e) => setSelectedPemakaianDate(e.target.value)}
+                      className="rounded-2xl border-slate-100 h-14 bg-slate-50 font-black text-base text-slate-900"
+                    />
+                  </div>
+                  <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em]">Informasi</p>
+                    <p className="mt-2 font-semibold">Pemakaian akan mengurangi stok kontainer sesuai takaran resep yang dipilih.</p>
+                  </div>
+                </div>
+
+                <div className="space-y-6 pt-4 border-t border-slate-50">
+                  <div className="flex items-center justify-between px-2">
+                    <h3 className="text-sm font-black uppercase italic tracking-tighter text-slate-900">Daftar Pemakaian</h3>
+                    <Button type="button" variant="ghost" onClick={handleAddProductionItem} className="h-10 text-[10px] font-black text-primary uppercase tracking-widest gap-2 hover:bg-primary/5">
+                      <PlusCircle className="h-4 w-4" /> Tambah Item
+                    </Button>
+                  </div>
+                  <div className="space-y-4">
+                    {productionBatch.map((item, index) => (
+                      <div key={index} className="flex flex-col md:flex-row gap-4 items-end rounded-[2rem] border border-slate-100 bg-slate-50 p-6">
+                        <div className="flex-1 w-full space-y-2">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Pilih Pemakaian</Label>
+                          <Select value={item.resepId} onValueChange={(val) => handleProductionItemChange(index, "resepId", val)}>
+                            <SelectTrigger className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-900">
+                              <SelectValue placeholder="Pilih pemakaian..." />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-2xl border-none shadow-2xl">
+                              {listResep?.map((r: any) => (
+                                <SelectItem key={r.id} value={r.id} className="rounded-xl">{r.namaPelengkap}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="w-full md:w-32 space-y-2">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Jumlah</Label>
+                          <Input type="number" min={1} value={item.qty} onChange={(e) => handleProductionItemChange(index, "qty", Number(e.target.value))} className="h-12 rounded-xl border-none bg-white text-center font-black shadow-sm" />
+                        </div>
+                        <Button type="button" variant="ghost" size="icon" onClick={() => handleRemoveProductionItem(index)} className="h-12 w-12 rounded-xl border-none bg-white text-slate-300 shadow-sm hover:text-rose-600" disabled={productionBatch.length === 1}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <Button disabled={saving || productionBatch.some((item) => !item.resepId)} className="h-16 w-full rounded-[1.5rem] bg-primary text-white font-black uppercase tracking-[0.2em] text-[11px] shadow-xl shadow-primary/20">
+                  {saving ? "Memproses..." : "Simpan & Potong Stok"}
+                </Button>
               </form>
             )}
 
@@ -750,12 +962,12 @@ export default function EmployeeInputBahanBakuPage() {
                               {log.items?.slice(0, 2).map((item: any, i: number) => (
                                 <div key={i} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px]">
                                   <div className="flex flex-col">
-                                    <span className="font-bold text-slate-400 text-[8px]">{item.materialCode}</span>
-                                    <span className="font-black text-slate-800 uppercase italic">{item.materialName}</span>
+                                    <span className="font-bold text-slate-400 text-[8px]">{item.materialCode || item.resepId}</span>
+                                    <span className="font-black text-slate-800 uppercase italic">{item.materialName || item.namaResep || 'Item'}</span>
                                   </div>
                                   <div className="flex items-center gap-2">
-                                    <span className="font-black text-primary tabular-nums">{activeHistorySection.key === 'kembali' ? '-' : activeHistorySection.key === 'ambil' ? '+' : '+'}{item.qty}</span>
-                                    <span className="font-bold text-slate-400 uppercase text-[8px]">{item.unit}</span>
+                                    <span className="font-black text-primary tabular-nums">{activeHistorySection.key === 'kembali' ? '-' : activeHistorySection.key === 'ambil' ? '+' : '+'}{item.qty ?? item.jumlah ?? 0}</span>
+                                    <span className="font-bold text-slate-400 uppercase text-[8px]">{item.unit || 'pcs'}</span>
                                   </div>
                                 </div>
                               ))}

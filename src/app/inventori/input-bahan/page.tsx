@@ -120,12 +120,14 @@ export default function InputBahanBakuPage() {
 
         return {
           materialId: item.materialId,
-          materialName: material.nama,
-          materialCode: material.code,
+          materialName: material?.nama || "-",
+          materialCode: material?.code || "-",
           qty: item.qty,
-          unit: material.satuanBesar,
+          unit: material?.satuanBesar || "-",
+          price: item.price,
           purchasePrice: item.price,
           avgPrice: updated.avgPrice,
+          subtotal: item.qty * item.price,
         };
       });
 
@@ -136,6 +138,8 @@ export default function InputBahanBakuPage() {
         type: purchaseType,
         items: logItems,
         totalItems: logItems.length,
+        location: "kontainer",
+        tanggal: new Date().toISOString().split("T")[0],
         createdAt: serverTimestamp(),
       });
 

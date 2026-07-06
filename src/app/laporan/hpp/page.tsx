@@ -7,6 +7,7 @@ import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, query, where, orderBy } from "firebase/firestore";
 import { Calendar, Search, ShoppingBag, TrendingUp, Wallet, Package } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { calculateRecipeIngredientCost } from "@/lib/hpp";
 
 export default function HppReportPage() {
   const db = useFirestore();
@@ -64,10 +65,10 @@ export default function HppReportPage() {
     return map;
   }, [recipes]);
 
-  const materialPriceMap = useMemo(() => {
-    const map: Record<string, number> = {};
+  const materialMap = useMemo(() => {
+    const map: Record<string, any> = {};
     materials?.forEach((material: any) => {
-      map[material.id] = Number(material.currentPrice ?? material.avgPrice ?? material.hargaBeliSatuanBesar ?? 0);
+      map[material.id] = material;
     });
     return map;
   }, [materials]);
@@ -96,8 +97,8 @@ export default function HppReportPage() {
         let hpp = 0;
 
         recipe.forEach((ingredient: any) => {
-          const unitPrice = Number(materialPriceMap[ingredient?.bahanBakuId] || 0);
-          hpp += Number(ingredient?.jumlah || 0) * qty * unitPrice;
+          const material = materialMap[ingredient?.bahanBakuId];
+          hpp += calculateRecipeIngredientCost(ingredient, material, qty);
         });
 
         summary[key].totalQty += qty;
@@ -110,7 +111,7 @@ export default function HppReportPage() {
     return Object.values(summary).sort((a: any, b: any) =>
       (a.code || "").localeCompare(b.code || "", undefined, { numeric: true })
     );
-  }, [filteredData, materialPriceMap, productCodeMap, recipeMap]);
+  }, [filteredData, materialMap, productCodeMap, recipeMap]);
 
   const totals = useMemo(() => {
     return productSummary.reduce(

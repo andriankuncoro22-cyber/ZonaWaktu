@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef, useMemo } from "react";
+import Link from "next/link";
 import { 
   Calendar as CalendarIcon,
   CheckCircle2,
@@ -170,12 +171,18 @@ export default function EmployeeClosingTokoPage({
     return !!uploadedExcelReport && Math.abs((reportMatchDifference ?? 0)) < 0.01;
   }, [reportMatchDifference, uploadedExcelReport]);
 
-  const steps = [
-    { id: 1, title: "Pilih Tanggal", description: "Atur tanggal closing" },
-    { id: 2, title: "Upload Laporan Excel", description: "Impor data penjualan" },
-    { id: 3, title: "Input Laporan Transaksi", description: "Isi rincian pembayaran" },
-    { id: 4, title: "Input Pemakaian", description: "Catat pemakaian bahan" },
-  ];
+  const steps = isOwnerView
+    ? [
+        { id: 1, title: "Pilih Tanggal", description: "Atur tanggal closing" },
+        { id: 2, title: "Upload Laporan Excel", description: "Impor data penjualan" },
+        { id: 3, title: "Input Laporan Transaksi", description: "Isi rincian pembayaran" },
+        { id: 4, title: "Input Pemakaian", description: "Catat pemakaian bahan" },
+      ]
+    : [
+        { id: 1, title: "Pilih Tanggal", description: "Atur tanggal closing" },
+        { id: 2, title: "Upload Laporan Excel", description: "Impor data penjualan" },
+        { id: 3, title: "Input Laporan Transaksi", description: "Isi rincian pembayaran" },
+      ];
 
   const parseNumber = (val: any) => {
     if (val === null || val === undefined || val === '') return 0;
@@ -550,8 +557,31 @@ export default function EmployeeClosingTokoPage({
     }
 
     await saveToFirestore(uploadedExcelReport.items, selectedDate, transactionReport);
-    setActiveStep(4);
+    setActiveStep(isOwnerView ? 4 : 3);
   };
+
+  if (!isOwnerView) {
+    return (
+      <div className="space-y-6 rounded-[2rem] border border-slate-100 bg-white p-8 shadow-sm">
+        <div className="space-y-3">
+          <h1 className="text-3xl font-black tracking-tighter text-slate-900 uppercase italic leading-none">Closing Toko</h1>
+          <p className="text-sm text-slate-500">Fitur ini hanya tersedia untuk akun owner. Untuk pencatatan pemakaian bahan, silakan gunakan menu Input Bahan Baku.</p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <Link href="/employee/input-bahan-baku">
+            <Button className="rounded-2xl bg-primary px-6 font-black uppercase tracking-widest text-[10px]">
+              Buka Input Bahan Baku
+            </Button>
+          </Link>
+          <Link href="/employee/dashboard">
+            <Button variant="ghost" className="rounded-2xl px-6 font-black uppercase tracking-widest text-[10px]">
+              Kembali ke Dashboard
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
@@ -689,7 +719,7 @@ export default function EmployeeClosingTokoPage({
             </Card>
           )}
 
-          {activeStep === 4 && (
+          {activeStep === 4 && isOwnerView && (
             <Card className="rounded-[2rem] border-none bg-white p-6 md:p-8 shadow-sm">
               <div className="flex items-center gap-3">
                 <Layers className="h-5 w-5 text-primary" />

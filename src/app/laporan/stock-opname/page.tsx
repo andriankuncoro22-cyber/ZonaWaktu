@@ -5,7 +5,8 @@ import {
   Archive,
   Box,
   CalendarDays,
-  ClipboardList,
+  FileDown,
+  FileSpreadsheet,
   Layers,
   RefreshCcw,
   Search,
@@ -16,12 +17,35 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useCollection, useFirestore, useMemoFirebase } from "@/firebase";
-import { collection, orderBy, query } from "firebase/firestore";
+import { useCollection, useDoc, useFirestore, useMemoFirebase } from "@/firebase";
+import { collection, doc, orderBy, query } from "firebase/firestore";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 const formatNumber = (value: number | string | undefined) => {
   const num = Number(value || 0);
   return new Intl.NumberFormat("id-ID").format(num);
+};
+
+const formatCombinedDifference = (item: any) => {
+  const diffBulk = Number(item?.diffBulk || 0);
+  const diffAktif = Number(item?.diffAktif || 0);
+  const totalDiff = diffBulk + diffAktif;
+
+  if (totalDiff === 0) {
+    return "0";
+  }
+
+  const parts: string[] = [];
+  if (diffBulk !== 0) {
+    parts.push(`${formatNumber(diffBulk)} ${item?.unitBulk || ""}`.trim());
+  }
+  if (diffAktif !== 0) {
+    parts.push(`${formatNumber(diffAktif)} ${item?.unitAktif || ""}`.trim());
+  }
+
+  return parts.join(" ");
 };
 
 const toDateValue = (value: any) => {
@@ -67,6 +91,8 @@ export default function LaporanStockOpnamePage() {
     [db]
   );
   const { data: opnameHistory, loading: loadingHistory } = useCollection(historyQuery);
+  const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
+  const { data: settings } = useDoc(settingsRef);
 
   const filteredMaterials = useMemo(() => {
     const term = searchTerm.toLowerCase();
@@ -78,20 +104,34 @@ export default function LaporanStockOpnamePage() {
     }) || [];
   }, [materials, searchTerm]);
 
+  const materialMap = useMemo(() => {
+    const map: Record<string, any> = {};
+    (materials as any[])?.forEach((material) => {
+      if (material?.id) map[material.id] = material;
+      if (material?.code) map[material.code] = material;
+    });
+    return map;
+  }, [materials]);
+
   const filteredContainerEntries = useMemo(() => {
     return (opnameHistory as any[])
       ?.map((entry) => ({
         ...entry,
         entryDate: toDateValue(entry.date),
-        items: (entry.items || []).map((item: any) => ({
-          ...item,
-          beforeBulk: Number(item.before?.qtyKontainerBesar || 0),
-          beforeAktif: Number(item.before?.qtyKontainerKecil || 0),
-          afterBulk: Number(item.after?.qtyKontainerBesar || 0),
-          afterAktif: Number(item.after?.qtyKontainerKecil || 0),
-          diffBulk: Number(item.after?.qtyKontainerBesar || 0) - Number(item.before?.qtyKontainerBesar || 0),
-          diffAktif: Number(item.after?.qtyKontainerKecil || 0) - Number(item.before?.qtyKontainerKecil || 0),
-        })),
+        items: (entry.items || []).map((item: any) => {
+          const material = materialMap[item.id] || materialMap[item.code] || null;
+          return {
+            ...item,
+            beforeBulk: Number(item.before?.qtyKontainerBesar || 0),
+            beforeAktif: Number(item.before?.qtyKontainerKecil || 0),
+            afterBulk: Number(item.after?.qtyKontainerBesar || 0),
+            afterAktif: Number(item.after?.qtyKontainerKecil || 0),
+            diffBulk: Number(item.after?.qtyKontainerBesar || 0) - Number(item.before?.qtyKontainerBesar || 0),
+            diffAktif: Number(item.after?.qtyKontainerKecil || 0) - Number(item.before?.qtyKontainerKecil || 0),
+            unitBulk: material?.satuanBesar || "",
+            unitAktif: material?.satuanKecil || "",
+          };
+        }),
       }))
       .filter((entry) => {
         const date = entry.entryDate;
@@ -103,7 +143,7 @@ export default function LaporanStockOpnamePage() {
         }
         return true;
       }) || [];
-  }, [opnameHistory, selectedDate, selectedMonth]);
+  }, [opnameHistory, selectedDate, selectedMonth, materialMap]);
 
   const warehouseRows = useMemo(() => {
     return filteredMaterials.map((item: any) => ({
@@ -124,6 +164,90 @@ export default function LaporanStockOpnamePage() {
     setSelectedMonth("");
   };
 
+  const handleExportExcel = () => {
+    const warehouseRowsExport = [
+      {
+        status: "Belum ada data stock opname gudang",
+        catatan: "Silakan lakukan stock opname gudang terlebih dahulu.",
+      },
+    ];
+
+    const containerRowsExport = filteredContainerEntries.flatMap((entry: any) =>
+      (entry.items || []).map((item: any) => ({
+        tanggal: formatDateLabel(entry.entryDate),
+        kode: item.code,
+        nama: item.nama,
+        sebelumBulk: item.beforeBulk,
+        satuanBulk: item.unitBulk || "-",
+        sebelumAktif: item.beforeAktif,
+        satuanAktif: item.unitAktif || "-",
+        sesudahBulk: item.afterBulk,
+        sesudahAktif: item.afterAktif,
+        selisih: formatCombinedDifference(item),
+      }))
+    );
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(warehouseRowsExport), "Gudang");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(containerRowsExport), "Kontainer");
+    XLSX.writeFile(wb, `Laporan_Stock_Opname_${new Date().toISOString().split("T")[0]}.xlsx`);
+  };
+
+  const handleExportPDF = async () => {
+    const docPDF = new jsPDF("p", "mm", "a4");
+
+    if (settings?.logoHeader) {
+      try {
+        const response = await fetch(settings.logoHeader);
+        const blob = await response.blob();
+        const logoBase64 = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(blob);
+        });
+        docPDF.addImage(logoBase64 as string, "PNG", 15, 10, 35, 12);
+      } catch (error) {
+        console.error("Failed to load logo for PDF", error);
+      }
+    }
+
+    docPDF.setFontSize(16);
+    docPDF.setTextColor(15, 23, 42);
+    docPDF.text("LAPORAN STOCK OPNAME", 105, 20, { align: "center" });
+    docPDF.setFontSize(10);
+    docPDF.text(`Periode: ${selectedDate || selectedMonth || "Semua"}`, 105, 28, { align: "center" });
+    docPDF.setDrawColor(203, 213, 225);
+    docPDF.line(15, 34, 195, 34);
+
+    docPDF.setFontSize(12);
+    docPDF.setTextColor(15, 23, 42);
+    docPDF.text("Stock Opname Gudang", 15, 42);
+    docPDF.setFontSize(10);
+    docPDF.text("Belum ada data stock opname gudang. Silakan lakukan stock opname gudang terlebih dahulu.", 15, 50);
+
+    autoTable(docPDF, {
+      head: [["Tanggal", "Kode", "Nama", "Sebelum Bulk", "Sebelum Aktif", "Sesudah Bulk", "Sesudah Aktif", "Selisih"]],
+      body: filteredContainerEntries.flatMap((entry: any) =>
+        (entry.items || []).map((item: any) => [
+          formatDateLabel(entry.entryDate),
+          item.code,
+          item.nama,
+          `${item.beforeBulk} ${item.unitBulk || "-"}`,
+          `${item.beforeAktif} ${item.unitAktif || "-"}`,
+          `${item.afterBulk} ${item.unitBulk || "-"}`,
+          `${item.afterAktif} ${item.unitAktif || "-"}`,
+          formatCombinedDifference(item),
+        ])
+      ),
+      startY: 60,
+      theme: "grid",
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [15, 23, 42] },
+    });
+
+    docPDF.save(`Laporan_Stock_Opname_${new Date().toISOString().split("T")[0]}.pdf`);
+  };
+
   return (
     <div className="space-y-6 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-700">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -136,6 +260,20 @@ export default function LaporanStockOpnamePage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
+          <Button
+            variant="outline"
+            onClick={handleExportExcel}
+            className="h-12 rounded-2xl border-slate-200 bg-white px-4 text-[10px] font-black uppercase tracking-widest"
+          >
+            <FileSpreadsheet className="mr-2 h-4 w-4 text-emerald-600" /> Excel
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleExportPDF}
+            className="h-12 rounded-2xl border-slate-200 bg-white px-4 text-[10px] font-black uppercase tracking-widest"
+          >
+            <FileDown className="mr-2 h-4 w-4 text-primary" /> PDF
+          </Button>
           <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
             <label className="mb-1 block text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">
               Pilih Tanggal
@@ -208,45 +346,16 @@ export default function LaporanStockOpnamePage() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="min-w-full text-left">
-                <thead className="bg-slate-50/70">
-                  <tr>
-                    <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Kode</th>
-                    <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Nama Bahan</th>
-                    <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Gudang</th>
-                    <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Bulk Kontainer</th>
-                    <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Aktif Kontainer</th>
-                    <th className="px-4 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loadingMaterials ? (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-500">
-                        <RefreshCcw className="mx-auto mb-3 h-6 w-6 animate-spin text-primary opacity-20" />
-                        Memuat data stok gudang...
-                      </td>
-                    </tr>
-                  ) : warehouseRows.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-500">
-                        Tidak ada data stok gudang.
-                      </td>
-                    </tr>
-                  ) : (
-                    warehouseRows.map((item) => (
-                      <tr key={item.id} className="border-t border-slate-50 hover:bg-slate-50/50">
-                        <td className="px-4 py-4 text-sm font-black text-slate-700">{item.code}</td>
-                        <td className="px-4 py-4 text-sm font-bold text-slate-900">{item.nama}</td>
-                        <td className="px-4 py-4 text-right text-sm font-black text-slate-700">{formatNumber(item.qtyBesar)} {item.satuanBesar}</td>
-                        <td className="px-4 py-4 text-right text-sm font-black text-slate-700">{formatNumber(item.qtyKontainerBesar)} {item.satuanBesar}</td>
-                        <td className="px-4 py-4 text-right text-sm font-black text-slate-700">{formatNumber(item.qtyKontainerKecil)} {item.satuanKecil}</td>
-                        <td className="px-4 py-4 text-right text-sm font-black text-primary">{formatNumber(item.total)} {item.satuanBesar}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+              {loadingMaterials ? (
+                <div className="px-6 py-16 text-center text-sm text-slate-500">
+                  <RefreshCcw className="mx-auto mb-3 h-6 w-6 animate-spin text-primary opacity-20" />
+                  Memuat data stok gudang...
+                </div>
+              ) : (
+                <div className="px-6 py-16 text-center text-sm text-slate-500">
+                  Belum ada hasil stock opname gudang untuk periode ini. Silakan lakukan stock opname gudang terlebih dahulu.
+                </div>
+              )}
             </div>
           </Card>
         </TabsContent>
@@ -316,14 +425,22 @@ export default function LaporanStockOpnamePage() {
                             <tr key={`${entry.id}-${item.id}`} className="border-t border-slate-100 bg-white/70">
                               <td className="px-3 py-3 text-sm font-black text-slate-700">{item.code}</td>
                               <td className="px-3 py-3 text-sm font-bold text-slate-900">{item.nama}</td>
-                              <td className="px-3 py-3 text-right text-sm font-semibold text-slate-700">{formatNumber(item.beforeBulk)}</td>
-                              <td className="px-3 py-3 text-right text-sm font-semibold text-slate-700">{formatNumber(item.beforeAktif)}</td>
-                              <td className="px-3 py-3 text-right text-sm font-semibold text-slate-700">{formatNumber(item.afterBulk)}</td>
-                              <td className="px-3 py-3 text-right text-sm font-semibold text-slate-700">{formatNumber(item.afterAktif)}</td>
+                              <td className="px-3 py-3 text-right text-sm font-semibold text-slate-700">
+                                {formatNumber(item.beforeBulk)} {item.unitBulk || ""}
+                              </td>
+                              <td className="px-3 py-3 text-right text-sm font-semibold text-slate-700">
+                                {formatNumber(item.beforeAktif)} {item.unitAktif || ""}
+                              </td>
+                              <td className="px-3 py-3 text-right text-sm font-semibold text-slate-700">
+                                {formatNumber(item.afterBulk)} {item.unitBulk || ""}
+                              </td>
+                              <td className="px-3 py-3 text-right text-sm font-semibold text-slate-700">
+                                {formatNumber(item.afterAktif)} {item.unitAktif || ""}
+                              </td>
                               <td className={`px-3 py-3 text-right text-sm font-black ${item.diffBulk + item.diffAktif >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
                                 <div className="flex items-center justify-end gap-1">
                                   {item.diffBulk + item.diffAktif >= 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
-                                  {formatNumber(item.diffBulk + item.diffAktif)}
+                                  {formatCombinedDifference(item)}
                                 </div>
                               </td>
                             </tr>
