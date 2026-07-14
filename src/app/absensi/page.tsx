@@ -126,11 +126,17 @@ export default function AbsensiKaryawanPage() {
     }
   }, [fetchAttendanceData]);
 
+  // Clock tick — setState inside a callback, not the effect body directly
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // One-time initialization: restore session + load location config
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => {
     checkPersistedUser();
     fetchConfig();
-    return () => clearInterval(timer);
   }, [checkPersistedUser, fetchConfig]);
 
 

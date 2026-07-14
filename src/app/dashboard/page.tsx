@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useMemo } from "react";
 import { 
   TrendingUp,
   MoreHorizontal,
@@ -36,12 +36,15 @@ import Link from "next/link";
 import { getTotalAvailableQty, getAverageCost, calculateRecipeIngredientCost } from "@/lib/hpp";
 
 export default function DashboardPage() {
-  const [mounted, setMounted] = useState(false);
   const db = useFirestore();
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  // --- Local types for stats computation ---
+  interface ProdukDoc { id: string; code?: string; [k: string]: unknown; }
+  interface KomposisiItem { bahanBakuId?: string; [k: string]: unknown; }
+  interface ResepDoc { produkId?: string; komposisi?: KomposisiItem[]; [k: string]: unknown; }
+  interface BahanBakuDoc { id: string; qtyKontainerBesar?: unknown; qtyKontainerKecil?: unknown; qtyKecil?: unknown; [k: string]: unknown; }
+  interface PenjualanItem { code?: string; total?: number; [k: string]: unknown; }
+  interface PenjualanLog { tanggal: string; total?: number; items?: PenjualanItem[]; [k: string]: unknown; }
 
   const penjualanQuery = useMemoFirebase(() => 
     query(collection(db, "penjualan"), orderBy("tanggal", "desc"), limit(100)), 
@@ -97,28 +100,28 @@ export default function DashboardPage() {
 
     // 3. Estimasi Pemakaian Bahan (HPP berdasarkan Resep vs Harga Bahan)
     const productCodeMap: Record<string, string> = {};
-    (produkData as any[])?.forEach((product: any) => {
+    (produkData as ProdukDoc[])?.forEach((product) => {
       if (product.code) productCodeMap[product.code] = product.id;
     });
 
-    const recipeMap: Record<string, any[]> = {};
-    (resepData as any[])?.forEach((recipe: any) => {
+    const recipeMap: Record<string, KomposisiItem[]> = {};
+    (resepData as ResepDoc[])?.forEach((recipe) => {
       if (recipe.produkId) recipeMap[recipe.produkId] = recipe.komposisi || [];
     });
 
-    const materialMap: Record<string, any> = {};
-    (bahanBakuData as any[])?.forEach((material: any) => {
+    const materialMap: Record<string, BahanBakuDoc> = {};
+    (bahanBakuData as BahanBakuDoc[])?.forEach((material) => {
       materialMap[material.id] = material;
     });
 
     let totalHppMonth = 0;
-    const thisMonthSales = penjualanData?.filter(p => p.tanggal.startsWith(thisMonth)) || [];
-    thisMonthSales.forEach((closing: any) => {
-      closing.items?.forEach((item: any) => {
+    const thisMonthSales = (penjualanData as PenjualanLog[])?.filter(p => p.tanggal.startsWith(thisMonth)) || [];
+    thisMonthSales.forEach((closing) => {
+      closing.items?.forEach((item) => {
         const qty = Number(item.total || 0);
         const productId = productCodeMap[item.code];
         const recipe = recipeMap[productId] || [];
-        recipe.forEach((ingredient: any) => {
+        recipe.forEach((ingredient: KomposisiItem) => {
           const material = materialMap[ingredient?.bahanBakuId];
           totalHppMonth += calculateRecipeIngredientCost(ingredient, material, qty);
         });
@@ -132,8 +135,8 @@ export default function DashboardPage() {
     const lowStockItems = bahanBakuData
       ?.filter(b => (b.qtyBesar || 0) <= (Number(b.qtyMinGudang ?? b.qtyMin ?? 5))) || [];
 
-    const getMinStockKontainer = (item: any) => Number(item.qtyMinKontainer ?? item.qtyMin ?? 5);
-    const getKontainerTotal = (item: any) => {
+    const getMinStockKontainer = (item: BahanBakuDoc) => Number((item as Record<string, unknown>).qtyMinKontainer ?? (item as Record<string, unknown>).qtyMin ?? 5);
+    const getKontainerTotal = (item: BahanBakuDoc) => {
       const qtyBulk = Number(item.qtyKontainerBesar || 0);
       const qtyAktif = Number(item.qtyKontainerKecil || 0);
       const konversi = Number(item.qtyKecil || 1);

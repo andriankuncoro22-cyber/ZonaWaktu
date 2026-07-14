@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useRef, useMemo } from "react";
+import React, { useState, useRef, useMemo } from "react";
 import Link from "next/link";
 import { 
   Calendar as CalendarIcon,
@@ -11,11 +11,8 @@ import {
   Wallet,
   ShoppingBag,
   Loader2,
-  Plus,
   Save,
-  Layers,
   History,
-  X,
   ArrowRight,
   ArrowLeft,
   CheckCheck,
@@ -26,7 +23,6 @@ import { Card } from "@/components/ui/card";
 import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { 
   collection, 
-  addDoc, 
   serverTimestamp, 
   query, 
   orderBy, 
@@ -36,19 +32,12 @@ import {
   where, 
   getDocs, 
   writeBatch,
-  increment,
   getDoc
 } from "firebase/firestore";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
 import { useToast } from "@/hooks/use-toast";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import {
@@ -93,7 +82,9 @@ export default function EmployeeClosingTokoPage({
   const db = useFirestore();
   const { toast } = useToast();
   const isOwnerView = variant === "owner";
-  const [selectedDate, setSelectedDate] = useState("");
+  const [selectedDate, setSelectedDate] = useState(
+    new Date().toISOString().split('T')[0]
+  );
   const [saving, setSaving] = useState(false);
   const [activeStep, setActiveStep] = useState(1);
   const [uploadedExcelReport, setUploadedExcelReport] = useState<UploadedExcelReport | null>(null);
@@ -104,12 +95,8 @@ export default function EmployeeClosingTokoPage({
     otherTotal: 0,
   });
 
-  useEffect(() => {
-    setSelectedDate(new Date().toISOString().split('T')[0]);
-  }, []);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [isProduksiOpen, setIsProduksiOpen] = useState(false);
   const [productionBatch, setProductionBatch] = useState<ProductionBatchItem[]>([
     { resepId: "", qty: 1 }
   ]);
@@ -124,7 +111,7 @@ export default function EmployeeClosingTokoPage({
     query(collection(db, "penjualan"), where("tanggal", "==", selectedDate)), 
     [db, selectedDate]
   );
-  const { data: currentDayData, loading: loadingCurrentDay } = useCollection(selectedDateQuery);
+  const { data: currentDayData } = useCollection(selectedDateQuery);
 
   const historyQuery = useMemoFirebase(() => 
     query(collection(db, "penjualan"), orderBy("createdAt", "desc"), limit(10)), 
@@ -139,8 +126,9 @@ export default function EmployeeClosingTokoPage({
   const { data: keuanganHistoryList } = useCollection(keuanganHistoryQuery);
 
   const ownerHistoryList = useMemo(() => {
-    const closingEntries = (historyList || []).map((item: any) => ({ ...item, kind: "closing" }));
-    const keuanganEntries = (keuanganHistoryList || []).map((item: any) => ({ ...item, kind: "keuangan" }));
+    interface FirestoreDoc { createdAt?: { seconds?: number }; [k: string]: unknown; }
+    const closingEntries = (historyList || []).map((item) => ({ ...(item as FirestoreDoc), kind: "closing" }));
+    const keuanganEntries = (keuanganHistoryList || []).map((item) => ({ ...(item as FirestoreDoc), kind: "keuangan" }));
     return [...closingEntries, ...keuanganEntries].sort((a, b) => {
       const timeA = a.createdAt?.seconds || 0;
       const timeB = b.createdAt?.seconds || 0;

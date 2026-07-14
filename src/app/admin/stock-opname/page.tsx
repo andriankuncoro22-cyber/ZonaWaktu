@@ -4,7 +4,6 @@ import React, { useState, useEffect, useMemo } from "react";
 import { 
   Search, 
   RefreshCcw,
-  CheckCircle2,
   AlertCircle,
   Archive,
   Layers,
@@ -15,6 +14,41 @@ import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, query, orderBy, doc, writeBatch, addDoc, serverTimestamp } from "firebase/firestore";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+// --- Types ---
+interface BahanBaku {
+  id: string;
+  code?: string;
+  nama?: string;
+  satuanBesar?: string;
+  satuanKecil?: string;
+  qtyBesar?: number | string;
+  qtyKontainerBesar?: number | string;
+  qtyKontainerKecil?: number | string;
+  qtyKecil?: number | string;
+  gramPerBesar?: number | string;
+  beratBungkusProduk?: number | string;
+  [key: string]: unknown;
+}
+
+interface HistoryItem {
+  id?: string;
+  nama?: string;
+  code?: string;
+  unitBesar?: string;
+  beforeQtyBesar?: number;
+  afterQtyBesar?: number;
+  diffQtyBesar?: number;
+  before?: { qtyKontainerBesar?: number; qtyKontainerKecil?: number };
+  after?: { qtyKontainerBesar?: number; qtyKontainerKecil?: number };
+}
+
+interface HistoryLog {
+  id: string;
+  date?: { toDate?: () => Date };
+  note?: string;
+  items?: HistoryItem[];
+}
 
 export default function AdminStockOpnamePage() {
   const db = useFirestore();
@@ -49,18 +83,18 @@ export default function AdminStockOpnamePage() {
   const { data: historiesKontainer } = useCollection(containerHistoryQuery);
 
   // Helpers for grams conversion
-  const getUnitWeight = (item: any) => {
+  const getUnitWeight = (item: BahanBaku) => {
     const gramPerBesar = Number(item.gramPerBesar || 0);
     const konversi = Number(item.qtyKecil || 1);
     return konversi > 0 ? gramPerBesar / konversi : 0;
   };
 
-  const getTotalWeightFromAktif = (item: any, aktifQty: number) => {
+  const getTotalWeightFromAktif = (item: BahanBaku, aktifQty: number) => {
     const beratBungkus = Number(item.beratBungkusProduk || 0);
     return Number(aktifQty || 0) * getUnitWeight(item) + beratBungkus;
   };
 
-  const getAktifFromGrams = (item: any, gramsValue: number) => {
+  const getAktifFromGrams = (item: BahanBaku, gramsValue: number) => {
     const beratBungkus = Number(item.beratBungkusProduk || 0);
     const netGrams = Math.max(0, Number(gramsValue || 0) - beratBungkus);
     const unitWeight = getUnitWeight(item);
@@ -70,20 +104,22 @@ export default function AdminStockOpnamePage() {
   // Filter ingredients
   const filteredMaterials = useMemo(() => {
     if (!materials) return [];
-    return (materials as any[]).filter(item => 
+    return (materials as BahanBaku[]).filter(item => 
       item.nama?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.code?.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [materials, searchTerm]);
 
-  // Initialize inputs on load or when materials change
+  // Initialize inputs when materials load — eslint-disable needed because
+  // setState is called inside effect body (valid data-sync pattern here).
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
     if (!materials) return;
     const initialWarehouse: Record<string, number> = {};
     const initialKontainer: Record<string, { aktif: number; grams: number }> = {};
     const initialBulk: Record<string, number> = {};
 
-    (materials as any[]).forEach(it => {
+    (materials as BahanBaku[]).forEach(it => {
       // Warehouse
       initialWarehouse[it.id] = Number(it.qtyBesar || 0);
 
@@ -97,7 +133,7 @@ export default function AdminStockOpnamePage() {
     setWarehouseInputs(initialWarehouse);
     setKontainerInputs(initialKontainer);
     setBulkInputs(initialBulk);
-  }, [materials]);
+  }, [materials, getTotalWeightFromAktif]);
 
   // Handle finalization for warehouse
   const handleFinalizeGudang = async () => {
@@ -108,9 +144,9 @@ export default function AdminStockOpnamePage() {
     setProcessing(true);
     try {
       const batch = writeBatch(db);
-      const historyItems: any[] = [];
+      const historyItems: HistoryItem[] = [];
 
-      (materials as any[] || []).forEach((it: any) => {
+      (materials as BahanBaku[] || []).forEach((it) => {
         const beforeQty = Number(it.qtyBesar || 0);
         const afterQty = warehouseInputs[it.id] !== undefined ? Number(warehouseInputs[it.id]) : beforeQty;
 
@@ -154,9 +190,9 @@ export default function AdminStockOpnamePage() {
     setProcessing(true);
     try {
       const batch = writeBatch(db);
-      const historyItems: any[] = [];
+      const historyItems: HistoryItem[] = [];
 
-      (materials as any[] || []).forEach((it: any) => {
+      (materials as BahanBaku[] || []).forEach((it) => {
         const beforeBulk = Number(it.qtyKontainerBesar || 0);
         const beforeAktif = Number(it.qtyKontainerKecil || 0);
         const afterBulk = bulkInputs[it.id] !== undefined ? Number(bulkInputs[it.id]) : beforeBulk;
@@ -260,7 +296,7 @@ export default function AdminStockOpnamePage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {filteredMaterials.map((item: any) => (
+                    {filteredMaterials.map((item) => (
                       <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-10 py-6">
                           <p className="text-[10px] font-bold text-primary mb-1">{item.code}</p>
@@ -369,7 +405,7 @@ export default function AdminStockOpnamePage() {
                     Belum ada histori opname kontainer.
                   </div>
                 ) : (
-                  historiesKontainer.slice(0, 5).map((h: any) => (
+                  (historiesKontainer as HistoryLog[]).slice(0, 5).map((h) => (
                     <div key={h.id} className="rounded-2xl border border-slate-100 bg-slate-50/40 p-6 space-y-4">
                       <div className="flex justify-between items-center">
                         <div>
@@ -394,7 +430,7 @@ export default function AdminStockOpnamePage() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-50">
-                            {(h.items || []).map((it: any, idx: number) => (
+                            {(h.items || []).map((it, idx) => (
                               <tr key={idx}>
                                 <td className="px-4 py-3 font-bold text-slate-900 uppercase italic">
                                   {it.nama}
@@ -442,7 +478,7 @@ export default function AdminStockOpnamePage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {filteredMaterials.map((item: any) => (
+                    {filteredMaterials.map((item) => (
                       <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-10 py-6">
                           <p className="text-[10px] font-bold text-primary mb-1">{item.code}</p>
@@ -505,7 +541,7 @@ export default function AdminStockOpnamePage() {
                     Belum ada histori opname gudang.
                   </div>
                 ) : (
-                  historiesGudang.slice(0, 5).map((h: any) => (
+                  (historiesGudang as HistoryLog[]).slice(0, 5).map((h) => (
                     <div key={h.id} className="rounded-2xl border border-slate-100 bg-slate-50/40 p-6 space-y-4">
                       <div className="flex justify-between items-center">
                         <div>
@@ -531,7 +567,7 @@ export default function AdminStockOpnamePage() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-50">
-                            {(h.items || []).filter((it: any) => it.diffQtyBesar !== 0).map((it: any, idx: number) => (
+                            {(h.items || []).filter((it) => it.diffQtyBesar !== 0).map((it, idx) => (
                               <tr key={idx}>
                                 <td className="px-4 py-3 font-bold text-slate-900 uppercase italic">
                                   {it.nama}
@@ -547,7 +583,7 @@ export default function AdminStockOpnamePage() {
                                 </td>
                               </tr>
                             ))}
-                            {(h.items || []).filter((it: any) => it.diffQtyBesar !== 0).length === 0 && (
+                            {(h.items || []).filter((it) => it.diffQtyBesar !== 0).length === 0 && (
                               <tr>
                                 <td colSpan={4} className="px-4 py-3 text-center text-slate-400 font-bold">
                                   Tidak ada selisih stok fisik vs sistem.

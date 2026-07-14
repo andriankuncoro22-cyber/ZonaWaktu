@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useMemo } from "react";
 import { 
   TrendingUp,
   MoreHorizontal,
@@ -28,12 +28,8 @@ import { collection, query, orderBy, limit, where } from "firebase/firestore";
 import Link from "next/link";
 
 export default function DashboardPage() {
-  const [mounted, setMounted] = useState(false);
-  const db = useFirestore();
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const db = useFirestore();
 
   const penjualanQuery = useMemoFirebase(() => 
     query(collection(db, "penjualan"), orderBy("tanggal", "desc"), limit(100)), 

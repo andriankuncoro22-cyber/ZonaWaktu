@@ -24,12 +24,79 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { cn } from "@/lib/utils";
 
+// --- Types ---
+interface FirestoreTimestamp {
+  toDate?: () => Date;
+  seconds?: number;
+}
+
+interface BahanBaku {
+  id: string;
+  code?: string;
+  nama?: string;
+  satuanBesar?: string;
+  satuanKecil?: string;
+  qtyBesar?: number | string;
+  qtyKontainerBesar?: number | string;
+  qtyKontainerKecil?: number | string;
+  [key: string]: unknown;
+}
+
+interface RawOpnameItem {
+  id?: string;
+  code?: string;
+  nama?: string;
+  unitBesar?: string;
+  beforeQtyBesar?: number;
+  afterQtyBesar?: number;
+  diffQtyBesar?: number;
+  before?: { qtyKontainerBesar?: number; qtyKontainerKecil?: number };
+  after?: { qtyKontainerBesar?: number; qtyKontainerKecil?: number };
+  [key: string]: unknown;
+}
+
+interface RawOpnameEntry {
+  id: string;
+  date?: FirestoreTimestamp | Date | string;
+  note?: string;
+  items?: RawOpnameItem[];
+  [key: string]: unknown;
+}
+
+interface EnrichedContainerItem extends RawOpnameItem {
+  beforeBulk: number;
+  beforeAktif: number;
+  afterBulk: number;
+  afterAktif: number;
+  diffBulk: number;
+  diffAktif: number;
+  unitBulk: string;
+  unitAktif: string;
+}
+
+interface EnrichedContainerEntry extends RawOpnameEntry {
+  entryDate: Date | null;
+  items: EnrichedContainerItem[];
+}
+
+interface EnrichedWarehouseItem extends RawOpnameItem {
+  beforeQtyBesar: number;
+  afterQtyBesar: number;
+  diffQtyBesar: number;
+  unitBesar: string;
+}
+
+interface EnrichedWarehouseEntry extends RawOpnameEntry {
+  entryDate: Date | null;
+  items: EnrichedWarehouseItem[];
+}
+
 const formatNumber = (value: number | string | undefined) => {
   const num = Number(value || 0);
   return new Intl.NumberFormat("id-ID").format(num);
 };
 
-const formatCombinedDifference = (item: any) => {
+const formatCombinedDifference = (item: EnrichedContainerItem) => {
   const diffBulk = Number(item?.diffBulk || 0);
   const diffAktif = Number(item?.diffAktif || 0);
   const totalDiff = diffBulk + diffAktif;
@@ -49,7 +116,7 @@ const formatCombinedDifference = (item: any) => {
   return parts.join(" ");
 };
 
-const toDateValue = (value: any) => {
+const toDateValue = (value: FirestoreTimestamp | Date | string | null | undefined): Date | null => {
   if (!value) return null;
   if (value instanceof Date) return value;
   if (typeof value?.toDate === "function") return value.toDate();
@@ -59,7 +126,7 @@ const toDateValue = (value: any) => {
   return new Date(value);
 };
 
-const formatDateLabel = (value: any) => {
+const formatDateLabel = (value: FirestoreTimestamp | Date | string | null | undefined) => {
   const date = toDateValue(value);
   if (!date || Number.isNaN(date.getTime())) return "-";
   return new Intl.DateTimeFormat("id-ID", {
@@ -69,7 +136,7 @@ const formatDateLabel = (value: any) => {
   }).format(date);
 };
 
-const getMonthKey = (value: any) => {
+const getMonthKey = (value: FirestoreTimestamp | Date | string | null | undefined) => {
   const date = toDateValue(value);
   if (!date || Number.isNaN(date.getTime())) return "";
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
@@ -105,7 +172,7 @@ export default function LaporanStockOpnamePage() {
 
   const filteredMaterials = useMemo(() => {
     const term = searchTerm.toLowerCase();
-    return (materials as any[])?.filter((item) => {
+    return (materials as BahanBaku[])?.filter((item) => {
       return (
         item.nama?.toLowerCase().includes(term) ||
         item.code?.toLowerCase().includes(term)
@@ -114,21 +181,21 @@ export default function LaporanStockOpnamePage() {
   }, [materials, searchTerm]);
 
   const materialMap = useMemo(() => {
-    const map: Record<string, any> = {};
-    (materials as any[])?.forEach((material) => {
+    const map: Record<string, BahanBaku> = {};
+    (materials as BahanBaku[])?.forEach((material) => {
       if (material?.id) map[material.id] = material;
       if (material?.code) map[material.code] = material;
     });
     return map;
   }, [materials]);
 
-  const filteredContainerEntries = useMemo(() => {
-    return (opnameHistory as any[])
+  const filteredContainerEntries = useMemo((): EnrichedContainerEntry[] => {
+    return (opnameHistory as RawOpnameEntry[])
       ?.map((entry) => ({
         ...entry,
         entryDate: toDateValue(entry.date),
-        items: (entry.items || []).map((item: any) => {
-          const material = materialMap[item.id] || materialMap[item.code] || null;
+        items: (entry.items || []).map((item): EnrichedContainerItem => {
+          const material = materialMap[item.id ?? ""] || materialMap[item.code ?? ""] || null;
           return {
             ...item,
             beforeBulk: Number(item.before?.qtyKontainerBesar || 0),
@@ -137,8 +204,8 @@ export default function LaporanStockOpnamePage() {
             afterAktif: Number(item.after?.qtyKontainerKecil || 0),
             diffBulk: Number(item.after?.qtyKontainerBesar || 0) - Number(item.before?.qtyKontainerBesar || 0),
             diffAktif: Number(item.after?.qtyKontainerKecil || 0) - Number(item.before?.qtyKontainerKecil || 0),
-            unitBulk: material?.satuanBesar || "",
-            unitAktif: material?.satuanKecil || "",
+            unitBulk: material?.satuanBesar ?? "",
+            unitAktif: material?.satuanKecil ?? "",
           };
         }),
       }))
@@ -158,12 +225,12 @@ export default function LaporanStockOpnamePage() {
       }) || [];
   }, [opnameHistory, selectedDate, selectedMonth, materialMap, opnameSource]);
 
-  const filteredWarehouseEntries = useMemo(() => {
-    return (warehouseHistory as any[])
+  const filteredWarehouseEntries = useMemo((): EnrichedWarehouseEntry[] => {
+    return (warehouseHistory as RawOpnameEntry[])
       ?.map((entry) => ({
         ...entry,
         entryDate: toDateValue(entry.date),
-        items: (entry.items || []).map((item: any) => {
+        items: (entry.items || []).map((item): EnrichedWarehouseItem => {
           return {
             ...item,
             beforeQtyBesar: Number(item.beforeQtyBesar || 0),
@@ -190,7 +257,7 @@ export default function LaporanStockOpnamePage() {
   }, [warehouseHistory, selectedDate, selectedMonth, opnameSource]);
 
   const warehouseRows = useMemo(() => {
-    return filteredMaterials.map((item: any) => ({
+    return filteredMaterials.map((item) => ({
       id: item.id,
       code: item.code,
       nama: item.nama,
@@ -209,8 +276,8 @@ export default function LaporanStockOpnamePage() {
   };
 
   const handleExportExcel = () => {
-    const warehouseRowsExport = filteredWarehouseEntries.flatMap((entry: any) =>
-      (entry.items || []).map((item: any) => ({
+    const warehouseRowsExport = filteredWarehouseEntries.flatMap((entry) =>
+      (entry.items || []).map((item) => ({
         tanggal: formatDateLabel(entry.entryDate),
         kode: item.code,
         nama: item.nama,
@@ -227,11 +294,11 @@ export default function LaporanStockOpnamePage() {
         sebelum: 0,
         sesudah: 0,
         selisih: "-"
-      } as any);
+      };
     }
 
-    const containerRowsExport = filteredContainerEntries.flatMap((entry: any) =>
-      (entry.items || []).map((item: any) => ({
+    const containerRowsExport = filteredContainerEntries.flatMap((entry) =>
+      (entry.items || []).map((item) => ({
         tanggal: formatDateLabel(entry.entryDate),
         kode: item.code,
         nama: item.nama,
@@ -281,8 +348,8 @@ export default function LaporanStockOpnamePage() {
     docPDF.setTextColor(15, 23, 42);
     docPDF.text("Stock Opname Gudang", 15, 42);
 
-    const warehouseRowsPDF = filteredWarehouseEntries.flatMap((entry: any) =>
-      (entry.items || []).map((item: any) => [
+    const warehouseRowsPDF = filteredWarehouseEntries.flatMap((entry) =>
+      (entry.items || []).map((item) => [
         formatDateLabel(entry.entryDate),
         item.code,
         item.nama,
@@ -315,8 +382,8 @@ export default function LaporanStockOpnamePage() {
 
     autoTable(docPDF, {
       head: [["Tanggal", "Kode", "Nama", "Sebelum Bulk", "Sebelum Aktif", "Sesudah Bulk", "Sesudah Aktif", "Selisih"]],
-      body: filteredContainerEntries.flatMap((entry: any) =>
-        (entry.items || []).map((item: any) => [
+      body: filteredContainerEntries.flatMap((entry) =>
+        (entry.items || []).map((item) => [
           formatDateLabel(entry.entryDate),
           item.code,
           item.nama,
@@ -467,7 +534,7 @@ export default function LaporanStockOpnamePage() {
               </div>
             ) : (
               <div className="space-y-4 p-4 md:p-6">
-                {filteredContainerEntries.map((entry: any) => (
+                {filteredContainerEntries.map((entry) => (
                   <div key={entry.id} className="rounded-[1.5rem] border border-slate-100 bg-slate-50/60 p-4">
                     <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                       <div>
@@ -497,7 +564,7 @@ export default function LaporanStockOpnamePage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {entry.items.map((item: any) => (
+                          {entry.items.map((item) => (
                             <tr key={`${entry.id}-${item.id}`} className="border-t border-slate-100 bg-white/70">
                               <td className="px-3 py-3 text-sm font-black text-slate-700">{item.code}</td>
                               <td className="px-3 py-3 text-sm font-bold text-slate-900">{item.nama}</td>
@@ -566,7 +633,7 @@ export default function LaporanStockOpnamePage() {
                 </div>
               ) : (
                 <div className="space-y-4 p-4 md:p-6">
-                  {filteredWarehouseEntries.map((entry: any) => (
+                  {filteredWarehouseEntries.map((entry) => (
                     <div key={entry.id} className="rounded-[1.5rem] border border-slate-100 bg-slate-50/60 p-4">
                       <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                         <div>
@@ -594,7 +661,7 @@ export default function LaporanStockOpnamePage() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
-                            {entry.items.map((item: any) => (
+                            {entry.items.map((item) => (
                               <tr key={`${entry.id}-${item.id}`} className="hover:bg-slate-50/50">
                                 <td className="px-4 py-3 text-sm font-black text-slate-700">{item.code}</td>
                                 <td className="px-4 py-3 text-sm font-bold text-slate-900 uppercase italic">{item.nama}</td>
