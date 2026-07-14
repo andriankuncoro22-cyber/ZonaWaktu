@@ -138,8 +138,10 @@ export default function AbsensiKaryawanPage() {
 
   // One-time initialization: restore session + load location config
   useEffect(() => {
-    checkPersistedUser();
-    fetchConfig();
+    queueMicrotask(() => {
+      checkPersistedUser();
+      fetchConfig();
+    });
   }, [checkPersistedUser, fetchConfig]);
 
 

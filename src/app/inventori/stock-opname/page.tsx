@@ -84,8 +84,10 @@ export default function StockOpnamePage() {
       next[it.id] = { aktif, grams };
       nextBulk[it.id] = Number(it.qtyKontainerBesar || 0);
     });
-    setKontainerInputs(next);
-    setBulkInputs(nextBulk);
+    queueMicrotask(() => {
+      setKontainerInputs(next);
+      setBulkInputs(nextBulk);
+    });
   }, [materials, searchTerm]);
 
   const formatTotalStock = (item: any) => {
