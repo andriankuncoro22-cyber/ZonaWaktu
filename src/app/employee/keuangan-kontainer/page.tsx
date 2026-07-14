@@ -48,6 +48,16 @@ export default function EmployeeKeuanganKontainerPage() {
   );
   const { data: purchaseLogs } = useCollection(purchaseQuery);
 
+  const keuanganQuery = useMemoFirebase(
+    () => query(collection(db, "keuangan-kontainer"), where("tanggal", "==", selectedDate)),
+    [db, selectedDate]
+  );
+  const { data: keuanganLogs, loading: loadingKeuangan } = useCollection(keuanganQuery);
+
+  const hasClosedToday = useMemo(() => {
+    return !loadingKeuangan && keuanganLogs && keuanganLogs.length > 0;
+  }, [keuanganLogs, loadingKeuangan]);
+
   const dailyClosing = useMemo(() => {
     if (!closingLogs || closingLogs.length === 0) return null;
     return closingLogs[0];
@@ -165,127 +175,145 @@ export default function EmployeeKeuanganKontainerPage() {
         </div>
       </div>
 
-      <Card className="overflow-hidden rounded-[2rem] border-none bg-white shadow-sm">
-        <div className="border-b border-slate-50 bg-slate-50/40 p-6 md:p-8">
-          <div className="flex items-center gap-3">
-            <Calculator className="h-5 w-5 text-primary" />
-            <h2 className="text-lg font-black uppercase italic text-slate-900">Ringkasan Kas Kontainer</h2>
+      {hasClosedToday ? (
+        <Card className="overflow-hidden rounded-[2.5rem] border-none bg-gradient-to-br from-emerald-50 to-emerald-100/50 p-10 text-center shadow-sm flex flex-col items-center justify-center space-y-6 min-h-[350px] animate-in fade-in zoom-in duration-500">
+          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/20 animate-bounce">
+            <CheckCircle2 className="h-10 w-10" />
           </div>
-        </div>
-
-        <div className="grid gap-6 p-6 md:grid-cols-[1.2fr_0.8fr] md:p-8">
-          <div className="space-y-3">
-            {summaryRows.map((row) => (
-              <div key={row.label} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50/60 px-4 py-3">
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">{row.label}</span>
-                <span className={`text-sm font-black ${row.accent}`}>{formatCurrency(row.value)}</span>
-              </div>
-            ))}
-          </div>
-
-          <div className="rounded-[1.5rem] border border-primary/10 bg-primary/5 p-5">
-            <div className="flex items-center gap-3">
-              <HandCoins className="h-5 w-5 text-primary" />
-              <h3 className="text-sm font-black uppercase italic text-slate-900">Input Uang di Pegang</h3>
-            </div>
-            <div className="mt-4 space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Nominal Kas</Label>
-              <Input
-                type="number"
-                value={cashOnHand}
-                onChange={(e) => setCashOnHand(e.target.value)}
-                placeholder="0"
-                className="h-12 rounded-xl border-none bg-white shadow-sm"
-              />
-            </div>
-            <div className="mt-5 rounded-2xl bg-white p-4 shadow-sm">
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Selisih</p>
-              <p className={`mt-2 text-2xl font-black ${difference === 0 ? "text-emerald-600" : difference > 0 ? "text-amber-600" : "text-rose-600"}`}>
-                {formatCurrency(difference)}
-              </p>
-            </div>
-            <div className="mt-5 space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Catatan Bila Ada Selisih</Label>
-              <Input
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Opsional, contoh: ada tambahan uang jajan, ada kurang dari belanja..."
-                className="h-12 rounded-xl border-none bg-white shadow-sm"
-              />
-            </div>
-            <Button
-              onClick={handleSave}
-              disabled={saving}
-              className="mt-5 h-12 w-full rounded-2xl bg-primary px-4 text-[10px] font-black uppercase tracking-[0.2em] text-white"
-            >
-              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-              Simpan Histori
-            </Button>
-          </div>
-        </div>
-      </Card>
-
-      <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
-        <Card className="rounded-[2rem] border-none bg-white p-6 shadow-sm">
-          <div className="flex items-center gap-3">
-            <Wallet className="h-5 w-5 text-primary" />
-            <h3 className="text-lg font-black uppercase italic text-slate-900">Rincian Operasional</h3>
-          </div>
-          <div className="mt-4 space-y-3">
-            {operationalLogs && operationalLogs.length > 0 ? operationalLogs.map((log: any) => (
-              <div key={log.id} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50/60 px-4 py-3">
-                <div>
-                  <p className="text-sm font-black text-slate-900">{log.pembayaran}</p>
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "-"}</p>
-                </div>
-                <p className="text-sm font-black text-rose-600">{formatCurrency(log.nominal || 0)}</p>
-              </div>
-            )) : (
-              <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
-                Belum ada operasional kontainer hari ini.
-              </div>
-            )}
+          <div className="space-y-2">
+            <h2 className="text-2xl md:text-3xl font-black uppercase italic tracking-tight text-slate-800">
+              Anda sudah closing hari ini
+            </h2>
+            <p className="text-xs md:text-sm text-slate-500 font-bold uppercase tracking-widest">
+              Laporan keuangan kontainer untuk tanggal {new Date(selectedDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })} telah berhasil disimpan.
+            </p>
           </div>
         </Card>
+      ) : (
+        <>
+          <Card className="overflow-hidden rounded-[2rem] border-none bg-white shadow-sm">
+            <div className="border-b border-slate-50 bg-slate-50/40 p-6 md:p-8">
+              <div className="flex items-center gap-3">
+                <Calculator className="h-5 w-5 text-primary" />
+                <h2 className="text-lg font-black uppercase italic text-slate-900">Ringkasan Kas Kontainer</h2>
+              </div>
+            </div>
 
-        <Card className="rounded-[2rem] border-none bg-white p-6 shadow-sm">
-          <div className="flex items-center gap-3">
-            <Coins className="h-5 w-5 text-primary" />
-            <h3 className="text-lg font-black uppercase italic text-slate-900">Rincian Belanja Bahan Baku</h3>
-          </div>
-          <div className="mt-4 space-y-3">
-            {purchaseLogs && purchaseLogs.filter((log: any) => {
-                const createdAt = log.createdAt?.toDate ? log.createdAt.toDate() : null;
-                return createdAt && createdAt.toISOString().split("T")[0] === selectedDate;
-              }).length > 0 ? purchaseLogs.filter((log: any) => {
-                const createdAt = log.createdAt?.toDate ? log.createdAt.toDate() : null;
-                return createdAt && createdAt.toISOString().split("T")[0] === selectedDate;
-              }).map((log: any) => (
-                <div key={log.id} className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
-                  <div className="flex items-center justify-between gap-3">
+            <div className="grid gap-6 p-6 md:grid-cols-[1.2fr_0.8fr] md:p-8">
+              <div className="space-y-3">
+                {summaryRows.map((row) => (
+                  <div key={row.label} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50/60 px-4 py-3">
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">{row.label}</span>
+                    <span className={`text-sm font-black ${row.accent}`}>{formatCurrency(row.value)}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="rounded-[1.5rem] border border-primary/10 bg-primary/5 p-5">
+                <div className="flex items-center gap-3">
+                  <HandCoins className="h-5 w-5 text-primary" />
+                  <h3 className="text-sm font-black uppercase italic text-slate-900">Input Uang di Pegang</h3>
+                </div>
+                <div className="mt-4 space-y-2">
+                  <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Nominal Kas</Label>
+                  <Input
+                    type="number"
+                    value={cashOnHand}
+                    onChange={(e) => setCashOnHand(e.target.value)}
+                    placeholder="0"
+                    className="h-12 rounded-xl border-none bg-white shadow-sm"
+                  />
+                </div>
+                <div className="mt-5 rounded-2xl bg-white p-4 shadow-sm">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Selisih</p>
+                  <p className={`mt-2 text-2xl font-black ${difference === 0 ? "text-emerald-600" : difference > 0 ? "text-amber-600" : "text-rose-600"}`}>
+                    {formatCurrency(difference)}
+                  </p>
+                </div>
+                <div className="mt-5 space-y-2">
+                  <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Catatan Bila Ada Selisih</Label>
+                  <Input
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="Opsional, contoh: ada tambahan uang jajan, ada kurang dari belanja..."
+                    className="h-12 rounded-xl border-none bg-white shadow-sm"
+                  />
+                </div>
+                <Button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="mt-5 h-12 w-full rounded-2xl bg-primary px-4 text-[10px] font-black uppercase tracking-[0.2em] text-white"
+                >
+                  {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                  Simpan Histori
+                </Button>
+              </div>
+            </div>
+          </Card>
+
+          <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
+            <Card className="rounded-[2rem] border-none bg-white p-6 shadow-sm">
+              <div className="flex items-center gap-3">
+                <Wallet className="h-5 w-5 text-primary" />
+                <h3 className="text-lg font-black uppercase italic text-slate-900">Rincian Operasional</h3>
+              </div>
+              <div className="mt-4 space-y-3">
+                {operationalLogs && operationalLogs.length > 0 ? operationalLogs.map((log: any) => (
+                  <div key={log.id} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50/60 px-4 py-3">
                     <div>
-                      <p className="text-sm font-black text-slate-900">Nota {log.nomorNota || "-"}</p>
-                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleString("id-ID") : "-"}</p>
+                      <p className="text-sm font-black text-slate-900">{log.pembayaran}</p>
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "-"}</p>
                     </div>
-                    <p className="text-sm font-black text-rose-600">{formatCurrency(getPurchaseSubtotal(log))}</p>
+                    <p className="text-sm font-black text-rose-600">{formatCurrency(log.nominal || 0)}</p>
                   </div>
-                  <div className="mt-3 space-y-2">
-                    {(log.items || []).map((item: any, idx: number) => (
-                      <div key={`${log.id}-${idx}`} className="flex items-center justify-between text-xs text-slate-600">
-                        <span>{item.materialName || item.materialCode || "-"}</span>
-                        <span>{item.qty} x {formatCurrency(item.price || 0)}</span>
-                      </div>
-                    ))}
+                )) : (
+                  <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
+                    Belum ada operasional kontainer hari ini.
                   </div>
-                </div>
-              )) : (
-              <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
-                Belum ada belanja bahan baku kontainer hari ini.
+                )}
               </div>
-            )}
+            </Card>
+
+            <Card className="rounded-[2rem] border-none bg-white p-6 shadow-sm">
+              <div className="flex items-center gap-3">
+                <Coins className="h-5 w-5 text-primary" />
+                <h3 className="text-lg font-black uppercase italic text-slate-900">Rincian Belanja Bahan Baku</h3>
+              </div>
+              <div className="mt-4 space-y-3">
+                {purchaseLogs && purchaseLogs.filter((log: any) => {
+                    const createdAt = log.createdAt?.toDate ? log.createdAt.toDate() : null;
+                    return createdAt && createdAt.toISOString().split("T")[0] === selectedDate;
+                  }).length > 0 ? purchaseLogs.filter((log: any) => {
+                    const createdAt = log.createdAt?.toDate ? log.createdAt.toDate() : null;
+                    return createdAt && createdAt.toISOString().split("T")[0] === selectedDate;
+                  }).map((log: any) => (
+                    <div key={log.id} className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-black text-slate-900">Nota {log.nomorNota || "-"}</p>
+                          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleString("id-ID") : "-"}</p>
+                        </div>
+                        <p className="text-sm font-black text-rose-600">{formatCurrency(getPurchaseSubtotal(log))}</p>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {(log.items || []).map((item: any, idx: number) => (
+                          <div key={`${log.id}-${idx}`} className="flex items-center justify-between text-xs text-slate-600">
+                            <span>{item.materialName || item.materialCode || "-"}</span>
+                            <span>{item.qty} x {formatCurrency(item.price || 0)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )) : (
+                  <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
+                    Belum ada belanja bahan baku kontainer hari ini.
+                  </div>
+                )}
+              </div>
+            </Card>
           </div>
-        </Card>
-      </div>
+        </>
+      )}
     </div>
   );
 }

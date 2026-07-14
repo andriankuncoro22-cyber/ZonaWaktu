@@ -22,6 +22,7 @@ import { collection, doc, orderBy, query } from "firebase/firestore";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { cn } from "@/lib/utils";
 
 const formatNumber = (value: number | string | undefined) => {
   const num = Number(value || 0);
@@ -79,6 +80,7 @@ export default function LaporanStockOpnamePage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedMonth, setSelectedMonth] = useState("");
+  const [opnameSource, setOpnameSource] = useState<"karyawan" | "admin">("karyawan");
 
   const materialsQuery = useMemoFirebase(
     () => query(collection(db, "bahan-baku"), orderBy("code", "asc")),
@@ -91,6 +93,13 @@ export default function LaporanStockOpnamePage() {
     [db]
   );
   const { data: opnameHistory, loading: loadingHistory } = useCollection(historyQuery);
+
+  const warehouseHistoryQuery = useMemoFirebase(
+    () => query(collection(db, "opnam_gudang"), orderBy("date", "desc")),
+    [db]
+  );
+  const { data: warehouseHistory, loading: loadingWarehouseHistory } = useCollection(warehouseHistoryQuery);
+
   const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
   const { data: settings } = useDoc(settingsRef);
 
@@ -134,6 +143,10 @@ export default function LaporanStockOpnamePage() {
         }),
       }))
       .filter((entry) => {
+        const isCreatedByAdmin = entry.note?.toLowerCase().includes("admin");
+        if (opnameSource === "admin" && !isCreatedByAdmin) return false;
+        if (opnameSource === "karyawan" && isCreatedByAdmin) return false;
+
         const date = entry.entryDate;
         if (selectedDate) {
           return date && date.toISOString().split("T")[0] === selectedDate;
@@ -143,7 +156,38 @@ export default function LaporanStockOpnamePage() {
         }
         return true;
       }) || [];
-  }, [opnameHistory, selectedDate, selectedMonth, materialMap]);
+  }, [opnameHistory, selectedDate, selectedMonth, materialMap, opnameSource]);
+
+  const filteredWarehouseEntries = useMemo(() => {
+    return (warehouseHistory as any[])
+      ?.map((entry) => ({
+        ...entry,
+        entryDate: toDateValue(entry.date),
+        items: (entry.items || []).map((item: any) => {
+          return {
+            ...item,
+            beforeQtyBesar: Number(item.beforeQtyBesar || 0),
+            afterQtyBesar: Number(item.afterQtyBesar || 0),
+            diffQtyBesar: Number(item.diffQtyBesar || 0),
+            unitBesar: item.unitBesar || "",
+          };
+        }),
+      }))
+      .filter((entry) => {
+        const isCreatedByAdmin = entry.note?.toLowerCase().includes("admin");
+        if (opnameSource === "admin" && !isCreatedByAdmin) return false;
+        if (opnameSource === "karyawan" && isCreatedByAdmin) return false;
+
+        const date = entry.entryDate;
+        if (selectedDate) {
+          return date && date.toISOString().split("T")[0] === selectedDate;
+        }
+        if (selectedMonth) {
+          return date && getMonthKey(date) === selectedMonth;
+        }
+        return true;
+      }) || [];
+  }, [warehouseHistory, selectedDate, selectedMonth, opnameSource]);
 
   const warehouseRows = useMemo(() => {
     return filteredMaterials.map((item: any) => ({
@@ -165,12 +209,26 @@ export default function LaporanStockOpnamePage() {
   };
 
   const handleExportExcel = () => {
-    const warehouseRowsExport = [
-      {
-        status: "Belum ada data stock opname gudang",
-        catatan: "Silakan lakukan stock opname gudang terlebih dahulu.",
-      },
-    ];
+    const warehouseRowsExport = filteredWarehouseEntries.flatMap((entry: any) =>
+      (entry.items || []).map((item: any) => ({
+        tanggal: formatDateLabel(entry.entryDate),
+        kode: item.code,
+        nama: item.nama,
+        sebelum: item.beforeQtyBesar,
+        sesudah: item.afterQtyBesar,
+        selisih: `${item.diffQtyBesar >= 0 ? `+${item.diffQtyBesar}` : item.diffQtyBesar} ${item.unitBesar || ""}`.trim()
+      }))
+    );
+    if (warehouseRowsExport.length === 0) {
+      warehouseRowsExport.push({
+        tanggal: "-",
+        kode: "-",
+        nama: "Belum ada data stock opname gudang",
+        sebelum: 0,
+        sesudah: 0,
+        selisih: "-"
+      } as any);
+    }
 
     const containerRowsExport = filteredContainerEntries.flatMap((entry: any) =>
       (entry.items || []).map((item: any) => ({
@@ -222,8 +280,38 @@ export default function LaporanStockOpnamePage() {
     docPDF.setFontSize(12);
     docPDF.setTextColor(15, 23, 42);
     docPDF.text("Stock Opname Gudang", 15, 42);
-    docPDF.setFontSize(10);
-    docPDF.text("Belum ada data stock opname gudang. Silakan lakukan stock opname gudang terlebih dahulu.", 15, 50);
+
+    const warehouseRowsPDF = filteredWarehouseEntries.flatMap((entry: any) =>
+      (entry.items || []).map((item: any) => [
+        formatDateLabel(entry.entryDate),
+        item.code,
+        item.nama,
+        `${item.beforeQtyBesar} ${item.unitBesar || ""}`,
+        `${item.afterQtyBesar} ${item.unitBesar || ""}`,
+        `${item.diffQtyBesar >= 0 ? `+${item.diffQtyBesar}` : item.diffQtyBesar} ${item.unitBesar || ""}`
+      ])
+    );
+
+    let startY = 48;
+    if (warehouseRowsPDF.length > 0) {
+      autoTable(docPDF, {
+        head: [["Tanggal", "Kode", "Nama", "Sebelum", "Sesudah", "Selisih"]],
+        body: warehouseRowsPDF,
+        startY: startY,
+        theme: "grid",
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [15, 23, 42] },
+      });
+      startY = (docPDF as any).lastAutoTable.finalY + 12;
+    } else {
+      docPDF.setFontSize(9);
+      docPDF.text("Belum ada data stock opname gudang untuk periode ini.", 15, startY + 4);
+      startY += 12;
+    }
+
+    docPDF.setFontSize(12);
+    docPDF.setTextColor(15, 23, 42);
+    docPDF.text("Stock Opname Kontainer", 15, startY);
 
     autoTable(docPDF, {
       head: [["Tanggal", "Kode", "Nama", "Sebelum Bulk", "Sebelum Aktif", "Sesudah Bulk", "Sesudah Aktif", "Selisih"]],
@@ -239,10 +327,10 @@ export default function LaporanStockOpnamePage() {
           formatCombinedDifference(item),
         ])
       ),
-      startY: 60,
+      startY: startY + 4,
       theme: "grid",
       styles: { fontSize: 8 },
-      headStyles: { fillColor: [15, 23, 42] },
+      headStyles: { fillColor: [79, 70, 229] },
     });
 
     docPDF.save(`Laporan_Stock_Opname_${new Date().toISOString().split("T")[0]}.pdf`);
@@ -312,53 +400,41 @@ export default function LaporanStockOpnamePage() {
         </div>
       </div>
 
-      <Tabs defaultValue="gudang" className="w-full">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-2xl w-fit">
+          <button
+            onClick={() => setOpnameSource("karyawan")}
+            className={cn(
+              "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+              opnameSource === "karyawan" ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
+            )}
+          >
+            Karyawan (Harian)
+          </button>
+          <button
+            onClick={() => setOpnameSource("admin")}
+            className={cn(
+              "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+              opnameSource === "admin" ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
+            )}
+          >
+            Admin (Berkala)
+          </button>
+        </div>
+        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+          Menampilkan data opname dari: <span className="text-slate-800 font-black">{opnameSource === "admin" ? "Admin" : "Karyawan"}</span>
+        </p>
+      </div>
+
+      <Tabs defaultValue="kontainer" className="w-full">
         <TabsList className="mb-6 grid h-14 w-full max-w-2xl grid-cols-2 rounded-[2rem] border border-slate-100 bg-white p-2 shadow-sm">
-          <TabsTrigger value="gudang" className="rounded-[1.25rem] text-[10px] font-black uppercase tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white">
-            <Archive className="mr-2 h-4 w-4" /> Stock Opname Gudang
-          </TabsTrigger>
           <TabsTrigger value="kontainer" className="rounded-[1.25rem] text-[10px] font-black uppercase tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white">
             <Layers className="mr-2 h-4 w-4" /> Stock Opname Kontainer
           </TabsTrigger>
+          <TabsTrigger value="gudang" className="rounded-[1.25rem] text-[10px] font-black uppercase tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white">
+            <Archive className="mr-2 h-4 w-4" /> Stock Opname Gudang
+          </TabsTrigger>
         </TabsList>
-
-        <TabsContent value="gudang" className="space-y-4">
-          <Card className="overflow-hidden rounded-[2rem] border-none bg-white shadow-sm">
-            <div className="flex flex-col gap-4 border-b border-slate-50 bg-slate-50/40 p-4 md:flex-row md:items-center md:justify-between md:p-6">
-              <div className="flex items-center gap-3">
-                <Box className="h-5 w-5 text-primary" />
-                <div>
-                  <h2 className="text-lg font-black uppercase italic text-slate-900">Stok Gudang</h2>
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
-                    Data stok gudang sistem per bahan baku
-                  </p>
-                </div>
-              </div>
-              <div className="relative w-full md:w-80">
-                <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Cari bahan..."
-                  className="w-full rounded-2xl border-none bg-white py-3 pl-12 pr-4 text-xs font-bold shadow-sm outline-none"
-                />
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              {loadingMaterials ? (
-                <div className="px-6 py-16 text-center text-sm text-slate-500">
-                  <RefreshCcw className="mx-auto mb-3 h-6 w-6 animate-spin text-primary opacity-20" />
-                  Memuat data stok gudang...
-                </div>
-              ) : (
-                <div className="px-6 py-16 text-center text-sm text-slate-500">
-                  Belum ada hasil stock opname gudang untuk periode ini. Silakan lakukan stock opname gudang terlebih dahulu.
-                </div>
-              )}
-            </div>
-          </Card>
-        </TabsContent>
 
         <TabsContent value="kontainer" className="space-y-4">
           <Card className="overflow-hidden rounded-[2rem] border-none bg-white shadow-sm">
@@ -452,6 +528,98 @@ export default function LaporanStockOpnamePage() {
                 ))}
               </div>
             )}
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="gudang" className="space-y-4">
+          <Card className="overflow-hidden rounded-[2rem] border-none bg-white shadow-sm">
+            <div className="flex flex-col gap-4 border-b border-slate-50 bg-slate-50/40 p-4 md:flex-row md:items-center md:justify-between md:p-6">
+              <div className="flex items-center gap-3">
+                <Box className="h-5 w-5 text-primary" />
+                <div>
+                  <h2 className="text-lg font-black uppercase italic text-slate-900">Stok Gudang</h2>
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
+                    Data stok gudang sistem per bahan baku
+                  </p>
+                </div>
+              </div>
+              <div className="relative w-full md:w-80">
+                <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Cari bahan..."
+                  className="w-full rounded-2xl border-none bg-white py-3 pl-12 pr-4 text-xs font-bold shadow-sm outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              {loadingWarehouseHistory ? (
+                <div className="px-6 py-16 text-center text-sm text-slate-500">
+                  <RefreshCcw className="mx-auto mb-3 h-6 w-6 animate-spin text-primary opacity-20" />
+                  Memuat data opname gudang...
+                </div>
+              ) : filteredWarehouseEntries.length === 0 ? (
+                <div className="px-6 py-16 text-center text-sm text-slate-500">
+                  Belum ada hasil stock opname gudang untuk periode ini. Silakan lakukan stock opname gudang terlebih dahulu.
+                </div>
+              ) : (
+                <div className="space-y-4 p-4 md:p-6">
+                  {filteredWarehouseEntries.map((entry: any) => (
+                    <div key={entry.id} className="rounded-[1.5rem] border border-slate-100 bg-slate-50/60 p-4">
+                      <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
+                            Tanggal Opname Gudang
+                          </p>
+                          <p className="text-sm font-black text-slate-900">{formatDateLabel(entry.entryDate)}</p>
+                        </div>
+                        {entry.note && (
+                          <div className="rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 shadow-sm">
+                            {entry.note}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-left bg-white rounded-xl border border-slate-50">
+                          <thead className="bg-slate-50">
+                            <tr>
+                              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Kode</th>
+                              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Nama Bahan</th>
+                              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Stok Sebelum</th>
+                              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Stok Sesudah</th>
+                              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Selisih</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {entry.items.map((item: any) => (
+                              <tr key={`${entry.id}-${item.id}`} className="hover:bg-slate-50/50">
+                                <td className="px-4 py-3 text-sm font-black text-slate-700">{item.code}</td>
+                                <td className="px-4 py-3 text-sm font-bold text-slate-900 uppercase italic">{item.nama}</td>
+                                <td className="px-4 py-3 text-right text-sm font-semibold text-slate-700">
+                                  {formatNumber(item.beforeQtyBesar)} {item.unitBesar || ""}
+                                </td>
+                                <td className="px-4 py-3 text-right text-sm font-semibold text-slate-700">
+                                  {formatNumber(item.afterQtyBesar)} {item.unitBesar || ""}
+                                </td>
+                                <td className={`px-4 py-3 text-right text-sm font-black ${item.diffQtyBesar >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                                  <div className="flex items-center justify-end gap-1">
+                                    {item.diffQtyBesar >= 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+                                    {item.diffQtyBesar >= 0 ? `+${item.diffQtyBesar}` : item.diffQtyBesar} {item.unitBesar || ""}
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </Card>
         </TabsContent>
       </Tabs>

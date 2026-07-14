@@ -1,17 +1,22 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { Coffee } from "lucide-react";
+import { Coffee, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useFirestore, useDoc, useMemoFirebase } from "@/firebase";
 import { doc } from "firebase/firestore";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
 export default function LandingPage() {
   const db = useFirestore();
   const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
   const { data: settings } = useDoc(settingsRef);
+
+  useEffect(() => {
+    localStorage.removeItem("user_role");
+  }, []);
 
   return (
     <div
@@ -30,6 +35,44 @@ export default function LandingPage() {
             <Coffee className="h-4 w-4 md:h-5 md:w-5 text-white" />
           </div>
           <span className="text-[10px] md:text-sm font-black tracking-[0.3em] uppercase">{settings?.name || "ZONA WAKTU"}</span>
+        </div>
+
+        {/* Desktop Login Buttons */}
+        <div className="hidden md:flex items-center gap-4">
+          <Link href="/owner-login">
+            <Button variant="ghost" className="text-white hover:bg-white/10 border border-white/20 rounded-full px-5 h-10 text-xs font-black uppercase tracking-widest">
+              Login Owner
+            </Button>
+          </Link>
+          <Link href="/admin-login">
+            <Button variant="ghost" className="text-white hover:bg-white/10 border border-white/20 rounded-full px-5 h-10 text-xs font-black uppercase tracking-widest">
+              Login Admin
+            </Button>
+          </Link>
+        </div>
+
+        {/* Mobile Hamburger Dropdown */}
+        <div className="md:hidden">
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" className="text-white hover:bg-white/10 h-10 w-10 rounded-xl">
+                <Menu className="h-6 w-6" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right" className="bg-[#8b1a1a] border-none text-white p-8 flex flex-col justify-start gap-6 w-72">
+              <div className="text-[10px] font-black tracking-[0.2em] uppercase mb-4 text-white/50">Menu Akses</div>
+              <Link href="/owner-login" className="w-full">
+                <Button className="w-full bg-white text-[#8b1a1a] hover:bg-slate-100 rounded-full h-12 font-black uppercase tracking-widest text-xs border-none">
+                  Login Owner
+                </Button>
+              </Link>
+              <Link href="/admin-login" className="w-full">
+                <Button className="w-full bg-white text-[#8b1a1a] hover:bg-slate-100 rounded-full h-12 font-black uppercase tracking-widest text-xs border-none">
+                  Login Admin
+                </Button>
+              </Link>
+            </SheetContent>
+          </Sheet>
         </div>
       </nav>
 
@@ -68,12 +111,7 @@ export default function LandingPage() {
           </p>
 
           {/* Action Buttons */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 md:gap-6 w-full max-w-2xl px-4 md:px-0">
-            <Link href="/owner-login" className="w-full sm:w-1/2">
-              <Button className="w-full bg-white text-[#8b1a1a] hover:bg-slate-100 rounded-full h-14 md:h-20 px-8 text-sm md:text-xl font-black uppercase tracking-widest shadow-2xl transition-all hover:scale-105 active:scale-95 border-none">
-                Login Owner
-              </Button>
-            </Link>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 md:gap-6 w-full max-w-xl px-4 md:px-0">
             <Link href="/employee-login" className="w-full sm:w-1/2">
               <Button className="w-full bg-white text-[#8b1a1a] hover:bg-slate-100 rounded-full h-14 md:h-20 px-8 text-sm md:text-xl font-black uppercase tracking-widest shadow-2xl transition-all hover:scale-105 active:scale-95 border-none">
                 Sistem Karyawan

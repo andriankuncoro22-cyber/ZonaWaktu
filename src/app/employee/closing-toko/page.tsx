@@ -36,7 +36,8 @@ import {
   where, 
   getDocs, 
   writeBatch,
-  increment 
+  increment,
+  getDoc
 } from "firebase/firestore";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
@@ -171,18 +172,11 @@ export default function EmployeeClosingTokoPage({
     return !!uploadedExcelReport && Math.abs((reportMatchDifference ?? 0)) < 0.01;
   }, [reportMatchDifference, uploadedExcelReport]);
 
-  const steps = isOwnerView
-    ? [
-        { id: 1, title: "Pilih Tanggal", description: "Atur tanggal closing" },
-        { id: 2, title: "Upload Laporan Excel", description: "Impor data penjualan" },
-        { id: 3, title: "Input Laporan Transaksi", description: "Isi rincian pembayaran" },
-        { id: 4, title: "Input Pemakaian", description: "Catat pemakaian bahan" },
-      ]
-    : [
-        { id: 1, title: "Pilih Tanggal", description: "Atur tanggal closing" },
-        { id: 2, title: "Upload Laporan Excel", description: "Impor data penjualan" },
-        { id: 3, title: "Input Laporan Transaksi", description: "Isi rincian pembayaran" },
-      ];
+  const steps = [
+    { id: 1, title: "Pilih Tanggal", description: "Atur tanggal closing" },
+    { id: 2, title: "Upload Laporan Excel", description: "Impor data penjualan" },
+    { id: 3, title: "Input Laporan Transaksi", description: "Isi rincian pembayaran" },
+  ];
 
   const parseNumber = (val: any) => {
     if (val === null || val === undefined || val === '') return 0;
@@ -466,11 +460,107 @@ export default function EmployeeClosingTokoPage({
   };
 
   const handleDeleteHistory = async (id: string) => {
-    if (!confirm("Hapus data closing ini?")) return;
+    if (!confirm("Hapus data closing ini? Menghapus closing akan mengembalikan stok bahan baku kontainer yang terpakai.")) return;
+    
+    setSaving(true);
     try {
-      await deleteDoc(doc(db, "penjualan", id));
-      toast({ title: "Dihapus" });
-    } catch (e) { console.error(e); }
+      const saleDocRef = doc(db, "penjualan", id);
+      const saleDocSnap = await getDoc(saleDocRef);
+      if (!saleDocSnap.exists()) {
+        throw new Error("Data closing tidak ditemukan.");
+      }
+      
+      const saleData = saleDocSnap.data();
+      const items = (saleData.items || []) as SaleItem[];
+
+      if (items.length > 0) {
+        const batch = writeBatch(db);
+
+        // Fetch current products, recipes, and materials to compute compositions
+        const [productsSnap, recipesSnap, materialsSnap] = await Promise.all([
+          getDocs(collection(db, "produk")),
+          getDocs(collection(db, "resep")),
+          getDocs(collection(db, "bahan-baku"))
+        ]);
+
+        const productCodeMap: { [key: string]: string } = {};
+        productsSnap.forEach(d => {
+          const p = d.data();
+          if (p.code) productCodeMap[p.code] = d.id;
+        });
+
+        const recipeMap: { [key: string]: any } = {};
+        recipesSnap.forEach(d => {
+          const r = d.data();
+          if (r.produkId) recipeMap[r.produkId] = r.komposisi;
+        });
+
+        const materialMap: { [key: string]: any } = {};
+        materialsSnap.forEach(d => {
+          materialMap[d.id] = { id: d.id, ...d.data() };
+        });
+
+        // Calculate how much ingredients were consumed
+        const totalAdditions: { [key: string]: number } = {};
+        const returnedDetails: string[] = [];
+
+        items.forEach((item) => {
+          const productId = productCodeMap[item.code];
+          if (productId && recipeMap[productId]) {
+            recipeMap[productId].forEach((ing: any) => {
+              const addition = ing.jumlah * item.total;
+              totalAdditions[ing.bahanBakuId] = (totalAdditions[ing.bahanBakuId] || 0) + addition;
+            });
+          }
+        });
+
+        // Revert the deduction in database
+        Object.entries(totalAdditions).forEach(([matId, addition]) => {
+          const material = materialMap[matId];
+          if (!material) return;
+
+          let bulkQty = Number(material.qtyKontainerBesar || 0);
+          let activeQty = Number(material.qtyKontainerKecil || 0);
+          const conversionRate = Number(material.qtyKecil || 1);
+
+          activeQty += addition;
+
+          // Convert active qty back to bulk if it exceeds conversionRate
+          while (activeQty >= conversionRate) {
+            bulkQty += 1;
+            activeQty -= conversionRate;
+          }
+
+          const materialRef = doc(db, "bahan-baku", matId);
+          batch.update(materialRef, {
+            qtyKontainerBesar: bulkQty,
+            qtyKontainerKecil: activeQty
+          });
+
+          returnedDetails.push(`${material.nama}: +${addition.toFixed(1)} ${material.satuanKecil}`);
+        });
+
+        batch.delete(saleDocRef);
+        await batch.commit();
+
+        toast({
+          title: "Histori Closing Dihapus",
+          description: `Stok kontainer berhasil dikembalikan:\n${returnedDetails.slice(0, 5).join(", ")}${returnedDetails.length > 5 ? "..." : ""}`,
+        });
+      } else {
+        await deleteDoc(saleDocRef);
+        toast({ title: "Histori Closing Dihapus", description: "Laporan kosong berhasil dihapus." });
+      }
+    } catch (e: any) {
+      console.error(e);
+      toast({
+        variant: "destructive",
+        title: "Gagal Menghapus Laporan",
+        description: e.message || "Terjadi kesalahan sistem.",
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDeleteKeuanganHistory = async (id: string) => {
@@ -534,7 +624,14 @@ export default function EmployeeClosingTokoPage({
 
   const handleTransactionReportChange = (field: keyof TransactionReportForm, value: string) => {
     const parsed = Number(value.replace(/[^\d.-]/g, "")) || 0;
-    setTransactionReport((prev) => ({ ...prev, [field]: parsed }));
+    setTransactionReport((prev) => {
+      const nextState = { ...prev, [field]: parsed };
+      if (uploadedExcelReport && field !== "cashTotal") {
+        const otherSum = (nextState.qrisTotal || 0) + (nextState.goFoodTotal || 0) + (nextState.otherTotal || 0);
+        nextState.cashTotal = Math.max(0, uploadedExcelReport.totalPendapatan - otherSum);
+      }
+      return nextState;
+    });
   };
 
   const handleSaveTransactionReport = async () => {
@@ -557,7 +654,7 @@ export default function EmployeeClosingTokoPage({
     }
 
     await saveToFirestore(uploadedExcelReport.items, selectedDate, transactionReport);
-    setActiveStep(isOwnerView ? 4 : 3);
+    resetWorkflow();
   };
 
   if (!isOwnerView) {
@@ -682,8 +779,8 @@ export default function EmployeeClosingTokoPage({
               <p className="mt-3 text-sm text-slate-500">Isi rincian total transaksi sesuai laporan Excel yang diupload.</p>
               <div className="mt-6 grid gap-4 md:grid-cols-2">
                 {[
-                  { key: "cashTotal", label: "Total Transaksi Cash", helper: "Cash" },
                   { key: "qrisTotal", label: "Total Transaksi Non Tunai (QRIS)", helper: "QRIS" },
+                  { key: "cashTotal", label: "Total Transaksi Cash", helper: "Cash" },
                   { key: "goFoodTotal", label: "Transaksi Non Tunai GoFood", helper: "GoFood" },
                   { key: "otherTotal", label: "Transaksi Metode Lainnya", helper: "Lainnya" },
                 ].map((field) => (
@@ -719,62 +816,7 @@ export default function EmployeeClosingTokoPage({
             </Card>
           )}
 
-          {activeStep === 4 && isOwnerView && (
-            <Card className="rounded-[2rem] border-none bg-white p-6 md:p-8 shadow-sm">
-              <div className="flex items-center gap-3">
-                <Layers className="h-5 w-5 text-primary" />
-                <h2 className="text-lg font-black uppercase italic text-slate-900">Input Pemakaian</h2>
-              </div>
-              <p className="mt-3 text-sm text-slate-500">Catat pemakaian bahan sesuai resep untuk mengurangi stok kontainer.</p>
-              <div className="mt-6 space-y-4">
-                {productionBatch.map((item, index) => (
-                  <div key={index} className="relative rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                    {productionBatch.length > 1 && (
-                      <Button variant="ghost" size="icon" onClick={() => handleRemoveProductionItem(index)} className="absolute -right-2 -top-2 h-7 w-7 rounded-full border border-slate-100 bg-white text-slate-400 hover:text-rose-500">
-                        <X className="h-4 w-4" />
-                      </Button>
-                    )}
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-black uppercase text-slate-500">Pilih Pemakaian</Label>
-                      <Select value={item.resepId} onValueChange={(val) => handleProductionItemChange(index, "resepId", val)}>
-                        <SelectTrigger className="h-12 rounded-xl border-none bg-white shadow-sm">
-                          <SelectValue placeholder="Pilih pemakaian..." />
-                        </SelectTrigger>
-                        <SelectContent className="rounded-2xl border-none shadow-xl">
-                          {listResep?.map((r: any) => (
-                            <SelectItem key={r.id} value={r.id} className="rounded-lg">
-                              {r.namaPelengkap}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="mt-4 space-y-2">
-                      <Label className="text-[10px] font-black uppercase text-slate-500">Jumlah Pemakaian</Label>
-                      <Input type="number" min={1} value={item.qty} onChange={(e) => handleProductionItemChange(index, "qty", Number(e.target.value))} className="h-12 rounded-xl border-none bg-white text-center text-lg font-black shadow-sm" />
-                    </div>
-                  </div>
-                ))}
-                <Button type="button" variant="ghost" onClick={handleAddProductionItem} className="flex h-12 w-full items-center justify-center rounded-xl border-2 border-dashed border-slate-200 text-[10px] font-black uppercase text-slate-400 transition-all hover:border-primary/20 hover:text-primary">
-                  <Plus className="mr-2 h-4 w-4" /> Tambah Jenis Bahan
-                </Button>
-              </div>
-              <div className="mt-6 rounded-2xl border border-primary/10 bg-primary/5 p-4 text-center">
-                <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-primary">
-                  Stok kontainer akan terpotong otomatis sesuai takaran resep.
-                </p>
-              </div>
-              <div className="mt-6 flex flex-wrap justify-end gap-3">
-                <Button variant="ghost" onClick={resetWorkflow} className="rounded-2xl px-6 font-black uppercase tracking-widest text-[10px]">
-                  Selesai
-                </Button>
-                <Button disabled={saving || productionBatch.some((i) => !i.resepId)} onClick={handleSaveProduksi} className="rounded-2xl bg-primary px-6 font-black uppercase tracking-widest text-[10px]">
-                  {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                  Simpan & Potong Stok
-                </Button>
-              </div>
-            </Card>
-          )}
+
 
           <div className="space-y-4 md:space-y-6">
             <div className="flex items-center gap-3 px-4">

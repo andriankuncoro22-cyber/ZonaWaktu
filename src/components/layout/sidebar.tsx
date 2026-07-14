@@ -1,5 +1,6 @@
 "use client";
 
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -20,7 +21,8 @@ import {
   Package,
   Activity,
   ArrowRightLeft,
-  Store
+  Store,
+  AlertOctagon
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -36,6 +38,7 @@ const menuGroups = [
     items: [
       { name: "Operasional Toko", icon: Store, href: "/operasional/operasional-toko" },
       { name: "Closing Toko", icon: PlusCircle, href: "/penjualan/kasir" },
+      { name: "Rekapan Stock Kritis", icon: AlertOctagon, href: "/operasional/rekapan-stock-kritis" },
     ]
   },
   {
@@ -49,6 +52,7 @@ const menuGroups = [
       { name: "Laporan Pemakaian Bahan Baku", icon: Activity, href: "/operasional/laporan-pemakaian-bahan-baku" },
       { name: "Laporan Pemindahan Barang", icon: ArrowRightLeft, href: "/operasional/laporan-pemindahan-barang" },
       { name: "Laporan Stock Opnam", icon: ClipboardList, href: "/laporan/stock-opname" },
+      { name: "Laporan Closing Toko", icon: ClipboardList, href: "/laporan/closing-toko" },
     ]
   },
   {
@@ -72,14 +76,34 @@ const menuGroups = [
   }
 ];
 
+const adminMenuGroups = [
+  {
+    title: "Admin Menu",
+    items: [
+      { name: "Closing Toko", icon: PlusCircle, href: "/penjualan/kasir" },
+      { name: "Stock Kritis", icon: AlertOctagon, href: "/operasional/rekapan-stock-kritis" },
+      { name: "Stock Opname", icon: ClipboardList, href: "/admin/stock-opname" },
+      { name: "Belanja Bahan Baku", icon: Truck, href: "/admin/belanja-bahan-baku" },
+      { name: "Laporan Closing Toko", icon: ClipboardList, href: "/laporan/closing-toko" },
+    ]
+  }
+];
+
 export function Sidebar() {
   const pathname = usePathname();
+  const [role, setRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    setRole(localStorage.getItem("user_role"));
+  }, []);
+
+  const groups = role === "admin" ? adminMenuGroups : menuGroups;
 
   return (
     <div className="flex h-full flex-col py-8">
       <div className="flex-1 overflow-y-auto px-6 custom-scrollbar">
         <nav className="space-y-10 pb-12">
-          {menuGroups.map((group) => (
+          {groups.map((group) => (
             <div key={group.title}>
               <h4 className="px-4 text-[9px] font-black uppercase tracking-[0.3em] text-slate-600 mb-6">
                 {group.title}
@@ -116,7 +140,7 @@ export function Sidebar() {
       </div>
 
       <div className="px-6 mt-auto">
-        <Link href="/">
+        <Link href="/" onClick={() => localStorage.removeItem("user_role")}>
           <Button 
             variant="ghost" 
             className="w-full justify-start gap-4 rounded-2xl h-14 text-slate-400 hover:text-primary hover:bg-primary/5 font-black uppercase tracking-widest text-[9px] transition-all"

@@ -526,9 +526,9 @@ export default function EmployeeInputBahanBakuPage() {
             <div className="flex flex-col gap-2 rounded-2xl bg-slate-50 p-2 sm:flex-row sm:flex-wrap">
               {[
                 { key: "pembelian", label: "Pembelian Bahan Baku" },
+                { key: "pemakaian", label: "Input Pemakaian" },
                 { key: "ambil", label: "Ambil Stock Gudang" },
                 { key: "kembali", label: "Pengembalian Barang" },
-                { key: "pemakaian", label: "Input Pemakaian" },
               ].map((tab) => (
                 <button
                   key={tab.key}

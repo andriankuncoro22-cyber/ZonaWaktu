@@ -17,16 +17,23 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { 
   ResponsiveContainer, 
+  AreaChart,
+  Area,
   BarChart, 
   Bar, 
   XAxis, 
+  YAxis,
   Tooltip,
   Cell,
+  PieChart,
+  Pie,
+  Legend,
+  CartesianGrid
 } from "recharts";
 import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, query, orderBy, limit, where } from "firebase/firestore";
 import Link from "next/link";
-import { getTotalAvailableQty, getAverageCost } from "@/lib/hpp";
+import { getTotalAvailableQty, getAverageCost, calculateRecipeIngredientCost } from "@/lib/hpp";
 
 export default function DashboardPage() {
   const [mounted, setMounted] = useState(false);
@@ -48,8 +55,17 @@ export default function DashboardPage() {
   );
   const { data: bahanBakuData } = useCollection(bahanBakuQuery);
 
-  const resepQuery = useMemoFirebase(() => query(collection(db, "resep"), orderBy("namaPelengkap", "asc")), [db]);
+  const resepQuery = useMemoFirebase(() => collection(db, "resep"), [db]);
   const { data: resepData } = useCollection(resepQuery);
+
+  const produkQuery = useMemoFirebase(() => collection(db, "produk"), [db]);
+  const { data: produkData } = useCollection(produkQuery);
+
+  const operasionalTokoQuery = useMemoFirebase(() => collection(db, "operasional-toko"), [db]);
+  const { data: operasionalTokoData } = useCollection(operasionalTokoQuery);
+
+  const operasionalKontainerQuery = useMemoFirebase(() => collection(db, "operasional-kontainer"), [db]);
+  const { data: operasionalKontainerData } = useCollection(operasionalKontainerQuery);
 
   const todayStr = new Date().toISOString().split('T')[0];
   const pemakaianQuery = useMemoFirebase(() => query(collection(db, "log_produksi_pelengkap"), where("tanggal", "==", todayStr)), [db, todayStr]);
@@ -59,6 +75,7 @@ export default function DashboardPage() {
     const today = new Date().toISOString().split('T')[0];
     const thisMonth = new Date().toISOString().slice(0, 7);
 
+    // 1. Penjualan
     const totalSalesMonth = penjualanData
       ?.filter(p => p.tanggal.startsWith(thisMonth))
       .reduce((sum, p) => sum + (p.total || 0), 0) || 0;
@@ -66,6 +83,51 @@ export default function DashboardPage() {
     const ordersToday = penjualanData
       ?.filter(p => p.tanggal === today)
       .length || 0;
+
+    // 2. Operasional
+    const totalOperasionalToko = operasionalTokoData
+      ?.filter(op => op.tanggal?.startsWith(thisMonth))
+      .reduce((sum, op) => sum + (Number(op.nominal) || Number(op.total) || 0), 0) || 0;
+
+    const totalOperasionalKontainer = operasionalKontainerData
+      ?.filter(op => op.tanggal?.startsWith(thisMonth))
+      .reduce((sum, op) => sum + (Number(op.nominal) || 0), 0) || 0;
+
+    const totalOperasionalMonth = totalOperasionalToko + totalOperasionalKontainer;
+
+    // 3. Estimasi Pemakaian Bahan (HPP berdasarkan Resep vs Harga Bahan)
+    const productCodeMap: Record<string, string> = {};
+    (produkData as any[])?.forEach((product: any) => {
+      if (product.code) productCodeMap[product.code] = product.id;
+    });
+
+    const recipeMap: Record<string, any[]> = {};
+    (resepData as any[])?.forEach((recipe: any) => {
+      if (recipe.produkId) recipeMap[recipe.produkId] = recipe.komposisi || [];
+    });
+
+    const materialMap: Record<string, any> = {};
+    (bahanBakuData as any[])?.forEach((material: any) => {
+      materialMap[material.id] = material;
+    });
+
+    let totalHppMonth = 0;
+    const thisMonthSales = penjualanData?.filter(p => p.tanggal.startsWith(thisMonth)) || [];
+    thisMonthSales.forEach((closing: any) => {
+      closing.items?.forEach((item: any) => {
+        const qty = Number(item.total || 0);
+        const productId = productCodeMap[item.code];
+        const recipe = recipeMap[productId] || [];
+        recipe.forEach((ingredient: any) => {
+          const material = materialMap[ingredient?.bahanBakuId];
+          totalHppMonth += calculateRecipeIngredientCost(ingredient, material, qty);
+        });
+      });
+    });
+
+    // 4. Margin Keuntungan (Laba Bersih): Omset - Operasional - Estimasi HPP
+    const profitMonth = Math.max(0, totalSalesMonth - totalOperasionalMonth - totalHppMonth);
+    const profitMargin = totalSalesMonth > 0 ? (profitMonth / totalSalesMonth) * 100 : 0;
 
     const lowStockItems = bahanBakuData
       ?.filter(b => (b.qtyBesar || 0) <= (Number(b.qtyMinGudang ?? b.qtyMin ?? 5))) || [];
@@ -81,10 +143,6 @@ export default function DashboardPage() {
     const lowKontainerItems = bahanBakuData
       ?.filter(b => getKontainerTotal(b) <= getMinStockKontainer(b)) || [];
 
-    const hppMonth = penjualanData
-      ?.filter(p => p.tanggal.startsWith(thisMonth))
-      .reduce((sum, p) => sum + (p.hpp || 0), 0) || 0;
-
     return {
       totalSalesMonth,
       ordersToday,
@@ -93,10 +151,13 @@ export default function DashboardPage() {
       lowStockItems,
       lowKontainerCount: lowKontainerItems.length,
       lowKontainerItems,
-      hppMonth,
-      salesMonth: totalSalesMonth
+      hppMonth: totalHppMonth,
+      operasionalMonth: totalOperasionalMonth,
+      salesMonth: totalSalesMonth,
+      profitMonth,
+      profitMargin
     };
-  }, [penjualanData, bahanBakuData]);
+  }, [penjualanData, bahanBakuData, produkData, resepData, operasionalTokoData, operasionalKontainerData]);
 
   const chartData = useMemo(() => {
     const days = [];
@@ -110,8 +171,8 @@ export default function DashboardPage() {
       const dayTotal = penjualanData
         ?.filter(p => p.tanggal === dayStr)
         .reduce((sum, p) => sum + (p.total || 0), 0) || 0;
-
-      days.push({ name: dayName, value: dayTotal / 1000 });
+ 
+      days.push({ name: dayName, value: dayTotal });
     }
     return days;
   }, [penjualanData]);
@@ -154,10 +215,19 @@ export default function DashboardPage() {
     return Object.values(agg).sort((a:any,b:any)=>b.qty-a.qty).slice(0,5);
   }, [penjualanData]);
 
+  const bestSellersChartData = useMemo(() => {
+    const colors = ["#8b1a1a", "#4f46e5", "#f59e0b", "#10b981", "#ec4899"];
+    return bestSellers.map((item, idx) => ({
+      name: item.name,
+      value: item.qty,
+      color: colors[idx % colors.length]
+    }));
+  }, [bestSellers]);
+
   const bb043 = useMemo(() => (bahanBakuData || []).find(b => (b.code || '').toUpperCase() === 'BB043') || null, [bahanBakuData]);
 
   return (
-    <div className="space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+    <div className="space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-1000 pb-10">
       {/* Welcome Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -171,106 +241,33 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      {/* Additional KPIs: HPP, Critical Stocks, Usage & Best Sellers */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
-        <Card className="border-none shadow-sm rounded-3xl bg-white p-6 md:p-8">
-          <h4 className="text-sm font-black uppercase tracking-widest text-slate-600 mb-2">HPP & Selisih Penjualan</h4>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-[9px] text-slate-500 uppercase font-black">Penjualan Bulan Ini</p>
-              <p className="text-2xl font-black text-slate-900">Rp {(stats.salesMonth || 0).toLocaleString('id-ID')}</p>
-            </div>
-            <div>
-              <p className="text-[9px] text-slate-500 uppercase font-black">HPP Bulan Ini</p>
-              <p className="text-2xl font-black text-primary">Rp {(stats.hppMonth || 0).toLocaleString('id-ID')}</p>
-            </div>
-          </div>
-          <div className="mt-4 text-sm font-black">
-            <p className="text-slate-600">Selisih: <span className="text-slate-900">Rp {((stats.salesMonth || 0) - (stats.hppMonth || 0)).toLocaleString('id-ID')}</span></p>
-          </div>
-        </Card>
-
-        <Card className="border-none shadow-sm rounded-3xl bg-white p-6 md:p-8">
-          <h4 className="text-sm font-black uppercase tracking-widest text-slate-600 mb-2">Stock Kritis</h4>
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <p className="text-[11px] font-black uppercase">Kontainer</p>
-              <p className="text-lg font-black text-rose-600">{stats.lowKontainerCount || 0}</p>
-            </div>
-            <div className="flex items-center justify-between">
-              <p className="text-[11px] font-black uppercase">Gudang</p>
-              <p className="text-lg font-black text-rose-600">{stats.lowStockCount || 0}</p>
-            </div>
-            <div className="pt-2">
-              <Link href="/stok/bahan-baku">
-                <Button variant="ghost" className="w-full rounded-xl text-[9px] font-black uppercase tracking-widest">Lihat Detail Stok</Button>
-              </Link>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="border-none shadow-sm rounded-3xl bg-white p-6 md:p-8">
-          <h4 className="text-sm font-black uppercase tracking-widest text-slate-600 mb-2">Pemakaian Hari Ini & Best Seller</h4>
-          <div className="grid grid-cols-1 gap-3">
-            <div>
-              <p className="text-[9px] text-slate-500 uppercase font-black">Top Pemakaian (hari ini)</p>
-              <ul className="mt-2 space-y-1">
-                {dailyUsage.slice(0,3).map((r: any) => (
-                  <li key={r.id} className="text-sm font-black">{r.nama} — {r.qty.toLocaleString('id-ID')} {r.code}</li>
-                ))}
-                {dailyUsage.length === 0 && <li className="text-xs text-slate-400 font-black">Tidak ada pemakaian hari ini</li>}
-              </ul>
-            </div>
-
-            <div>
-              <p className="text-[9px] text-slate-500 uppercase font-black">Best Seller (Top 5 bulan ini)</p>
-              <ul className="mt-2 space-y-1">
-                {bestSellers.map((b: any, i: number) => (
-                  <li key={i} className="text-sm font-black">{b.name} — {b.qty}</li>
-                ))}
-                {bestSellers.length === 0 && <li className="text-xs text-slate-400 font-black">Belum ada penjualan bulan ini</li>}
-              </ul>
-            </div>
-
-            <div className="pt-3 border-t border-slate-50 mt-3">
-              <p className="text-[9px] text-slate-500 uppercase font-black">Sisa Stock BB043 (Roti Toast)</p>
-              {bb043 ? (
-                <p className="text-lg font-black text-slate-900 mt-1">Gudang: {bb043.qtyBesar || 0} — Kontainer Aktif: {bb043.qtyKontainerKecil || 0}</p>
-              ) : (
-                <p className="text-xs text-slate-400 font-black">BB043 tidak ditemukan</p>
-              )}
-            </div>
-          </div>
-        </Card>
-      </div>
-
       {/* Stats Bento Box */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
         {[
           { 
             label: "Penjualan Bulan Ini", 
-            value: `Rp ${(stats.totalSalesMonth / 1000000).toFixed(1)}M`, 
+            value: `Rp ${(stats.totalSalesMonth).toLocaleString('id-ID')}`, 
             change: "Real-time", 
             icon: TrendingUp, 
             color: "bg-red-50 text-primary" 
           },
           { 
             label: "Pesanan Hari Ini", 
-            value: stats.ordersToday.toString(), 
+            value: `${stats.ordersToday.toString()} Pesanan`, 
             change: "Closing", 
             icon: ShoppingCart, 
             color: "bg-orange-50 text-orange-600" 
           },
           { 
-            label: "Total Bahan Baku", 
-            value: stats.totalMaterials.toString(), 
-            change: "Master", 
+            label: "Margin Keuntungan", 
+            value: `${stats.profitMargin.toFixed(1)}%`, 
+            change: `${((stats.profitMargin) >= 50) ? 'Sehat' : 'Normal'}`, 
             icon: Package, 
-            color: "bg-slate-50 text-slate-700" 
+            color: "bg-emerald-50 text-emerald-600" 
           },
           { 
-            label: "Perlu Restock", 
-            value: stats.lowStockCount.toString(), 
+            label: "Bahan Perlu Restock", 
+            value: `${stats.lowStockCount} Item`, 
             change: "Warning", 
             icon: AlertTriangle, 
             color: stats.lowStockCount > 0 ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600" 
@@ -282,9 +279,9 @@ export default function DashboardPage() {
             </div>
             <p className="text-[9px] md:text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] mb-1">{stat.label}</p>
             <div className="flex items-end justify-between">
-              <h3 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight">{stat.value}</h3>
-              <span className={cn("text-[8px] md:text-[9px] font-black px-2 py-1 rounded-lg", 
-                stat.color.includes("emerald") ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-500")}>
+              <h3 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight truncate max-w-[85%]">{stat.value}</h3>
+              <span className={cn("text-[8px] md:text-[9px] font-black px-2 py-1 rounded-lg shrink-0", 
+                stat.color.includes("emerald") || stat.change === 'Sehat' ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-500")}>
                 {stat.change}
               </span>
             </div>
@@ -292,50 +289,54 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Charts and Activities */}
+      {/* Main Analytics Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-8">
-        <Card className="lg:col-span-8 border-none shadow-sm rounded-3xl md:rounded-[3rem] bg-white p-6 md:p-10">
-          <div className="flex items-center justify-between mb-8 md:mb-10">
-            <div>
-              <h3 className="text-lg md:text-xl font-black text-slate-900 flex items-center gap-3 uppercase italic">
-                <TrendingUp className="h-5 w-5 md:h-6 md:w-6 text-primary" />
-                Tren Penjualan (Ribuan)
-              </h3>
-              <p className="text-[9px] md:text-[10px] text-slate-600 font-bold uppercase tracking-widest mt-1">Performa 7 hari terakhir</p>
-            </div>
+        {/* Sales Trend (Area Chart) */}
+        <Card className="lg:col-span-8 border-none shadow-sm rounded-[2rem] bg-white p-6 md:p-8">
+          <div>
+            <h3 className="text-base md:text-lg font-black text-slate-900 flex items-center gap-3 uppercase italic">
+              <TrendingUp className="h-5 w-5 text-primary" />
+              Tren Penjualan Harian
+            </h3>
+            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-1">Performa Omset 7 Hari Terakhir</p>
           </div>
-          <div className="h-[250px] md:h-[350px] w-full">
+          
+          <div className="h-[250px] md:h-[300px] w-full mt-6">
             {mounted ? (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData}>
+                <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <defs>
-                    <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={1}/>
-                      <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0.6}/>
+                    <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#8b1a1a" stopOpacity={0.2}/>
+                      <stop offset="95%" stopColor="#8b1a1a" stopOpacity={0}/>
                     </linearGradient>
                   </defs>
-                  <Bar dataKey="value" radius={[8, 8, 8, 8]} barSize={30}>
-                    {chartData.map((entry, index) => (
-                      <Cell 
-                        key={`cell-${index}`} 
-                        fill={index === chartData.length - 1 ? 'url(#barGradient)' : '#f8fafc'} 
-                        className="hover:opacity-80 transition-opacity cursor-pointer"
-                      />
-                    ))}
-                  </Bar>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                   <XAxis 
                     dataKey="name" 
                     axisLine={false} 
                     tickLine={false} 
-                    tick={{ fill: '#475569', fontSize: 10, fontWeight: 800 }} 
-                    dy={10}
+                    tick={{ fill: '#64748b', fontSize: 10, fontWeight: 700 }} 
+                  />
+                  <YAxis 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tickFormatter={(tick) => `Rp ${(tick / 1000).toLocaleString('id-ID')}k`}
+                    tick={{ fill: '#64748b', fontSize: 10, fontWeight: 700 }} 
                   />
                   <Tooltip 
-                    cursor={{ fill: 'transparent' }}
                     contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.1)' }}
-                    formatter={(value) => [`Rp ${Number(value).toLocaleString('id-ID')}k`, 'Penjualan']}
+                    formatter={(value) => [`Rp ${Number(value).toLocaleString('id-ID')}`, 'Omset']}
                   />
-                </BarChart>
+                  <Area 
+                    type="monotone" 
+                    dataKey="value" 
+                    stroke="#8b1a1a" 
+                    strokeWidth={3} 
+                    fillOpacity={1} 
+                    fill="url(#colorSales)" 
+                  />
+                </AreaChart>
               </ResponsiveContainer>
             ) : (
               <div className="w-full h-full bg-slate-50 rounded-2xl animate-pulse" />
@@ -343,43 +344,169 @@ export default function DashboardPage() {
           </div>
         </Card>
 
-        <Card className="lg:col-span-4 border-none shadow-sm rounded-3xl md:rounded-[3rem] bg-white p-6 md:p-10">
-          <div className="flex items-center justify-between mb-6 md:mb-8">
-            <h3 className="text-lg md:text-xl font-black text-slate-900 uppercase italic">Restock Bahan</h3>
-            <div className="h-8 w-8 rounded-full bg-slate-50 flex items-center justify-center cursor-pointer hover:bg-slate-100">
-              <AlertTriangle className="h-4 w-4 text-rose-500" />
+        {/* Best Sellers (Pie/Donut Chart) */}
+        <Card className="lg:col-span-4 border-none shadow-sm rounded-[2rem] bg-white p-6 md:p-8 flex flex-col justify-between">
+          <div>
+            <h3 className="text-base md:text-lg font-black text-slate-900 uppercase italic">Produk Terlaris</h3>
+            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-1">Top 5 Penjualan Terbanyak Bulan Ini</p>
+          </div>
+
+          <div className="h-[180px] w-full mt-4 relative flex items-center justify-center">
+            {mounted ? (
+              bestSellersChartData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={bestSellersChartData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={70}
+                      paddingAngle={4}
+                      dataKey="value"
+                    >
+                      {bestSellersChartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.1)' }}
+                      formatter={(value) => [`${value} Pcs`, 'Terjual']}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider text-center">Belum ada penjualan</p>
+              )
+            ) : (
+              <div className="h-28 w-28 rounded-full border-4 border-slate-100 border-t-primary animate-spin" />
+            )}
+          </div>
+
+          <div className="mt-4 space-y-2">
+            {bestSellersChartData.map((item, idx) => (
+              <div key={idx} className="flex items-center justify-between text-[11px] font-black uppercase tracking-tight">
+                <div className="flex items-center gap-2 truncate max-w-[70%]">
+                  <div className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
+                  <span className="truncate text-slate-700">{item.name}</span>
+                </div>
+                <span className="text-slate-900 font-black">{item.value} Pcs</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      {/* Operational & Financial Details Bento */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
+        {/* Card 1: HPP, Margin & Profit */}
+        <Card className="border-none shadow-sm rounded-[2rem] bg-white p-6 md:p-8 flex flex-col justify-between">
+          <div>
+            <h4 className="text-sm font-black uppercase tracking-widest text-slate-900 italic mb-1">Analisis Keuangan</h4>
+            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Performa Profitabilitas Toko Bulan Ini</p>
+          </div>
+          
+          <div className="space-y-4 my-6">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black text-slate-400 uppercase">Omset Kotor</span>
+              <span className="text-sm font-black text-slate-900">Rp {(stats.salesMonth).toLocaleString('id-ID')}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black text-slate-400 uppercase">Total Operasional</span>
+              <span className="text-sm font-black text-slate-700">Rp {(stats.operasionalMonth).toLocaleString('id-ID')}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black text-slate-400 uppercase">Estimasi Pemakaian Bahan</span>
+              <span className="text-sm font-black text-primary">Rp {(stats.hppMonth).toLocaleString('id-ID')}</span>
+            </div>
+            
+            <div className="h-[1px] bg-slate-100" />
+            
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black text-slate-400 uppercase">Laba Bersih</span>
+              <span className="text-sm font-black text-emerald-600">Rp {(stats.profitMonth).toLocaleString('id-ID')}</span>
+            </div>
+
+            {/* Profit Margin Progress Bar */}
+            <div className="space-y-1.5 pt-2">
+              <div className="flex items-center justify-between text-[9px] font-black text-slate-500 uppercase">
+                <span>Profit Margin Ratio</span>
+                <span className="text-slate-800">{stats.profitMargin.toFixed(1)}%</span>
+              </div>
+              <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${Math.min(100, stats.profitMargin)}%` }} />
+              </div>
             </div>
           </div>
-          <div className="space-y-4 md:space-y-6">
-            {stats.lowStockItems.length > 0 ? stats.lowStockItems.slice(0, 5).map((item) => (
-              <div key={item.id} className="flex items-start gap-3 md:gap-4 group cursor-pointer">
-                <div className="h-10 w-10 md:h-12 md:w-12 rounded-xl md:rounded-2xl bg-rose-50 flex items-center justify-center shrink-0 border border-rose-100">
-                  <Package className="h-5 w-5 text-rose-500" />
+
+          <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wide leading-relaxed">
+            * HPP dihitung secara otomatis berdasarkan data closing harian resep & bahan baku aktif.
+          </div>
+        </Card>
+
+        {/* Card 2: Pemakaian Bahan Baku Hari Ini */}
+        <Card className="border-none shadow-sm rounded-[2rem] bg-white p-6 md:p-8 flex flex-col justify-between">
+          <div>
+            <h4 className="text-sm font-black uppercase tracking-widest text-slate-900 italic mb-1">Pemakaian Bahan Baku</h4>
+            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Top Konsumsi Terbanyak Hari Ini</p>
+          </div>
+
+          <div className="space-y-4 my-6 flex-1 overflow-y-auto">
+            {dailyUsage.length > 0 ? dailyUsage.slice(0, 4).map((r: any, idx: number) => (
+              <div key={r.id} className="flex items-center justify-between">
+                <div className="flex items-center gap-3 truncate max-w-[70%]">
+                  <span className="text-xs font-black text-slate-400">#0{idx + 1}</span>
+                  <p className="text-[11px] font-black text-slate-700 uppercase italic truncate">{r.nama}</p>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[12px] md:text-sm font-black text-slate-900 truncate tracking-tight uppercase italic">{item.nama}</p>
-                    <span className="text-[8px] md:text-[9px] text-rose-600 font-black ml-2 uppercase">Kritis</span>
-                  </div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <p className="text-[8px] md:text-[9px] text-slate-500 font-bold uppercase tracking-tighter">Sisa Stok: {item.qtyBesar} {item.satuanBesar}</p>
-                  </div>
-                </div>
+                <span className="text-xs font-bold text-slate-900 tabular-nums">
+                  {r.qty.toLocaleString('id-ID')} <span className="text-[9px] font-bold text-slate-400 uppercase">{r.code}</span>
+                </span>
               </div>
             )) : (
-              <div className="py-16 md:py-20 text-center opacity-30 flex flex-col items-center gap-4">
-                <Package className="h-10 w-10 md:h-12 md:w-12" />
-                <p className="text-[9px] md:text-[10px] font-black uppercase tracking-widest">Stok Aman</p>
+              <div className="py-10 text-center opacity-30 flex flex-col items-center gap-2">
+                <Package className="h-8 w-8 text-slate-400" />
+                <p className="text-[9px] font-black uppercase tracking-widest">Belum ada pemakaian hari ini</p>
               </div>
             )}
           </div>
-          {stats.lowStockItems.length > 0 && (
-            <Link href="/stok/bahan-baku">
-              <Button variant="ghost" className="w-full mt-8 md:mt-10 text-[9px] md:text-[10px] font-black text-primary hover:bg-primary/5 rounded-2xl md:rounded-[1.5rem] h-12 md:h-14 uppercase tracking-[0.2em] border-2 border-primary/5 gap-2">
-                Cek Gudang <ArrowRight className="h-3 w-3" />
-              </Button>
-            </Link>
-          )}
+
+          <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-[10px]">
+            <span className="font-bold text-slate-400 uppercase">Toast BB043 Gudang</span>
+            <span className="font-black text-slate-800">{bb043 ? `${bb043.qtyBesar} Sak` : "-"}</span>
+          </div>
+        </Card>
+
+        {/* Card 3: Restock & Critical Stock */}
+        <Card className="border-none shadow-sm rounded-[2rem] bg-white p-6 md:p-8 flex flex-col justify-between">
+          <div>
+            <h4 className="text-sm font-black uppercase tracking-widest text-slate-900 italic mb-1">Peringatan Restock</h4>
+            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Bahan Baku Gudang di Bawah Batas Minimum</p>
+          </div>
+
+          <div className="space-y-4 my-6 flex-1 overflow-y-auto">
+            {stats.lowStockItems.length > 0 ? stats.lowStockItems.slice(0, 4).map((item) => (
+              <div key={item.id} className="flex items-center justify-between">
+                <div className="flex items-center gap-2 truncate max-w-[70%]">
+                  <div className="h-2 w-2 rounded-full bg-rose-500 shrink-0" />
+                  <p className="text-[11px] font-black text-slate-700 uppercase italic truncate">{item.nama}</p>
+                </div>
+                <span className="text-xs font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-lg shrink-0">
+                  {item.qtyBesar} {item.satuanBesar} sisa
+                </span>
+              </div>
+            )) : (
+              <div className="py-10 text-center opacity-30 flex flex-col items-center gap-2">
+                <Package className="h-8 w-8 text-slate-400" />
+                <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600">Seluruh Stok Gudang Aman</p>
+              </div>
+            )}
+          </div>
+
+          <Link href="/stok/bahan-baku">
+            <Button variant="ghost" className="w-full text-[9px] font-black text-primary hover:bg-primary/5 rounded-xl h-11 uppercase tracking-[0.2em] border border-primary/10 gap-2">
+              Cek Detail Logistik <ArrowRight className="h-3 w-3" />
+            </Button>
+          </Link>
         </Card>
       </div>
     </div>

@@ -46,17 +46,29 @@ export default function PengaturanUmumPage() {
   const [credentials, setCredentials] = useState<EmployeeCredential[]>([]);
   const [newCredential, setNewCredential] = useState<EmployeeCredential>({ username: "", password: "" });
 
+  // Admin credentials
+  const adminCredentialsRef = useMemoFirebase(() => doc(db, "employee_credentials", "admin"), [db]);
+  const [adminUsername, setAdminUsername] = useState("adminzona");
+  const [adminPassword, setAdminPassword] = useState("admin00");
+
   useEffect(() => {
     const fetchCredentials = async () => {
       const docSnap = await getDoc(credentialsRef);
       if (docSnap.exists()) {
         setCredentials(docSnap.data().users || []);
       }
+
+      const adminSnap = await getDoc(adminCredentialsRef);
+      if (adminSnap.exists()) {
+        const adminData = adminSnap.data();
+        setAdminUsername(adminData.username || "adminzona");
+        setAdminPassword(adminData.password || "admin00");
+      }
     };
     if (activeSection === "hak-akses") {
       fetchCredentials();
     }
-  }, [activeSection, credentialsRef]);
+  }, [activeSection, credentialsRef, adminCredentialsRef]);
 
   const [formData, setFormData] = useState({
     name: "Zona Waktu",
@@ -133,7 +145,8 @@ export default function PengaturanUmumPage() {
     setLoading(true);
     try {
       await setDoc(credentialsRef, { users: credentials }, { merge: true });
-      toast({ title: "Sinkronisasi Berhasil", description: "Hak akses karyawan telah diperbarui." });
+      await setDoc(adminCredentialsRef, { username: adminUsername, password: adminPassword }, { merge: true });
+      toast({ title: "Sinkronisasi Berhasil", description: "Hak akses karyawan & admin telah diperbarui." });
     } catch (error) {
       toast({ variant: "destructive", title: "Gagal Sinkronisasi" });
     } finally {
@@ -195,6 +208,31 @@ export default function PengaturanUmumPage() {
                     </Button>
                   </div>
                 ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t border-slate-100 pt-8 mt-8 space-y-4">
+            <h3 className="font-black uppercase italic tracking-wider text-slate-800">Akun Login Admin</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Username Admin</Label>
+                <Input 
+                  placeholder="Username Admin"
+                  value={adminUsername}
+                  onChange={(e) => setAdminUsername(e.target.value)}
+                  className="rounded-xl h-12 font-bold bg-slate-50 border-none"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Password Admin</Label>
+                <Input 
+                  type="password"
+                  placeholder="Password Admin"
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  className="rounded-xl h-12 font-bold bg-slate-50 border-none"
+                />
               </div>
             </div>
           </div>

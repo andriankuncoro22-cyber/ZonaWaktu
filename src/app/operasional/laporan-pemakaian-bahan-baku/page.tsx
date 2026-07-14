@@ -79,24 +79,31 @@ export default function LaporanPemakaianBahanBakuPage() {
         };
       });
 
-      // 2. Load all resep to get komposisi
-      const resepSnap = await getDocs(collection(db, "resep"));
-      const resepMap: {
-        [id: string]: { namaPelengkap: string; komposisi: { bahanBakuId: string; jumlah: number }[] };
-      } = {};
-      resepSnap.forEach((d) => {
+      // 2. Load all products (produk)
+      const produkSnap = await getDocs(collection(db, "produk"));
+      const productCodeMap: { [code: string]: string } = {};
+      produkSnap.forEach((d) => {
         const data = d.data();
-        resepMap[d.id] = {
-          namaPelengkap: data.namaPelengkap ?? "",
-          komposisi: data.komposisi ?? [],
-        };
+        if (data.code) {
+          productCodeMap[data.code] = d.id;
+        }
       });
 
-      // 3. Load log_produksi_pelengkap filtered by date
-      let logQuery;
+      // 3. Load all recipes (resep)
+      const resepSnap = await getDocs(collection(db, "resep"));
+      const recipeMap: { [produkId: string]: { bahanBakuId: string; jumlah: number }[] } = {};
+      resepSnap.forEach((d) => {
+        const data = d.data();
+        if (data.produkId) {
+          recipeMap[data.produkId] = data.komposisi ?? [];
+        }
+      });
+
+      // 4. Load penjualan filtered by date
+      let penjualanQuery;
       if (mode === "harian") {
-        logQuery = query(
-          collection(db, "log_produksi_pelengkap"),
+        penjualanQuery = query(
+          collection(db, "penjualan"),
           where("tanggal", "==", hariDate)
         );
       } else {
@@ -106,28 +113,30 @@ export default function LaporanPemakaianBahanBakuPage() {
         // last day of month
         const lastDay = new Date(Number(year), Number(month), 0).getDate();
         const end = `${year}-${month}-${String(lastDay).padStart(2, "0")}`;
-        logQuery = query(
-          collection(db, "log_produksi_pelengkap"),
+        penjualanQuery = query(
+          collection(db, "penjualan"),
           where("tanggal", ">=", start),
           where("tanggal", "<=", end)
         );
       }
 
-      const logSnap = await getDocs(logQuery);
+      const penjualanSnap = await getDocs(penjualanQuery);
 
-      // 4. Aggregate: for each log → each item → each komposisi ingredient
+      // 5. Aggregate: for each sales doc -> each item -> each composition ingredient
       const agg: { [bahanId: string]: number } = {};
 
-      logSnap.forEach((logDoc) => {
-        const data = logDoc.data() as { items?: { resepId?: string; jumlah?: number }[] };
-        const items: { resepId?: string; jumlah?: number }[] = data.items ?? [];
-        items.forEach((item) => {
-          const resepId = item.resepId;
-          if (!resepId) return;
-          const resep = resepMap[resepId];
-          if (!resep) return;
-          resep.komposisi.forEach((ing) => {
-            const used = ing.jumlah * (item.jumlah ?? 1);
+      penjualanSnap.forEach((doc) => {
+        const data = doc.data() as any;
+        const items = data.items ?? [];
+        items.forEach((item: any) => {
+          const qty = Number(item.total ?? 0);
+          if (qty <= 0) return;
+          const productId = productCodeMap[item.code];
+          if (!productId) return;
+          const recipe = recipeMap[productId];
+          if (!recipe) return;
+          recipe.forEach((ing) => {
+            const used = ing.jumlah * qty;
             agg[ing.bahanBakuId] = (agg[ing.bahanBakuId] || 0) + used;
           });
         });
@@ -297,7 +306,7 @@ export default function LaporanPemakaianBahanBakuPage() {
         <div className="flex items-center gap-2 bg-primary/5 border border-primary/10 rounded-2xl px-5 py-3">
           <BarChart2 className="h-4 w-4 text-primary" />
           <span className="text-[10px] font-black uppercase tracking-widest text-primary">
-            Rekap Otomatis dari Produksi
+            Rekap Otomatis dari Penjualan &amp; Resep
           </span>
         </div>
       </header>

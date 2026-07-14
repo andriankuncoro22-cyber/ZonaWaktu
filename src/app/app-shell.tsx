@@ -15,6 +15,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     pathname === "/" ||
     pathname === "/absensi" ||
     pathname === "/owner-login" ||
+    pathname === "/admin-login" ||
     pathname.startsWith("/employee");
 
   return (
