@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { 
   Clock, 
   MapPin, 
@@ -17,10 +17,40 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
+import Image from "next/image";
 import { useFirestore } from "@/firebase";
 import { collection, addDoc, query, where, getDocs, serverTimestamp, orderBy, limit, doc, getDoc } from "firebase/firestore";
 import { cn } from "@/lib/utils";
 import { uploadToCloudinary } from "@/lib/cloudinary";
+
+// --- Types ---
+interface KaryawanUser {
+  id: string;
+  nama: string;
+  username: string;
+  status?: string;
+  shift?: string;
+  [key: string]: unknown;
+}
+
+interface AttendanceLog {
+  id: string;
+  karyawanId: string;
+  nama: string;
+  tanggal: string;
+  jamMasuk: string;
+  jamPulang: string;
+  selfieUrl?: string;
+  [key: string]: unknown;
+}
+
+interface AbsensiConfig {
+  lat: string;
+  lng: string;
+  radius: string;
+  location?: AbsensiConfig;
+  [key: string]: unknown;
+}
 
 // Fungsi untuk menghitung jarak antara dua koordinat (meter)
 function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -37,57 +67,35 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
 
 export default function AbsensiKaryawanPage() {
   const db = useFirestore();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<KaryawanUser | null>(null);
   const [loading, setLoading] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [attendanceToday, setAttendanceToday] = useState<any>(null);
+  const [attendanceToday, setAttendanceToday] = useState<AttendanceLog | null>(null);
   const [isWithinRadius, setIsWithinRadius] = useState(false);
   const [distance, setDistance] = useState<number | null>(null);
   const [loginData, setLoginData] = useState({ username: "", password: "" });
-  const [history, setHistory] = useState<any[]>([]);
-  const [config, setConfig] = useState<any>(null);
+  const [history, setHistory] = useState<AttendanceLog[]>([]);
+  const [config, setConfig] = useState<AbsensiConfig | null>(null);
   const [selfiePreview, setSelfiePreview] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
 
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    checkPersistedUser();
-    fetchConfig();
-    return () => clearInterval(timer);
-  }, []);
-
-  const fetchConfig = async () => {
+  const fetchConfig = useCallback(async () => {
     try {
       const docRef = doc(db, "settings", "absensi_config");
       const snap = await getDoc(docRef);
       if (snap.exists()) {
-        setConfig(snap.data());
+        setConfig(snap.data() as AbsensiConfig);
       }
     } catch (e) {
       console.error("Failed to fetch location config", e);
     }
-  };
+  }, [db]);
 
-  const checkPersistedUser = async () => {
-    try {
-      const saved = localStorage.getItem("absensi_user");
-      if (saved) {
-        const userData = JSON.parse(saved);
-        setUser(userData);
-        await fetchAttendanceData(userData.id);
-      }
-    } catch (e) {
-      console.error("Auth check failed", e);
-    } finally {
-      setCheckingAuth(false);
-    }
-  };
-
-  const fetchAttendanceData = async (karyawanId: string) => {
+  const fetchAttendanceData = useCallback(async (karyawanId: string) => {
     const today = new Date().toLocaleDateString('id-ID');
     const q = query(
       collection(db, "absensi_logs"), 
@@ -96,12 +104,36 @@ export default function AbsensiKaryawanPage() {
       limit(5)
     );
     const snapshot = await getDocs(q);
-    const logs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const logs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AttendanceLog));
     setHistory(logs);
     
-    const todayLog = logs.find((l: any) => l.tanggal === today);
+    const todayLog = logs.find((l) => l.tanggal === today);
     if (todayLog) setAttendanceToday(todayLog);
-  };
+  }, [db]);
+
+  const checkPersistedUser = useCallback(async () => {
+    try {
+      const saved = localStorage.getItem("absensi_user");
+      if (saved) {
+        const userData = JSON.parse(saved) as KaryawanUser;
+        setUser(userData);
+        await fetchAttendanceData(userData.id);
+      }
+    } catch (e) {
+      console.error("Auth check failed", e);
+    } finally {
+      setCheckingAuth(false);
+    }
+  }, [fetchAttendanceData]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    checkPersistedUser();
+    fetchConfig();
+    return () => clearInterval(timer);
+  }, [checkPersistedUser, fetchConfig]);
+
+
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -117,7 +149,7 @@ export default function AbsensiKaryawanPage() {
       const snapshot = await getDocs(q);
       
       if (!snapshot.empty) {
-        const userData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
+        const userData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as KaryawanUser;
         setUser(userData);
         localStorage.setItem("absensi_user", JSON.stringify(userData));
         setLoginData({ username: "", password: "" }); 
@@ -240,7 +272,7 @@ export default function AbsensiKaryawanPage() {
     }
   };
 
-  const validateLocation = () => {
+  const validateLocation = useCallback(() => {
     const locationConfig = config?.location || config;
     if (!locationConfig) return;
 
@@ -267,13 +299,13 @@ export default function AbsensiKaryawanPage() {
         maximumAge: 0
       });
     }
-  };
+  }, [config]);
 
   useEffect(() => {
     if (config) {
       validateLocation();
     }
-  }, [config]);
+  }, [config, validateLocation]);
 
   useEffect(() => {
     return () => stopCamera();
@@ -419,7 +451,7 @@ export default function AbsensiKaryawanPage() {
             <Button onClick={captureSelfie} disabled={capturing || !cameraReady} className="w-full rounded-xl bg-slate-900 text-white h-12 font-black uppercase text-[9px]">{capturing ? "Mengambil Foto..." : "Ambil Selfie"}</Button>
             <Button onClick={stopCamera} variant="outline" className="w-full rounded-xl h-12 font-black uppercase text-[9px]">Tutup Kamera</Button>
             {selfiePreview ? (
-              <img src={selfiePreview} alt="Selfie absensi" className="w-full h-40 object-cover rounded-[1.2rem] border border-slate-200" />
+              <Image src={selfiePreview} alt="Selfie absensi" width={400} height={160} className="w-full h-40 object-cover rounded-[1.2rem] border border-slate-200" unoptimized />
             ) : (
               <div className="rounded-[1.2rem] border border-dashed border-slate-200 p-4 text-center text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Foto selfie belum diambil</div>
             )}
@@ -513,7 +545,7 @@ export default function AbsensiKaryawanPage() {
                 <div className="px-4 py-1.5 rounded-xl bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase">Hadir</div>
               </div>
               {log.selfieUrl ? (
-                <img src={log.selfieUrl} alt="Selfie absensi" className="w-full h-36 object-cover rounded-[1rem] border border-slate-200" />
+                <Image src={log.selfieUrl} alt="Selfie absensi" width={600} height={144} className="w-full h-36 object-cover rounded-[1rem] border border-slate-200" unoptimized />
               ) : null}
             </Card>
           )) : (
