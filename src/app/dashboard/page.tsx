@@ -37,12 +37,25 @@ import { getTotalAvailableQty, getAverageCost, calculateRecipeIngredientCost } f
 
 export default function DashboardPage() {
   const db = useFirestore();
+  const mounted = true; // client component — always mounted
 
   // --- Local types for stats computation ---
   interface ProdukDoc { id: string; code?: string; [k: string]: unknown; }
   interface KomposisiItem { bahanBakuId?: string; [k: string]: unknown; }
   interface ResepDoc { produkId?: string; komposisi?: KomposisiItem[]; [k: string]: unknown; }
-  interface BahanBakuDoc { id: string; qtyKontainerBesar?: unknown; qtyKontainerKecil?: unknown; qtyKecil?: unknown; [k: string]: unknown; }
+  interface BahanBakuDoc {
+    id: string;
+    nama?: string;
+    qtyBesar?: number;
+    satuanBesar?: string;
+    qtyKontainerBesar?: unknown;
+    qtyKontainerKecil?: unknown;
+    qtyKecil?: unknown;
+    qtyMinGudang?: number;
+    qtyMin?: number;
+    qtyMinKontainer?: number;
+    [k: string]: unknown;
+  }
   interface PenjualanItem { code?: string; total?: number; [k: string]: unknown; }
   interface PenjualanLog { tanggal: string; total?: number; items?: PenjualanItem[]; [k: string]: unknown; }
 
@@ -132,8 +145,8 @@ export default function DashboardPage() {
     const profitMonth = Math.max(0, totalSalesMonth - totalOperasionalMonth - totalHppMonth);
     const profitMargin = totalSalesMonth > 0 ? (profitMonth / totalSalesMonth) * 100 : 0;
 
-    const lowStockItems = bahanBakuData
-      ?.filter(b => (b.qtyBesar || 0) <= (Number(b.qtyMinGudang ?? b.qtyMin ?? 5))) || [];
+    const lowStockItems = (bahanBakuData as BahanBakuDoc[])
+      ?.filter(b => (Number(b.qtyBesar) || 0) <= (Number(b.qtyMinGudang ?? b.qtyMin ?? 5))) || [];
 
     const getMinStockKontainer = (item: BahanBakuDoc) => Number((item as Record<string, unknown>).qtyMinKontainer ?? (item as Record<string, unknown>).qtyMin ?? 5);
     const getKontainerTotal = (item: BahanBakuDoc) => {
@@ -143,7 +156,7 @@ export default function DashboardPage() {
       return qtyBulk + (qtyAktif / (konversi || 1));
     };
 
-    const lowKontainerItems = bahanBakuData
+    const lowKontainerItems = (bahanBakuData as BahanBakuDoc[])
       ?.filter(b => getKontainerTotal(b) <= getMinStockKontainer(b)) || [];
 
     return {

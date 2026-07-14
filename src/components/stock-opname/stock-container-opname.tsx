@@ -1,12 +1,11 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
   FileDown,
   FileSpreadsheet,
-  Layers,
   RefreshCcw,
   Search,
 } from "lucide-react";
@@ -22,6 +21,22 @@ import * as XLSX from "xlsx";
 interface StockContainerOpnameViewProps {
   title?: string;
   subtitle?: string;
+}
+
+interface BahanBaku {
+  id: string;
+  code?: string;
+  nama?: string;
+  qtyBesar?: number;
+  qtyKontainerBesar?: number;
+  qtyKontainerKecil?: number;
+  qtyKecil?: number;
+  satuanBesar?: string;
+  satuanKecil?: string;
+  gramPerBesar?: number | string;
+  beratBungkusProduk?: number | string;
+  totalGramasiPerProduk?: number;
+  [key: string]: unknown;
 }
 
 export function StockContainerOpnameView({
@@ -40,18 +55,13 @@ export function StockContainerOpnameView({
   const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
   const { data: settings } = useDoc(settingsRef);
 
-  const getUnitWeight = (item: any) => {
+  const getUnitWeight = (item: BahanBaku) => {
     const gramPerBesar = Number(item.gramPerBesar || 0);
     const konversi = Number(item.qtyKecil || 1);
     return konversi > 0 ? gramPerBesar / konversi : 0;
   };
 
-  const getTotalWeightFromAktif = (item: any, aktifQty: number) => {
-    const beratBungkus = Number(item.beratBungkusProduk || 0);
-    return Number(aktifQty || 0) * getUnitWeight(item) + beratBungkus;
-  };
-
-  const getAktifFromGrams = (item: any, gramsValue: number) => {
+  const getAktifFromGrams = (item: BahanBaku, gramsValue: number) => {
     const beratBungkus = Number(item.beratBungkusProduk || 0);
     const netGrams = Math.max(0, Number(gramsValue || 0) - beratBungkus);
     const unitWeight = getUnitWeight(item);
@@ -67,22 +77,18 @@ export function StockContainerOpnameView({
     setBulkInputs({});
   };
 
-  const filteredMaterials = (materials as any[])?.filter(
+  const filteredMaterials = (materials as BahanBaku[])?.filter(
     (item) =>
       item.nama?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.code?.toLowerCase().includes(searchTerm.toLowerCase())
   );
-
-  useEffect(() => {
-    resetInputs();
-  }, []);
 
   const formatNumber = (value: number | string | undefined) => {
     const num = Number(value || 0);
     return new Intl.NumberFormat("id-ID").format(num);
   };
 
-  const formatTotalStock = (item: any) => {
+  const formatTotalStock = (item: BahanBaku) => {
     const qtyGudang = Number(item.qtyBesar || 0);
     const qtyBulk = Number(item.qtyKontainerBesar || 0);
     const qtyAktif = Number(item.qtyKontainerKecil || 0);
@@ -98,7 +104,7 @@ export function StockContainerOpnameView({
   };
 
   const handleExportExcel = () => {
-    const wsData = filteredMaterials?.map((item: any) => ({
+    const wsData = filteredMaterials?.map((item) => ({
       Kode: item.code,
       "Nama Bahan": item.nama,
       "Stok Gudang (Sistem)": item.qtyBesar || 0,
@@ -148,7 +154,7 @@ export function StockContainerOpnameView({
     docPDF.setFontSize(10);
     docPDF.text(`Tanggal: ${new Date().toLocaleDateString("id-ID")}`, 148, 46, { align: "center" });
 
-    const tableData = filteredMaterials?.map((item: any) => [
+    const tableData = filteredMaterials?.map((item) => [
       item.code,
       item.nama.toUpperCase(),
       `${item.qtyBesar || 0} ${item.satuanBesar}`,
@@ -174,8 +180,15 @@ export function StockContainerOpnameView({
     setProcessing(true);
     try {
       const batch = writeBatch(db);
-      const historyItems: any[] = [];
-      (filteredMaterials || []).forEach((it: any) => {
+      interface HistoryItem {
+        id: string;
+        code?: string;
+        nama?: string;
+        before: { qtyKontainerBesar: number; qtyKontainerKecil: number };
+        after: { qtyKontainerBesar: number; qtyKontainerKecil: number };
+      }
+      const historyItems: HistoryItem[] = [];
+      (filteredMaterials || []).forEach((it) => {
         const beforeBulk = Number(it.qtyKontainerBesar || 0);
         const beforeAktif = Number(it.qtyKontainerKecil || 0);
         const afterBulk = Number(bulkInputs[it.id] ?? beforeBulk);
@@ -275,7 +288,7 @@ export function StockContainerOpnameView({
               Memuat data...
             </div>
           ) : (
-            filteredMaterials?.map((item: any) => (
+            filteredMaterials?.map((item) => (
               <Card key={item.id} className="rounded-[2rem] border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-4">
                   <div>

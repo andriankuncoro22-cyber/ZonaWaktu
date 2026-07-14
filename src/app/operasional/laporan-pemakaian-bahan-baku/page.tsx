@@ -220,76 +220,6 @@ export default function LaporanPemakaianBahanBakuPage() {
     docPDF.save(`Laporan_Pemakaian_${label}.pdf`);
   }
 
-  /* ── Table component ── */
-  function ReportTable({ rows, loading }: { rows: BahanRow[] | null; loading: boolean }) {
-    if (loading) {
-      return (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-7 w-7 animate-spin text-primary" />
-        </div>
-      );
-    }
-    if (rows === null) {
-      return (
-        <div className="py-16 text-center text-slate-400 text-xs font-black uppercase tracking-widest">
-          Klik tombol <span className="text-primary">Tampilkan</span> untuk memuat laporan.
-        </div>
-      );
-    }
-    if (rows.length === 0) {
-      return (
-        <div className="py-16 text-center text-slate-400 text-xs font-black uppercase tracking-widest">
-          Tidak ada data pemakaian pada periode ini.
-        </div>
-      );
-    }
-
-    return (
-      <div className="overflow-x-auto custom-scrollbar">
-        <table className="w-full text-left min-w-[480px]">
-          <thead>
-            <tr className="bg-slate-50/80">
-              <th className="px-6 md:px-8 py-4 text-[9px] md:text-[10px] font-black uppercase text-slate-500 tracking-widest">
-                Code
-              </th>
-              <th className="px-4 md:px-6 py-4 text-[9px] md:text-[10px] font-black uppercase text-slate-500 tracking-widest">
-                Nama Bahan
-              </th>
-              <th className="px-4 md:px-6 py-4 text-[9px] md:text-[10px] font-black uppercase text-slate-500 tracking-widest text-right">
-                Qty
-              </th>
-              <th className="px-6 md:px-8 py-4 text-[9px] md:text-[10px] font-black uppercase text-slate-500 tracking-widest text-center">
-                Satuan Kecil
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-50">
-            {rows.map((row, i) => (
-              <tr
-                key={row.code + i}
-                className="hover:bg-slate-50/60 transition-colors duration-150"
-              >
-                <td className="px-6 md:px-8 py-4 text-[10px] font-black text-slate-500 tracking-wider">
-                  {row.code}
-                </td>
-                <td className="px-4 md:px-6 py-4 text-sm font-black text-slate-900 uppercase italic">
-                  {row.nama}
-                </td>
-                <td className="px-4 md:px-6 py-4 text-right font-black text-primary tabular-nums italic text-xl md:text-2xl">
-                  {row.qty % 1 === 0
-                    ? row.qty.toLocaleString("id-ID")
-                    : row.qty.toLocaleString("id-ID", { maximumFractionDigits: 2 })}
-                </td>
-                <td className="px-6 md:px-8 py-4 text-center text-[9px] md:text-[10px] font-black uppercase text-primary tracking-widest">
-                  {row.satuanKecil}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
@@ -475,6 +405,77 @@ export default function LaporanPemakaianBahanBakuPage() {
           </Card>
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+/* ── Table component ── */
+function ReportTable({ rows, loading }: { rows: BahanRow[] | null; loading: boolean }) {
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-7 w-7 animate-spin text-primary" />
+      </div>
+    );
+  }
+  if (rows === null) {
+    return (
+      <div className="py-16 text-center text-slate-400 text-xs font-black uppercase tracking-widest">
+        Klik tombol <span className="text-primary">Tampilkan</span> untuk memuat laporan.
+      </div>
+    );
+  }
+  if (rows.length === 0) {
+    return (
+      <div className="py-16 text-center text-slate-400 text-xs font-black uppercase tracking-widest">
+        Tidak ada data pemakaian pada periode ini.
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto custom-scrollbar">
+      <table className="w-full text-left min-w-[480px]">
+        <thead>
+          <tr className="bg-slate-50/80">
+            <th className="px-6 md:px-8 py-4 text-[9px] md:text-[10px] font-black uppercase text-slate-500 tracking-widest">
+              Code
+            </th>
+            <th className="px-4 md:px-6 py-4 text-[9px] md:text-[10px] font-black uppercase text-slate-500 tracking-widest">
+              Nama Bahan
+            </th>
+            <th className="px-4 md:px-6 py-4 text-[9px] md:text-[10px] font-black uppercase text-slate-500 tracking-widest text-right">
+              Qty
+            </th>
+            <th className="px-6 md:px-8 py-4 text-[9px] md:text-[10px] font-black uppercase text-slate-500 tracking-widest text-center">
+              Satuan Kecil
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-50">
+          {rows.map((row, i) => (
+            <tr
+              key={row.code + i}
+              className="hover:bg-slate-50/60 transition-colors duration-150"
+            >
+              <td className="px-6 md:px-8 py-4 text-[10px] font-black text-slate-500 tracking-wider">
+                {row.code}
+              </td>
+              <td className="px-4 md:px-6 py-4 text-sm font-black text-slate-900 uppercase italic">
+                {row.nama}
+              </td>
+              <td className="px-4 md:px-6 py-4 text-right font-black text-primary tabular-nums italic text-xl md:text-2xl">
+                {row.qty % 1 === 0
+                  ? row.qty.toLocaleString("id-ID")
+                  : row.qty.toLocaleString("id-ID", { maximumFractionDigits: 2 })}
+              </td>
+              <td className="px-6 md:px-8 py-4 text-center text-[9px] md:text-[10px] font-black uppercase text-primary tracking-widest">
+                {row.satuanKecil}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

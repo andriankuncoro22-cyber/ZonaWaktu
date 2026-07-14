@@ -41,6 +41,24 @@ import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
+interface BahanBaku {
+  id: string;
+  code?: string;
+  nama?: string;
+  qtyBesar?: number;
+  qtyKontainerBesar?: number;
+  qtyKontainerKecil?: number;
+  qtyKecil?: number;
+  satuanBesar?: string;
+  satuanKecil?: string;
+  gramPerBesar?: number | string;
+  beratBungkusProduk?: number | string;
+  qtyMinGudang?: number;
+  qtyMinKontainer?: number;
+  qtyMin?: number;
+  [key: string]: unknown;
+}
+
 export default function StokBahanBakuPage() {
   const db = useFirestore();
   const { toast } = useToast();
@@ -56,7 +74,7 @@ export default function StokBahanBakuPage() {
     qty: 0
   });
 
-  const [editingItem, setEditingItem] = useState<any>(null);
+  const [editingItem, setEditingItem] = useState<BahanBaku | null>(null);
 
   const materialsQuery = useMemoFirebase(() => 
     query(collection(db, "bahan-baku"), orderBy("code", "asc")), 
@@ -68,14 +86,14 @@ export default function StokBahanBakuPage() {
   const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
   const { data: settings } = useDoc(settingsRef);
 
-  const filteredMaterials = (materials as any[])?.filter(item => 
+  const filteredMaterials = (materials as BahanBaku[])?.filter(item => 
     item.nama?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.code?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const getMinStockGudang = (item: any) => Number(item.qtyMinGudang ?? item.qtyMin ?? 5);
-  const getMinStockKontainer = (item: any) => Number(item.qtyMinKontainer ?? item.qtyMin ?? 5);
-  const getKontainerTotal = (item: any) => {
+  const getMinStockGudang = (item: BahanBaku) => Number(item.qtyMinGudang ?? item.qtyMin ?? 5);
+  const getMinStockKontainer = (item: BahanBaku) => Number(item.qtyMinKontainer ?? item.qtyMin ?? 5);
+  const getKontainerTotal = (item: BahanBaku) => {
     const qtyBulk = Number(item.qtyKontainerBesar || 0);
     const qtyAktif = Number(item.qtyKontainerKecil || 0);
     const konversi = Number(item.qtyKecil || 1);
@@ -96,7 +114,7 @@ export default function StokBahanBakuPage() {
     setResetting(true);
     try {
       const batch = writeBatch(db);
-      (materials || []).forEach((item: any) => {
+      (materials as BahanBaku[] || []).forEach((item) => {
         const ref = doc(db, "bahan-baku", item.id);
         batch.update(ref, {
           qtyBesar: 0,
@@ -110,7 +128,7 @@ export default function StokBahanBakuPage() {
         title: "Semua Stok Dikosongkan",
         description: "Seluruh stok gudang dan kontainer telah diatur menjadi 0.",
       });
-    } catch (err) {
+    } catch {
       toast({
         variant: "destructive",
         title: "Gagal Mengosongkan Stok",
@@ -129,10 +147,10 @@ export default function StokBahanBakuPage() {
     try {
       const batch = writeBatch(db);
       const materialRef = doc(db, "bahan-baku", transferData.materialId);
-      const material = (materials as any[]).find(m => m.id === transferData.materialId);
+      const material = (materials as BahanBaku[]).find(m => m.id === transferData.materialId);
 
-      if ((material.qtyBesar || 0) < transferData.qty) {
-        throw new Error(`Stok gudang (${material.satuanBesar}) tidak mencukupi`);
+      if (!material || (material.qtyBesar || 0) < transferData.qty) {
+        throw new Error(`Stok gudang (${material?.satuanBesar || ""}) tidak mencukupi`);
       }
 
       batch.update(materialRef, {
@@ -147,11 +165,12 @@ export default function StokBahanBakuPage() {
       });
       setIsTransferOpen(false);
       setTransferData({ materialId: "", qty: 0 });
-    } catch (err: any) {
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Terjadi kesalahan sistem.";
       toast({
         variant: "destructive",
         title: "Gagal Transfer",
-        description: err.message || "Terjadi kesalahan sistem."
+        description: errorMsg
       });
     } finally {
       setTransferring(false);
@@ -199,7 +218,7 @@ export default function StokBahanBakuPage() {
       toast({ title: "Stok Diperbarui", description: "Perubahan data stok telah berhasil disimpan." });
       setIsEditOpen(false);
       setEditingItem(null);
-    } catch (err) {
+    } catch {
       toast({ variant: "destructive", title: "Gagal Update", description: "Terjadi kesalahan sistem." });
     } finally {
       setUpdating(false);
@@ -339,7 +358,7 @@ export default function StokBahanBakuPage() {
                       <SelectValue placeholder="Pilih bahan..." />
                     </SelectTrigger>
                     <SelectContent className="rounded-2xl border-none shadow-xl">
-                      {materials?.map((m: any) => (
+                      {materials?.map((m) => (
                         <SelectItem key={m.id} value={m.id} className="rounded-lg">
                           {m.code} - {m.nama}
                         </SelectItem>
@@ -417,7 +436,7 @@ export default function StokBahanBakuPage() {
                 <tbody className="divide-y divide-slate-50">
                   {loading ? (
                     <tr><td colSpan={6} className="py-20 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></td></tr>
-                  ) : filteredMaterials?.map((item: any) => (
+                  ) : filteredMaterials?.map((item) => (
                     <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 md:px-10 py-4 md:py-6 text-[10px] font-black text-slate-900">{item.code}</td>
                       <td className="px-4 md:px-8 py-4 md:py-6 text-xs md:text-sm font-black text-slate-900 uppercase italic">{item.nama}</td>
@@ -460,7 +479,7 @@ export default function StokBahanBakuPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {filteredMaterials?.map((item: any) => (
+                  {filteredMaterials?.map((item) => (
                     <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 md:px-10 py-4 md:py-6 text-[10px] font-black text-slate-900">{item.code}</td>
                       <td className="px-4 md:px-8 py-4 md:py-6 text-xs md:text-sm font-black text-slate-900 uppercase italic">{item.nama}</td>

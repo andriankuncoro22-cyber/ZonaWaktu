@@ -110,9 +110,7 @@ export default function AdminStockOpnamePage() {
     );
   }, [materials, searchTerm]);
 
-  // Initialize inputs when materials load — eslint-disable needed because
-  // setState is called inside effect body (valid data-sync pattern here).
-  // eslint-disable-next-line react-hooks/set-state-in-effect
+  // Initialize inputs when materials load — setState is called inside effect body (valid data-sync pattern here).
   useEffect(() => {
     if (!materials) return;
     const initialWarehouse: Record<string, number> = {};

@@ -4,12 +4,10 @@ import React, { useState, useMemo } from "react";
 import { 
   AlertTriangle, 
   Search, 
-  RefreshCcw,
   FileDown,
   FileSpreadsheet,
   Loader2,
   CheckCircle2,
-  Boxes,
   Store,
   Compass,
   MessageCircle,
@@ -24,7 +22,21 @@ import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-
+interface BahanBaku {
+  id: string;
+  code?: string;
+  nama?: string;
+  qtyBesar?: number;
+  qtyKontainerBesar?: number;
+  qtyKontainerKecil?: number;
+  qtyKecil?: number;
+  satuanBesar?: string;
+  satuanKecil?: string;
+  qtyMinGudang?: number;
+  qtyMinKontainer?: number;
+  qtyMin?: number;
+  [key: string]: unknown;
+}
 export default function RekapanStockKritisPage() {
   const db = useFirestore();
   const { toast } = useToast();
@@ -41,10 +53,10 @@ export default function RekapanStockKritisPage() {
   const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
   const { data: settings } = useDoc(settingsRef);
 
-  const getMinStockGudang = (item: any) => Number(item.qtyMinGudang ?? item.qtyMin ?? 5);
-  const getMinStockKontainer = (item: any) => Number(item.qtyMinKontainer ?? item.qtyMin ?? 5);
+  const getMinStockGudang = (item: BahanBaku) => Number(item.qtyMinGudang ?? item.qtyMin ?? 5);
+  const getMinStockKontainer = (item: BahanBaku) => Number(item.qtyMinKontainer ?? item.qtyMin ?? 5);
   
-  const getKontainerTotal = (item: any) => {
+  const getKontainerTotal = (item: BahanBaku) => {
     const qtyBulk = Number(item.qtyKontainerBesar || 0);
     const qtyAktif = Number(item.qtyKontainerKecil || 0);
     const konversi = Number(item.qtyKecil || 1);
@@ -53,7 +65,7 @@ export default function RekapanStockKritisPage() {
 
   const criticalGudang = useMemo(() => {
     if (!materials) return [];
-    return (materials as any[]).filter(item => {
+    return (materials as BahanBaku[]).filter(item => {
       const minStock = getMinStockGudang(item);
       const stock = Number(item.qtyBesar || 0);
       return stock <= minStock;
@@ -62,7 +74,7 @@ export default function RekapanStockKritisPage() {
 
   const criticalKontainer = useMemo(() => {
     if (!materials) return [];
-    return (materials as any[]).filter(item => {
+    return (materials as BahanBaku[]).filter(item => {
       const minStock = getMinStockKontainer(item);
       const total = getKontainerTotal(item);
       return total <= minStock;
@@ -180,7 +192,7 @@ export default function RekapanStockKritisPage() {
         title: "Berhasil Diekspor",
         description: "Data stok kritis berhasil diunduh sebagai file Excel."
       });
-    } catch (err) {
+    } catch {
       toast({
         variant: "destructive",
         title: "Ekspor Gagal",
@@ -245,12 +257,12 @@ export default function RekapanStockKritisPage() {
       docPDF.text("1. DETAIL AREA KONTAINER", 15, 52);
       
       const containerTableData = criticalKontainer.map(item => [
-        item.code,
-        item.nama,
+        item.code || "",
+        item.nama || "",
         item.qtyKontainerBesar || 0,
-        item.satuanBesar,
+        item.satuanBesar || "",
         item.qtyKontainerKecil || 0,
-        item.satuanKecil,
+        item.satuanKecil || "",
         getKontainerTotal(item).toFixed(2),
         getMinStockKontainer(item)
       ]);
@@ -265,7 +277,7 @@ export default function RekapanStockKritisPage() {
       });
 
       // Table 2: Gudang Utama
-      const finalY = (docPDF as any).lastAutoTable.finalY || 100;
+      const finalY = (docPDF as any).lastAutoTable.finalY || 100; // eslint-disable-line @typescript-eslint/no-explicit-any
       
       docPDF.setFontSize(11);
       docPDF.setTextColor(139, 26, 26);
@@ -273,10 +285,10 @@ export default function RekapanStockKritisPage() {
       docPDF.text("2. DETAIL GUDANG UTAMA", 15, finalY + 12);
 
       const warehouseTableData = criticalGudang.map(item => [
-        item.code,
-        item.nama,
+        item.code || "",
+        item.nama || "",
         item.qtyBesar || 0,
-        item.satuanBesar,
+        item.satuanBesar || "",
         getMinStockGudang(item)
       ]);
 
@@ -294,7 +306,7 @@ export default function RekapanStockKritisPage() {
         title: "Berhasil Diekspor",
         description: "Laporan stok kritis berhasil diunduh sebagai file PDF."
       });
-    } catch (err) {
+    } catch {
       toast({
         variant: "destructive",
         title: "Ekspor Gagal",
@@ -468,10 +480,10 @@ export default function RekapanStockKritisPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {filteredKontainer.map((item: any) => {
+                    {filteredKontainer.map((item) => {
                       const minStock = getMinStockKontainer(item);
                       const totalStock = getKontainerTotal(item);
-                      const waText = `${item.nama} ${Math.ceil(Math.max(0, minStock - totalStock))} ${item.satuanBesar}`;
+                      const waText = `${item.nama || ""} ${Math.ceil(Math.max(0, minStock - totalStock))} ${item.satuanBesar || ""}`;
                       return (
                         <tr key={item.id} className="hover:bg-rose-50/20 transition-colors duration-200">
                           <td className="px-6 md:px-10 py-4 md:py-6 text-[10px] font-black text-slate-900">{item.code}</td>
@@ -550,11 +562,11 @@ export default function RekapanStockKritisPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {filteredGudang.map((item: any) => {
+                    {filteredGudang.map((item) => {
                       const minStock = getMinStockGudang(item);
                       const currentStock = Number(item.qtyBesar || 0);
                       const orderQty = Math.ceil(Math.max(0, minStock - currentStock));
-                      const waText = `${item.nama} ${orderQty} ${item.satuanBesar}`;
+                      const waText = `${item.nama || ""} ${orderQty} ${item.satuanBesar || ""}`;
                       return (
                         <tr key={item.id} className="hover:bg-rose-50/20 transition-colors duration-200">
                           <td className="px-6 md:px-10 py-4 md:py-6 text-[10px] font-black text-slate-900">{item.code}</td>

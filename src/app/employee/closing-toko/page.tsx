@@ -318,7 +318,6 @@ export default function EmployeeClosingTokoPage({
         title: "Pemakaian Dicatat",
         description: `${validBatch.length} jenis bahan telah dicatat & stok terpotong.`,
       });
-      setIsProduksiOpen(false);
       setProductionBatch([{ resepId: "", qty: 1 }]);
     } catch (e: any) {
       console.error(e);

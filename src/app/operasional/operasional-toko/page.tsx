@@ -19,6 +19,17 @@ import { CalendarDays, Coins, Loader2, Save, Trash2, Wallet2 } from "lucide-reac
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 
+interface OperasionalEntry {
+  id: string;
+  tanggal?: string;
+  paymentType?: string;
+  paymentTypeLabel?: string;
+  nominal?: number;
+  catatan?: string;
+  total?: number;
+  createdAt?: { seconds?: number };
+}
+
 export default function OperasionalTokoPage() {
   const db = useFirestore();
   const { toast } = useToast();
@@ -40,7 +51,7 @@ export default function OperasionalTokoPage() {
 
   const dailyEntries = useMemo(() => {
     if (!rawEntries) return [];
-    return [...rawEntries].sort((a: any, b: any) => {
+    return [...(rawEntries as unknown as OperasionalEntry[])].sort((a, b) => {
       const timeA = a.createdAt?.seconds || 0;
       const timeB = b.createdAt?.seconds || 0;
       return timeB - timeA;
@@ -48,7 +59,7 @@ export default function OperasionalTokoPage() {
   }, [rawEntries]);
 
   const totalOperasional = useMemo(() => {
-    return dailyEntries.reduce((sum: number, item: any) => sum + Number(item.total || 0), 0);
+    return dailyEntries.reduce((sum: number, item) => sum + Number(item.total || 0), 0);
   }, [dailyEntries]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -263,7 +274,7 @@ export default function OperasionalTokoPage() {
             )}
 
             <div className="space-y-3">
-              {dailyEntries.map((entry: any) => (
+              {dailyEntries.map((entry) => (
                 <div key={entry.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-1">

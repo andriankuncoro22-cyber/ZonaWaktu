@@ -16,8 +16,25 @@ export default function LaporanPemindahanBarangPage() {
   );
   const { data: logs, loading } = useCollection(logsQuery);
 
-  const transferLogs = useMemo(() => {
-    return (logs || []).filter((log: any) => log.location === "kontainer" && (log.type === "ambil-gudang" || log.type === "kembali-gudang"));
+  interface LogItem {
+    materialCode?: string;
+    materialName?: string;
+    qty?: number;
+    unit?: string;
+  }
+
+  interface TransferLog {
+    id: string;
+    nomorNota?: string;
+    type?: string;
+    location?: string;
+    createdAt?: { toDate?: () => Date };
+    totalItems?: number;
+    items?: LogItem[];
+  }
+
+  const transferLogs = useMemo((): TransferLog[] => {
+    return ((logs as unknown as TransferLog[]) || []).filter((log) => log.location === "kontainer" && (log.type === "ambil-gudang" || log.type === "kembali-gudang"));
   }, [logs]);
 
   return (
@@ -41,7 +58,7 @@ export default function LaporanPemindahanBarangPage() {
             </div>
           ) : transferLogs.length > 0 ? (
             <div className="space-y-4">
-              {transferLogs.map((log: any) => {
+              {transferLogs.map((log) => {
                 const isTake = log.type === "ambil-gudang";
                 return (
                   <div key={log.id} className="rounded-[1.5rem] border border-slate-100 bg-slate-50 p-4 sm:p-5">
@@ -71,7 +88,7 @@ export default function LaporanPemindahanBarangPage() {
                     </div>
 
                     <div className="mt-4 space-y-2">
-                      {log.items?.map((item: any, idx: number) => (
+                      {log.items?.map((item, idx) => (
                         <div key={idx} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-3 py-3 text-[10px] sm:text-xs">
                           <div>
                             <p className="font-bold uppercase tracking-[0.18em] text-slate-400">{item.materialCode}</p>

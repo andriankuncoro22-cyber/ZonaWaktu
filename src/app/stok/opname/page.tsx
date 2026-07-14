@@ -1,4 +1,4 @@
-import { History, ClipboardList, Search, Plus } from "lucide-react";
+import { History, ClipboardList, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 

@@ -1,4 +1,4 @@
-export async function uploadToCloudinary(file: File, config?: any) {
+export async function uploadToCloudinary(file: File, config?: { cloudinaryCloudName?: string; cloudinaryUploadPreset?: string; cloudinaryFolder?: string }) {
   const cloudName = config?.cloudinaryCloudName || process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || "w64lomhk";
   const uploadPreset = config?.cloudinaryUploadPreset || process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET || "zona_waktu";
   const folder = config?.cloudinaryFolder || process.env.NEXT_PUBLIC_CLOUDINARY_FOLDER || "logo";

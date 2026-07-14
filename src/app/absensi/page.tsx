@@ -48,6 +48,9 @@ interface AbsensiConfig {
   lat: string;
   lng: string;
   radius: string;
+  cloudinaryCloudName?: string;
+  cloudinaryUploadPreset?: string;
+  cloudinaryFolder?: string;
   location?: AbsensiConfig;
   [key: string]: unknown;
 }
@@ -133,7 +136,6 @@ export default function AbsensiKaryawanPage() {
   }, []);
 
   // One-time initialization: restore session + load location config
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
     checkPersistedUser();
     fetchConfig();

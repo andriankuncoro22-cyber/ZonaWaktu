@@ -28,7 +28,7 @@ import { collection, query, orderBy, limit, where } from "firebase/firestore";
 import Link from "next/link";
 
 export default function DashboardPage() {
-
+  const mounted = true; // client component — always mounted
   const db = useFirestore();
 
   const penjualanQuery = useMemoFirebase(() => 
