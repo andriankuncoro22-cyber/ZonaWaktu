@@ -261,7 +261,7 @@ export default function AbsensiKaryawanPage() {
           selfieUrl: selfiePreview,
           timestamp: serverTimestamp()
         });
-        setAttendanceToday({ jamMasuk: time, jamPulang: "-", selfieUrl: selfiePreview });
+        setAttendanceToday({ id: "", karyawanId: user.id, nama: user.nama, tanggal: today, jamMasuk: time, jamPulang: "-", selfieUrl: selfiePreview ?? undefined });
       } else {
         alert("Sesi Absen Pulang Tercatat.");
       }
