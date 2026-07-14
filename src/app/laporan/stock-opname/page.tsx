@@ -294,7 +294,7 @@ export default function LaporanStockOpnamePage() {
         sebelum: 0,
         sesudah: 0,
         selisih: "-"
-      };
+      });
     }
 
     const containerRowsExport = filteredContainerEntries.flatMap((entry) =>
