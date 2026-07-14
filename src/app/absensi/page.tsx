@@ -115,6 +115,7 @@ export default function AbsensiKaryawanPage() {
   }, [db]);
 
   const checkPersistedUser = useCallback(async () => {
+    await Promise.resolve();
     try {
       const saved = localStorage.getItem("absensi_user");
       if (saved) {

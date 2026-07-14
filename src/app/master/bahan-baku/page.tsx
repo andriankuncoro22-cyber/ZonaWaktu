@@ -89,15 +89,17 @@ export default function MasterBahanBakuPage() {
   };
 
   useEffect(() => {
-    if (editingItem) {
-      setTotalGramasiInput(getGramasiPerProduk(editingItem));
-      setBeratBungkusInput(Number(editingItem.beratBungkusProduk || 0));
-      setGramPerBesarInput(Number(editingItem.gramPerBesar || 0));
-    } else {
-      setTotalGramasiInput(0);
-      setBeratBungkusInput(0);
-      setGramPerBesarInput(0);
-    }
+    queueMicrotask(() => {
+      if (editingItem) {
+        setTotalGramasiInput(getGramasiPerProduk(editingItem));
+        setBeratBungkusInput(Number(editingItem.beratBungkusProduk || 0));
+        setGramPerBesarInput(Number(editingItem.gramPerBesar || 0));
+      } else {
+        setTotalGramasiInput(0);
+        setBeratBungkusInput(0);
+        setGramPerBesarInput(0);
+      }
+    });
   }, [editingItem]);
 
   const toTitleCase = (str: string) => {

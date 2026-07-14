@@ -128,9 +128,11 @@ export default function AdminStockOpnamePage() {
       initialBulk[it.id] = Number(it.qtyKontainerBesar || 0);
     });
 
-    setWarehouseInputs(initialWarehouse);
-    setKontainerInputs(initialKontainer);
-    setBulkInputs(initialBulk);
+    queueMicrotask(() => {
+      setWarehouseInputs(initialWarehouse);
+      setKontainerInputs(initialKontainer);
+      setBulkInputs(initialBulk);
+    });
   }, [materials, getTotalWeightFromAktif]);
 
   // Handle finalization for warehouse

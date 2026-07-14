@@ -79,11 +79,13 @@ export default function PengaturanUmumPage() {
 
   useEffect(() => {
     if (storeSettings) {
-      setFormData({
-        name: storeSettings.name || "Zona Waktu",
-        tagline: storeSettings.tagline || "Coffee & Teh Bakar Autentik",
-        logoLanding: storeSettings.logoLanding || "",
-        logoHeader: storeSettings.logoHeader || ""
+      queueMicrotask(() => {
+        setFormData({
+          name: storeSettings.name || "Zona Waktu",
+          tagline: storeSettings.tagline || "Coffee & Teh Bakar Autentik",
+          logoLanding: storeSettings.logoLanding || "",
+          logoHeader: storeSettings.logoHeader || ""
+        });
       });
     }
   }, [storeSettings]);

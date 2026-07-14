@@ -120,7 +120,7 @@ export default function HargaBahanBakuPage() {
                   <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm text-slate-600">
                     {Array.isArray(selectedMaterial.priceHistory) && selectedMaterial.priceHistory.length > 0 ? selectedMaterial.priceHistory.slice(-3).reverse().map((entry: any, idx: number) => (
                       <div key={idx} className="flex justify-between gap-3 py-1">
-                        <span>{new Date(entry.recordedAt || Date.now()).toLocaleDateString("id-ID")}</span>
+                        <span>{entry.recordedAt ? new Date(entry.recordedAt).toLocaleDateString("id-ID") : "-"}</span>
                         <span className="font-black text-slate-800">Rp {Number(entry.price || 0).toLocaleString("id-ID")}</span>
                       </div>
                     )) : <span>Belum ada riwayat update harga.</span>}

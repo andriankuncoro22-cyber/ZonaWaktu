@@ -18,12 +18,14 @@ export const useCollection = <T = DocumentData>(query: Query<T> | null) => {
 
   useEffect(() => {
     // Reset state saat query berubah untuk menghindari data lama (ghosting)
-    setData([]);
-    setLoading(true);
-    setError(null);
+    queueMicrotask(() => {
+      setData([]);
+      setLoading(true);
+      setError(null);
+    });
 
     if (!query) {
-      setLoading(false);
+      queueMicrotask(() => setLoading(false));
       return;
     }
 

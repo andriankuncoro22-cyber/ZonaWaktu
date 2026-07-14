@@ -95,7 +95,9 @@ export default function ResepProdukPage() {
 
   useEffect(() => {
     if (recipes) {
-      setLocalRecipes(recipes as Recipe[]);
+      queueMicrotask(() => {
+        setLocalRecipes(recipes as Recipe[]);
+      });
     }
   }, [recipes]);
 

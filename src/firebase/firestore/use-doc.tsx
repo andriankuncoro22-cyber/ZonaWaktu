@@ -15,7 +15,7 @@ export const useDoc = <T = DocumentData>(docRef: DocumentReference<T> | null) =>
 
   useEffect(() => {
     if (!docRef) {
-      setLoading(false);
+      queueMicrotask(() => setLoading(false));
       return;
     }
 

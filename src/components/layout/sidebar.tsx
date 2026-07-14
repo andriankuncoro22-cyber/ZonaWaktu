@@ -94,8 +94,9 @@ export function Sidebar() {
   const [role, setRole] = useState<string | null>(null);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setRole(localStorage.getItem("user_role"));
+    queueMicrotask(() => {
+      setRole(localStorage.getItem("user_role"));
+    });
   }, []);
 
   const groups = role === "admin" ? adminMenuGroups : menuGroups;
