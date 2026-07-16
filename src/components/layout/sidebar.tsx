@@ -18,9 +18,6 @@ import {
   Truck,
   Home,
   ClipboardList,
-  Package,
-  Activity,
-  ArrowRightLeft,
   Store,
   AlertOctagon
 } from "lucide-react";
@@ -44,15 +41,7 @@ const menuGroups = [
   {
     title: "Laporan",
     items: [
-      { name: "Laporan Keuangan", icon: BarChart4, href: "/laporan/laba-rugi" },
-      { name: "Laporan HPP", icon: TrendingUp, href: "/laporan/hpp" },
-      { name: "Laporan Laba Rugi", icon: TrendingUp, href: "/laporan/laba-rugi-bersih" },
-      { name: "Laporan Operasional", icon: TrendingUp, href: "/operasional/laporan-operasional" },
-      { name: "Laporan Belanja Bahan Baku", icon: Package, href: "/operasional/laporan-belanja-bahan-baku" },
-      { name: "Laporan Pemakaian Bahan Baku", icon: Activity, href: "/operasional/laporan-pemakaian-bahan-baku" },
-      { name: "Laporan Pemindahan Barang", icon: ArrowRightLeft, href: "/operasional/laporan-pemindahan-barang" },
-      { name: "Laporan Stock Opnam", icon: ClipboardList, href: "/laporan/stock-opname" },
-      { name: "Laporan Closing Toko", icon: ClipboardList, href: "/laporan/closing-toko" },
+      { name: "Laporan", icon: BarChart4, href: "/laporan" },
     ]
   },
   {
