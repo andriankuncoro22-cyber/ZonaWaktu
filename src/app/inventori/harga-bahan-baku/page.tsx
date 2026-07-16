@@ -42,8 +42,10 @@ export default function HargaBahanBakuPage() {
       const priceBesar = Number(selectedMaterial.currentPrice ?? selectedMaterial.avgPrice ?? selectedMaterial.hargaBeliSatuanBesar ?? 0);
       const priceKecil = selectedMaterial.hargaSatuanKecil ?? (conversionRate > 0 ? priceBesar / conversionRate : 0);
 
-      setPriceBesarInput(priceBesar ? String(priceBesar) : "0");
-      setPriceKecilInput(priceKecil ? String(Math.round(priceKecil * 100) / 100) : "0");
+      queueMicrotask(() => {
+        setPriceBesarInput(priceBesar ? String(priceBesar) : "0");
+        setPriceKecilInput(priceKecil ? String(Math.round(priceKecil * 100) / 100) : "0");
+      });
     }
   }, [selectedMaterial?.id]);
 
