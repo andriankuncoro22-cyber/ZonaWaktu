@@ -11,7 +11,9 @@ import {
   Store,
   Compass,
   MessageCircle,
-  ClipboardCopy
+  ClipboardCopy,
+  ShoppingBag,
+  Truck
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -19,13 +21,22 @@ import { useFirestore, useCollection, useMemoFirebase, useDoc } from "@/firebase
 import { collection, query, orderBy, doc } from "firebase/firestore";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+
 interface BahanBaku {
   id: string;
   code?: string;
   nama?: string;
+  metodePembelian?: string;
   qtyBesar?: number;
   qtyKontainerBesar?: number;
   qtyKontainerKecil?: number;
@@ -37,11 +48,13 @@ interface BahanBaku {
   qtyMin?: number;
   [key: string]: unknown;
 }
+
 export default function RekapanStockKritisPage() {
   const db = useFirestore();
   const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("kontainer");
+  const [isWaDialogOpen, setIsWaDialogOpen] = useState(false);
 
   const materialsQuery = useMemoFirebase(() => 
     query(collection(db, "bahan-baku"), orderBy("code", "asc")), 
@@ -121,32 +134,40 @@ export default function RekapanStockKritisPage() {
     });
   };
 
-  const getBulkOrderText = () => {
+  const getBulkOrderText = (metodeFilter: "Semua" | "Supliyer" | "Beli Sendiri" = "Semua") => {
     const activeList = activeTab === "kontainer" ? criticalKontainer : criticalGudang;
-    if (activeList.length === 0) return "";
+    const filteredList = activeList.filter(item => {
+      if (metodeFilter === "Supliyer") return item.metodePembelian !== "Beli Sendiri";
+      if (metodeFilter === "Beli Sendiri") return item.metodePembelian === "Beli Sendiri";
+      return true;
+    });
+
+    if (filteredList.length === 0) return "";
     
-    const list = activeList.map(item => {
+    const list = filteredList.map(item => {
       const minStock = activeTab === "kontainer" ? getMinStockKontainer(item) : getMinStockGudang(item);
       const currentStock = activeTab === "kontainer" ? getKontainerTotal(item) : Number(item.qtyBesar || 0);
       const orderQty = Math.ceil(Math.max(0, minStock - currentStock));
-      return `- ${item.nama} ${orderQty} ${item.satuanBesar}`;
+      return `- ${item.nama} ${orderQty} ${item.satuanBesar || ""}`;
     }).join("\n");
 
     const sourceName = activeTab === "kontainer" ? "Area Kontainer" : "Gudang Utama";
-    return `Halo, saya ingin memesan bahan baku berikut untuk ${sourceName}:\n${list}\n\nTerima kasih!`;
+    const labelMetode = metodeFilter === "Semua" ? "" : ` [Metode: ${metodeFilter}]`;
+    return `Halo, saya ingin memesan bahan baku berikut untuk ${sourceName}${labelMetode}:\n${list}\n\nTerima kasih!`;
   };
 
-  const handleBulkWhatsApp = () => {
-    const text = getBulkOrderText();
+  const handleBulkOrderSend = (metodeFilter: "Semua" | "Supliyer" | "Beli Sendiri") => {
+    const text = getBulkOrderText(metodeFilter);
     if (!text) {
       toast({
         variant: "destructive",
         title: "Tidak Ada Data",
-        description: "Tidak ada bahan baku kritis di tab ini untuk dipesan."
+        description: `Tidak ada bahan baku kritis dengan metode ${metodeFilter} pada tab ini.`
       });
       return;
     }
     openWhatsApp(text);
+    setIsWaDialogOpen(false);
   };
 
   const handleExportExcel = () => {
@@ -171,7 +192,8 @@ export default function RekapanStockKritisPage() {
         "Qty Aktif (Satuan Kecil)": item.qtyKontainerKecil || 0,
         "Satuan Kecil": item.satuanKecil,
         "Total Kontainer (Satuan Besar)": Number(getKontainerTotal(item).toFixed(4)),
-        "Batas Minimum Kontainer": getMinStockKontainer(item)
+        "Batas Minimum Kontainer": getMinStockKontainer(item),
+        "Metode Pembelian": item.metodePembelian === "Beli Sendiri" ? "2. Beli Sendiri" : "1. Supliyer",
       }));
       const wsKontainer = XLSX.utils.json_to_sheet(wsKontainerData);
       XLSX.utils.book_append_sheet(wb, wsKontainer, "Kritis Kontainer");
@@ -182,7 +204,8 @@ export default function RekapanStockKritisPage() {
         "Nama Bahan": item.nama,
         "Stok Gudang": item.qtyBesar || 0,
         "Satuan": item.satuanBesar,
-        "Batas Minimum Gudang": getMinStockGudang(item)
+        "Batas Minimum Gudang": getMinStockGudang(item),
+        "Metode Pembelian": item.metodePembelian === "Beli Sendiri" ? "2. Beli Sendiri" : "1. Supliyer",
       }));
       const wsGudang = XLSX.utils.json_to_sheet(wsGudangData);
       XLSX.utils.book_append_sheet(wb, wsGudang, "Kritis Gudang");
@@ -264,11 +287,12 @@ export default function RekapanStockKritisPage() {
         item.qtyKontainerKecil || 0,
         item.satuanKecil || "",
         getKontainerTotal(item).toFixed(2),
-        getMinStockKontainer(item)
+        getMinStockKontainer(item),
+        item.metodePembelian === "Beli Sendiri" ? "Beli Sendiri" : "Supliyer"
       ]);
 
       autoTable(docPDF, {
-        head: [["KODE", "NAMA BAHAN", "BULK", "SAT. B", "AKTIF", "SAT. K", "TOTAL (SAT. B)", "MIN STOK"]],
+        head: [["KODE", "NAMA BAHAN", "BULK", "SAT. B", "AKTIF", "SAT. K", "TOTAL", "MIN", "METODE"]],
         body: containerTableData,
         startY: 56,
         theme: 'grid',
@@ -289,11 +313,12 @@ export default function RekapanStockKritisPage() {
         item.nama || "",
         item.qtyBesar || 0,
         item.satuanBesar || "",
-        getMinStockGudang(item)
+        getMinStockGudang(item),
+        item.metodePembelian === "Beli Sendiri" ? "Beli Sendiri" : "Supliyer"
       ]);
 
       autoTable(docPDF, {
-        head: [["KODE", "NAMA BAHAN", "STOK GUDANG", "SATUAN", "MIN STOK"]],
+        head: [["KODE", "NAMA BAHAN", "STOK GUDANG", "SATUAN", "MIN", "METODE"]],
         body: warehouseTableData,
         startY: finalY + 16,
         theme: 'grid',
@@ -317,7 +342,7 @@ export default function RekapanStockKritisPage() {
 
   return (
     <div className="space-y-6 md:space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
-      {/* Premium Header */}
+      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 md:gap-6">
         <div className="space-y-1">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-50 border border-rose-100 text-rose-600">
@@ -352,13 +377,78 @@ export default function RekapanStockKritisPage() {
           </Button>
           <Button 
             variant="outline" 
-            onClick={handleBulkWhatsApp}
+            onClick={() => setIsWaDialogOpen(true)}
             className="rounded-xl border-emerald-200 bg-emerald-50 px-4 h-12 font-black uppercase tracking-widest text-[9px] gap-2 text-emerald-700 hover:bg-emerald-100 transition-all duration-300 shrink-0"
           >
             <MessageCircle className="h-4 w-4 text-emerald-600" /> Order Semua via WA
           </Button>
         </div>
       </div>
+
+      {/* WA Order Options Modal */}
+      <Dialog open={isWaDialogOpen} onOpenChange={setIsWaDialogOpen}>
+        <DialogContent className="sm:max-w-md rounded-[2rem] border-none p-6 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black uppercase italic tracking-tight text-slate-900 flex items-center gap-2">
+              <MessageCircle className="h-6 w-6 text-emerald-600" />
+              Order Pesanan Kritis via WA
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-xs text-slate-500 font-medium">
+            Pilih kategori pengadaan bahan baku kritis pada tab <span className="font-bold text-slate-800">{activeTab === "kontainer" ? "Area Kontainer" : "Gudang Utama"}</span> yang ingin dikirimkan via WhatsApp:
+          </p>
+          
+          <div className="grid gap-3 mt-4">
+            <button
+              onClick={() => handleBulkOrderSend("Supliyer")}
+              className="flex items-center justify-between p-4 rounded-2xl border border-blue-100 bg-blue-50/50 hover:bg-blue-100/70 transition-all text-left group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-blue-600 text-white group-hover:scale-105 transition-transform">
+                  <Truck className="h-5 w-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black uppercase text-blue-900">Bahan Supliyer</h4>
+                  <p className="text-[10px] text-blue-600 font-bold">Kirim semua item kritis bermetode 1. Supliyer</p>
+                </div>
+              </div>
+              <span className="text-xs font-black text-blue-700 bg-white px-2.5 py-1 rounded-lg shadow-sm">Pilih</span>
+            </button>
+
+            <button
+              onClick={() => handleBulkOrderSend("Beli Sendiri")}
+              className="flex items-center justify-between p-4 rounded-2xl border border-amber-100 bg-amber-50/50 hover:bg-amber-100/70 transition-all text-left group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-amber-600 text-white group-hover:scale-105 transition-transform">
+                  <ShoppingBag className="h-5 w-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black uppercase text-amber-900">Bahan Beli Sendiri</h4>
+                  <p className="text-[10px] text-amber-600 font-bold">Kirim semua item kritis bermetode 2. Beli Sendiri</p>
+                </div>
+              </div>
+              <span className="text-xs font-black text-amber-700 bg-white px-2.5 py-1 rounded-lg shadow-sm">Pilih</span>
+            </button>
+
+            <button
+              onClick={() => handleBulkOrderSend("Semua")}
+              className="flex items-center justify-between p-4 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-all text-left group"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-slate-800 text-white group-hover:scale-105 transition-transform">
+                  <MessageCircle className="h-5 w-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black uppercase text-slate-900">Semua Bahan Kritis</h4>
+                  <p className="text-[10px] text-slate-500 font-bold">Kirim seluruh item kritis tanpa membedakan metode</p>
+                </div>
+              </div>
+              <span className="text-xs font-black text-slate-700 bg-white px-2.5 py-1 rounded-lg shadow-sm">Pilih</span>
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
@@ -476,6 +566,7 @@ export default function RekapanStockKritisPage() {
                       <th className="px-4 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-right">Total Qty (Sat. B)</th>
                       <th className="px-4 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Batas Minimum</th>
                       <th className="px-6 md:px-10 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Status</th>
+                      <th className="px-6 md:px-10 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Metode Beli</th>
                       <th className="px-6 md:px-10 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Pesan WA</th>
                     </tr>
                   </thead>
@@ -499,6 +590,16 @@ export default function RekapanStockKritisPage() {
                           <td className="px-6 md:px-10 py-4 md:py-6 text-center">
                             <span className="inline-flex items-center justify-center rounded-full border border-rose-100 bg-rose-50 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-rose-600">
                               Kritis
+                            </span>
+                          </td>
+                          <td className="px-6 md:px-10 py-4 md:py-6 text-center">
+                            <span className={cn(
+                              "inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold tracking-tight whitespace-nowrap",
+                              item.metodePembelian === "Beli Sendiri" 
+                                ? "bg-amber-50 text-amber-700 border border-amber-200" 
+                                : "bg-blue-50 text-blue-700 border border-blue-200"
+                            )}>
+                              {item.metodePembelian === "Beli Sendiri" ? "2. Beli Sendiri" : "1. Supliyer"}
                             </span>
                           </td>
                           <td className="px-6 md:px-10 py-4 md:py-6 text-center">
@@ -558,6 +659,7 @@ export default function RekapanStockKritisPage() {
                       <th className="px-4 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Batas Minimum</th>
                       <th className="px-6 md:px-10 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Satuan</th>
                       <th className="px-6 md:px-10 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Status</th>
+                      <th className="px-6 md:px-10 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Metode Beli</th>
                       <th className="px-6 md:px-10 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Pesan WA</th>
                     </tr>
                   </thead>
@@ -577,6 +679,16 @@ export default function RekapanStockKritisPage() {
                           <td className="px-6 md:px-10 py-4 md:py-6 text-center">
                             <span className="inline-flex items-center justify-center rounded-full border border-rose-100 bg-rose-50 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-rose-600">
                               Kritis
+                            </span>
+                          </td>
+                          <td className="px-6 md:px-10 py-4 md:py-6 text-center">
+                            <span className={cn(
+                              "inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold tracking-tight whitespace-nowrap",
+                              item.metodePembelian === "Beli Sendiri" 
+                                ? "bg-amber-50 text-amber-700 border border-amber-200" 
+                                : "bg-blue-50 text-blue-700 border border-blue-200"
+                            )}>
+                              {item.metodePembelian === "Beli Sendiri" ? "2. Beli Sendiri" : "1. Supliyer"}
                             </span>
                           </td>
                           <td className="px-6 md:px-10 py-4 md:py-6 text-center">
