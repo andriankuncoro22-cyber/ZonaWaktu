@@ -90,10 +90,12 @@ export default function HppReportPage() {
           };
         }
 
-        const qty = Number(item.total || 0);
-        const jual = Number(item.pendapatan || 0);
-        const productId = productCodeMap[item.code];
-        const recipe = Array.isArray(productId ? recipeMap[productId] : []) ? (productId ? recipeMap[productId] : []) : [];
+        const qty = Number(item.total ?? item.qty ?? 0);
+        const jual = Number(item.pendapatan ?? item.totalHarga ?? (qty * Number(item.price || 0)) ?? 0);
+        const productId = productCodeMap[item.code] || productCodeMap[item.kode];
+        const recipe = Array.isArray(productId ? recipeMap[productId] : []) 
+          ? (productId ? recipeMap[productId] : []) 
+          : [];
         let hpp = 0;
 
         recipe.forEach((ingredient: any) => {
@@ -101,10 +103,12 @@ export default function HppReportPage() {
           hpp += calculateRecipeIngredientCost(ingredient, material, qty);
         });
 
+        const roundedHpp = Math.round(hpp);
+
         summary[key].totalQty += qty;
         summary[key].totalJual += jual;
-        summary[key].totalHpp += hpp;
-        summary[key].labaKotor += jual - hpp;
+        summary[key].totalHpp += roundedHpp;
+        summary[key].labaKotor += jual - roundedHpp;
       });
     });
 

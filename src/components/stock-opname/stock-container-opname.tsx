@@ -296,10 +296,10 @@ export function StockContainerOpnameView({
                     <p className="text-base font-black uppercase tracking-tight text-slate-900">{item.nama}</p>
                     <div className="mt-3 flex flex-wrap gap-2 text-[10px]">
                       <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-600">
-                        Bungkus: {Number(item.beratBungkusProduk || 0).toLocaleString("id-ID")} g
+                        Bungkus: {Number(item.beratBungkusProduk || 0).toLocaleString("id-ID")} {item.satuanKalibrasi === "Pcs" ? "pcs" : "g"}
                       </span>
                       <span className="rounded-full bg-primary/5 px-2 py-1 font-semibold text-primary">
-                        Total/produk: {Number(item.totalGramasiPerProduk ?? (Number(item.gramPerBesar || 0) + Number(item.beratBungkusProduk || 0))).toLocaleString("id-ID")} g
+                        Total/produk: {Number(item.totalGramasiPerProduk ?? (Number(item.gramPerBesar || 0) + Number(item.beratBungkusProduk || 0))).toLocaleString("id-ID")} {item.satuanKalibrasi === "Pcs" ? "pcs" : "g"}
                       </span>
                     </div>
                   </div>
@@ -349,11 +349,13 @@ export function StockContainerOpnameView({
                           },
                         }));
                       }}
-                      placeholder="0 g"
+                      placeholder={item.satuanKalibrasi === "Pcs" ? "0 pcs" : "0 g"}
                       inputMode="decimal"
                       className="h-11 w-full rounded-2xl border-none bg-slate-50 pr-12 text-center text-base font-black"
                     />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black uppercase text-slate-400">g</span>
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black uppercase text-slate-400">
+                      {item.satuanKalibrasi === "Pcs" ? "pcs" : "g"}
+                    </span>
                   </div>
                   <div className="relative">
                     <Input

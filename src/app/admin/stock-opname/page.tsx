@@ -355,10 +355,12 @@ export default function AdminStockOpnamePage() {
                                     }
                                   }));
                                 }}
-                                placeholder="0 g"
+                                placeholder={item.satuanKalibrasi === "Pcs" ? "0 pcs" : "0 g"}
                                 className="rounded-xl h-12 bg-slate-50 border-none font-black text-center text-lg pr-12"
                               />
-                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black text-slate-400 uppercase">g</span>
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black text-slate-400 uppercase">
+                                {item.satuanKalibrasi === "Pcs" ? "pcs" : "g"}
+                              </span>
                             </div>
                           </div>
                         </td>

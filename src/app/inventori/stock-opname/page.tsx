@@ -259,10 +259,10 @@ export default function StockOpnamePage() {
                         <p className="text-sm font-black text-slate-900 uppercase italic">{item.nama}</p>
                         <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
                           <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-600">
-                            Bungkus: {Number(item.beratBungkusProduk || 0).toLocaleString('id-ID')} g
+                            Bungkus: {Number(item.beratBungkusProduk || 0).toLocaleString('id-ID')} {item.satuanKalibrasi === "Pcs" ? "pcs" : "g"}
                           </span>
                           <span className="rounded-full bg-primary/5 px-2 py-1 font-semibold text-primary">
-                            Total/produk: {Number(item.totalGramasiPerProduk ?? (Number(item.gramPerBesar || 0) + Number(item.beratBungkusProduk || 0))).toLocaleString('id-ID')} g
+                            Total/produk: {Number(item.totalGramasiPerProduk ?? (Number(item.gramPerBesar || 0) + Number(item.beratBungkusProduk || 0))).toLocaleString('id-ID')} {item.satuanKalibrasi === "Pcs" ? "pcs" : "g"}
                           </span>
                         </div>
                       </td>
@@ -362,10 +362,12 @@ export default function StockOpnamePage() {
                                    },
                                  }));
                                }}
-                               placeholder="0 g"
+                               placeholder={item.satuanKalibrasi === "Pcs" ? "0 pcs" : "0 g"}
                                className="rounded-xl h-12 bg-slate-50 border-none font-black text-center text-lg pr-12"
                              />
-                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black text-slate-400 uppercase">g</span>
+                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black text-slate-400 uppercase">
+                               {item.satuanKalibrasi === "Pcs" ? "pcs" : "g"}
+                             </span>
                            </div>
                          </div>
                       </td>

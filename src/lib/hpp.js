@@ -2,11 +2,12 @@ export function getTotalAvailableQty(material) {
   if (!material) return 0;
 
   const qtyBesar = Number(material.qtyBesar || 0);
+  const qtyGudangKecil = Number(material.qtyGudangKecil || 0);
   const qtyKontainerBesar = Number(material.qtyKontainerBesar || 0);
   const qtyKontainerKecil = Number(material.qtyKontainerKecil || 0);
   const conversionRate = Number(material.qtyKecil || 1);
 
-  return (qtyBesar + qtyKontainerBesar) * conversionRate + qtyKontainerKecil;
+  return (qtyBesar + qtyKontainerBesar) * conversionRate + qtyGudangKecil + qtyKontainerKecil;
 }
 
 export function getAverageCost(material) {
@@ -24,12 +25,17 @@ export function calculateRecipeIngredientCost(ingredient, material, soldQty = 1)
   const conversionRate = Number(material?.qtyKecil || 1);
   const unitPrice = Number(material?.currentPrice ?? material?.avgPrice ?? material?.hargaBeliSatuanBesar ?? 0);
   const soldUnits = Number(soldQty || 0);
+  const explicitPriceKecil = Number(material?.hargaSatuanKecil || 0);
 
-  if (qtyNeeded <= 0 || soldUnits <= 0 || conversionRate <= 0 || unitPrice <= 0) {
+  if (qtyNeeded <= 0 || soldUnits <= 0) {
     return 0;
   }
 
-  return (qtyNeeded / conversionRate) * soldUnits * unitPrice;
+  const pricePerSmallUnit = explicitPriceKecil > 0
+    ? explicitPriceKecil
+    : (conversionRate > 0 ? unitPrice / conversionRate : 0);
+
+  return qtyNeeded * soldUnits * pricePerSmallUnit;
 }
 
 export function applyPurchase(material, qty, price) {
@@ -58,18 +64,26 @@ export function applyPurchase(material, qty, price) {
   };
 }
 
-export function applyPriceUpdate(material, price) {
+export function applyPriceUpdate(material, price, priceKecilInput = null) {
   const newPrice = Number(price || 0);
+  const conversionRate = Number(material?.qtyKecil || 1);
+  const priceKecil = priceKecilInput !== null && priceKecilInput !== undefined
+    ? Number(priceKecilInput || 0)
+    : (conversionRate > 0 ? newPrice / conversionRate : 0);
+
   const history = Array.isArray(material?.priceHistory) ? material.priceHistory : [];
   const nextHistory = [...history, {
     price: newPrice,
+    priceKecil: priceKecil,
     recordedAt: new Date().toISOString(),
     note: "Update harga bahan"
   }].slice(-10);
 
   return {
     currentPrice: newPrice,
+    hargaSatuanKecil: priceKecil,
     avgPrice: newPrice > 0 ? newPrice : getAverageCost(material),
+    avgPriceKecil: priceKecil > 0 ? priceKecil : (getAverageCost(material) / (conversionRate || 1)),
     priceHistory: nextHistory,
   };
 }

@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState } from "react";
@@ -46,6 +45,7 @@ interface BahanBaku {
   code?: string;
   nama?: string;
   qtyBesar?: number;
+  qtyGudangKecil?: number;
   qtyKontainerBesar?: number;
   qtyKontainerKecil?: number;
   qtyKecil?: number;
@@ -93,8 +93,16 @@ export default function StokBahanBakuPage() {
 
   const getMinStockGudang = (item: BahanBaku) => Number(item.qtyMinGudang ?? item.qtyMin ?? 5);
   const getMinStockKontainer = (item: BahanBaku) => Number(item.qtyMinKontainer ?? item.qtyMin ?? 5);
+  
+  const getGudangTotal = (item: BahanBaku) => {
+    const qtyBulk = Math.floor(Number(item.qtyBesar || 0));
+    const qtyKecil = Number(item.qtyGudangKecil || 0);
+    const konversi = Number(item.qtyKecil || 1);
+    return qtyBulk + (qtyKecil / (konversi || 1));
+  };
+
   const getKontainerTotal = (item: BahanBaku) => {
-    const qtyBulk = Number(item.qtyKontainerBesar || 0);
+    const qtyBulk = Math.floor(Number(item.qtyKontainerBesar || 0));
     const qtyAktif = Number(item.qtyKontainerKecil || 0);
     const konversi = Number(item.qtyKecil || 1);
     return qtyBulk + (qtyAktif / (konversi || 1));
@@ -118,6 +126,7 @@ export default function StokBahanBakuPage() {
         const ref = doc(db, "bahan-baku", item.id);
         batch.update(ref, {
           qtyBesar: 0,
+          qtyGudangKecil: 0,
           qtyKontainerBesar: 0,
           qtyKontainerKecil: 0,
         });
@@ -141,7 +150,8 @@ export default function StokBahanBakuPage() {
 
   const handleTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!transferData.materialId || transferData.qty <= 0) return;
+    const transferQty = Math.floor(Number(transferData.qty || 0));
+    if (!transferData.materialId || transferQty <= 0) return;
 
     setTransferring(true);
     try {
@@ -149,19 +159,19 @@ export default function StokBahanBakuPage() {
       const materialRef = doc(db, "bahan-baku", transferData.materialId);
       const material = (materials as BahanBaku[]).find(m => m.id === transferData.materialId);
 
-      if (!material || (material.qtyBesar || 0) < transferData.qty) {
+      if (!material || Math.floor(Number(material.qtyBesar || 0)) < transferQty) {
         throw new Error(`Stok gudang (${material?.satuanBesar || ""}) tidak mencukupi`);
       }
 
       batch.update(materialRef, {
-        qtyBesar: increment(-transferData.qty),
-        qtyKontainerBesar: increment(transferData.qty)
+        qtyBesar: increment(-transferQty),
+        qtyKontainerBesar: increment(transferQty)
       });
 
       await batch.commit();
       toast({
         title: "Transfer Berhasil",
-        description: `${transferData.qty} ${material.satuanBesar} dipindahkan ke Area Kontainer.`
+        description: `${transferQty} ${material.satuanBesar} dipindahkan ke Area Kontainer.`
       });
       setIsTransferOpen(false);
       setTransferData({ materialId: "", qty: 0 });
@@ -177,28 +187,6 @@ export default function StokBahanBakuPage() {
     }
   };
 
-  // Auto-kalibrasi: bila Qty Bulk <= 1, konversi ke satuan kecil
-  const handleBulkQtyBlur = (rawValue: number) => {
-    if (!editingItem) return;
-    const bulkVal = Number(rawValue || 0);
-    if (bulkVal <= 1 && bulkVal > 0) {
-      const konversi = Number(editingItem.qtyKecil || 1);
-      const tambahKecil = bulkVal * konversi;
-      const newKontainerKecil = Number(editingItem.qtyKontainerKecil || 0) + tambahKecil;
-      setEditingItem({
-        ...editingItem,
-        qtyKontainerBesar: 0,
-        qtyKontainerKecil: Math.round(newKontainerKecil * 100) / 100
-      });
-      toast({
-        title: "Auto-Kalibrasi",
-        description: `${bulkVal} ${editingItem.satuanBesar} → +${Math.round(tambahKecil * 100) / 100} ${editingItem.satuanKecil} ke Qty Aktif.`
-      });
-    } else if (bulkVal === 0) {
-      setEditingItem({ ...editingItem, qtyKontainerBesar: 0 });
-    }
-  };
-
   const handleUpdateStock = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingItem) return;
@@ -206,16 +194,37 @@ export default function StokBahanBakuPage() {
     setUpdating(true);
     try {
       const materialRef = doc(db, "bahan-baku", editingItem.id);
+      const conversionRate = Number(editingItem.qtyKecil || 1);
+      
+      // Pastikan qtyBesar & qtyKontainerBesar selalu bulat, sisa desimal dipindahkan ke qtyGudangKecil / qtyKontainerKecil
+      const rawGudangBesar = Number(editingItem.qtyBesar || 0);
+      const intGudangBesar = Math.floor(rawGudangBesar);
+      const gudangDecimalRemainder = (rawGudangBesar - intGudangBesar) * conversionRate;
+
+      const rawKontainerBesar = Number(editingItem.qtyKontainerBesar || 0);
+      const intKontainerBesar = Math.floor(rawKontainerBesar);
+      const kontainerDecimalRemainder = (rawKontainerBesar - intKontainerBesar) * conversionRate;
+
+      const currentGudangSmall = Number(editingItem.qtyGudangKecil || 0);
+      const finalGudangSmall = Math.round((currentGudangSmall + gudangDecimalRemainder) * 100) / 100;
+
+      const currentKontainerSmall = Number(editingItem.qtyKontainerKecil || 0);
+      const finalKontainerSmall = Math.round((currentKontainerSmall + kontainerDecimalRemainder) * 100) / 100;
+
       await updateDoc(materialRef, {
-        qtyBesar: Number(editingItem.qtyBesar || 0),
-        qtyKontainerBesar: Number(editingItem.qtyKontainerBesar || 0),
-        qtyKontainerKecil: Number(editingItem.qtyKontainerKecil || 0),
+        qtyBesar: intGudangBesar,
+        qtyGudangKecil: finalGudangSmall,
+        qtyKontainerBesar: intKontainerBesar,
+        qtyKontainerKecil: finalKontainerSmall,
         qtyMin: Number(editingItem.qtyMinGudang ?? editingItem.qtyMin ?? 5),
         qtyMinGudang: Number(editingItem.qtyMinGudang ?? editingItem.qtyMin ?? 5),
         qtyMinKontainer: Number(editingItem.qtyMinKontainer ?? editingItem.qtyMin ?? 5)
       });
       
-      toast({ title: "Stok Diperbarui", description: "Perubahan data stok telah berhasil disimpan." });
+      toast({ 
+        title: "Stok Diperbarui", 
+        description: "Satuan besar dibulatkan & sisa desimal otomatis dimigrasikan ke Satuan Kecil Gudang/Kontainer." 
+      });
       setIsEditOpen(false);
       setEditingItem(null);
     } catch {
@@ -229,13 +238,14 @@ export default function StokBahanBakuPage() {
     const wsData = filteredMaterials.map(item => ({
       "Kode": item.code,
       "Nama Bahan": item.nama,
-      "Stok Gudang": item.qtyBesar || 0,
-      "Estimasi Kritis Gudang": getMinStockGudang(item),
+      "Stok Gudang (Besar)": Math.floor(Number(item.qtyBesar || 0)),
       "Satuan Besar": item.satuanBesar,
-      "Qty Bulk Kontainer": item.qtyKontainerBesar || 0,
-      "Qty Aktif Kontainer": item.qtyKontainerKecil || 0,
-      "Estimasi Kritis Kontainer": getMinStockKontainer(item),
-      "Satuan Kecil": item.satuanKecil
+      "Stok Gudang (Kecil)": Math.round(Number(item.qtyGudangKecil || 0)),
+      "Satuan Kecil": item.satuanKecil,
+      "Min Stok Gudang": getMinStockGudang(item),
+      "Qty Bulk Kontainer": Math.floor(Number(item.qtyKontainerBesar || 0)),
+      "Qty Aktif Kontainer": Math.round(Number(item.qtyKontainerKecil || 0)),
+      "Min Stok Kontainer": getMinStockKontainer(item),
     }));
 
     const ws = XLSX.utils.json_to_sheet(wsData);
@@ -279,17 +289,16 @@ export default function StokBahanBakuPage() {
     const tableData = filteredMaterials.map(item => [
       item.code,
       item.nama,
-      item.qtyBesar || 0,
-      getMinStockGudang(item),
+      Math.floor(Number(item.qtyBesar || 0)),
       item.satuanBesar,
-      item.qtyKontainerBesar || 0,
-      item.qtyKontainerKecil || 0,
-      getMinStockKontainer(item),
-      item.satuanKecil
+      Math.round(Number(item.qtyGudangKecil || 0)),
+      item.satuanKecil,
+      Math.floor(Number(item.qtyKontainerBesar || 0)),
+      Math.round(Number(item.qtyKontainerKecil || 0)),
     ]);
 
     autoTable(docPDF, {
-      head: [["KODE", "NAMA BAHAN", "GUDANG", "MIN STOK GUDANG", "SAT. B", "BULK", "AKTIF", "MIN STOK KONTAINER", "SAT. K"]],
+      head: [["KODE", "NAMA BAHAN", "GUDANG (B)", "SAT B", "GUDANG (K)", "SAT K", "BULK KONTAINER", "AKTIF KONTAINER"]],
       body: tableData,
       startY: 48,
       theme: 'grid',
@@ -306,7 +315,7 @@ export default function StokBahanBakuPage() {
         <div className="space-y-1">
           <h1 className="text-3xl md:text-4xl font-black tracking-tighter text-slate-900 uppercase italic leading-none">Monitoring Stok</h1>
           <p className="text-[10px] md:text-xs text-slate-600 font-black uppercase tracking-[0.2em] mt-1">
-            Gudang Utama & Area Kontainer Operasional
+            Gudang Utama & Area Kontainer (Satuan Besar & Satuan Kecil)
           </p>
         </div>
         
@@ -372,7 +381,7 @@ export default function StokBahanBakuPage() {
                   <Input 
                     type="number" 
                     value={transferData.qty}
-                    onChange={(e) => setTransferData({...transferData, qty: Number(e.target.value)})}
+                    onChange={(e) => setTransferData({...transferData, qty: Math.floor(Number(e.target.value))})}
                     className="rounded-xl h-12 bg-slate-50 border-none font-black"
                   />
                 </div>
@@ -421,39 +430,59 @@ export default function StokBahanBakuPage() {
           </div>
 
           <div className="overflow-x-auto custom-scrollbar">
-            <TabsContent value="gudang" className="m-0 min-w-[700px] md:min-w-full">
+            {/* TAB GUDANG UTAMA */}
+            <TabsContent value="gudang" className="m-0 min-w-[850px] md:min-w-full">
               <table className="w-full text-left">
                 <thead>
                   <tr className="bg-slate-50/50">
-                    <th className="px-6 md:px-10 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500">Code</th>
-                    <th className="px-4 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500">Nama Bahan</th>
-                    <th className="px-4 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-right">Stok Gudang</th>
-                    <th className="px-4 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Estimasi Kritis</th>
-                    <th className="px-6 md:px-10 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Satuan</th>
-                    <th className="px-6 md:px-10 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-right">Aksi</th>
+                    <th className="px-6 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500">Code</th>
+                    <th className="px-4 md:px-6 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500">Nama Bahan</th>
+                    <th className="px-4 md:px-6 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-right">Stok Gudang (Besar)</th>
+                    <th className="px-4 md:px-6 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Sat. Besar</th>
+                    <th className="px-4 md:px-6 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-amber-600 text-right">Stok Kecil Gudang</th>
+                    <th className="px-4 md:px-6 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-amber-600 text-center">Sat. Kecil</th>
+                    <th className="px-4 md:px-6 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Estimasi Kritis</th>
+                    <th className="px-6 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-right">Aksi</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {loading ? (
-                    <tr><td colSpan={6} className="py-20 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></td></tr>
+                    <tr><td colSpan={8} className="py-20 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></td></tr>
                   ) : filteredMaterials?.map((item) => (
                     <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-6 md:px-10 py-4 md:py-6 text-[10px] font-black text-slate-900">{item.code}</td>
-                      <td className="px-4 md:px-8 py-4 md:py-6 text-xs md:text-sm font-black text-slate-900 uppercase italic">{item.nama}</td>
-                      <td className="px-4 md:px-8 py-4 md:py-6 text-right font-black text-primary tabular-nums italic text-xl md:text-2xl">{(item.qtyBesar || 0)}</td>
+                      <td className="px-6 md:px-8 py-4 md:py-6 text-[10px] font-black text-slate-900">{item.code}</td>
+                      <td className="px-4 md:px-6 py-4 md:py-6 text-xs md:text-sm font-black text-slate-900 uppercase italic">{item.nama}</td>
+                      
+                      {/* Stok Gudang Satuan Besar */}
+                      <td className="px-4 md:px-6 py-4 md:py-6 text-right font-black text-primary tabular-nums italic text-xl md:text-2xl">
+                        {Math.floor(Number(item.qtyBesar || 0))}
+                      </td>
+                      <td className="px-4 md:px-6 py-4 md:py-6 text-center text-[9px] md:text-[10px] font-black uppercase text-primary tracking-widest">
+                        {item.satuanBesar}
+                      </td>
+
+                      {/* Stok Gudang Satuan Kecil (Hasil sisa belanja Beli Sendiri) */}
+                      <td className="px-4 md:px-6 py-4 md:py-6 text-right font-black text-amber-600 tabular-nums italic text-xl md:text-2xl">
+                        {Math.round(Number(item.qtyGudangKecil || 0)).toLocaleString('id-ID')}
+                      </td>
+                      <td className="px-4 md:px-6 py-4 md:py-6 text-center text-[9px] md:text-[10px] font-black uppercase text-amber-600 tracking-widest">
+                        {item.satuanKecil}
+                      </td>
+
+                      {/* Estimasi Kritis Gudang */}
                       {(() => {
                         const minStock = getMinStockGudang(item);
-                        const status = getStatusLabel(Number(item.qtyBesar || 0), minStock);
+                        const totalGudang = getGudangTotal(item);
+                        const status = getStatusLabel(totalGudang, minStock);
                         return (
-                          <td className="px-4 md:px-8 py-4 md:py-6 text-center">
+                          <td className="px-4 md:px-6 py-4 md:py-6 text-center">
                             <span className={`inline-flex items-center justify-center rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${status.color}`}>
                               {status.label} ({minStock})
                             </span>
                           </td>
                         );
                       })()}
-                      <td className="px-6 md:px-10 py-4 md:py-6 text-center text-[9px] md:text-[10px] font-black uppercase text-primary tracking-widest">{item.satuanBesar}</td>
-                      <td className="px-6 md:px-10 py-4 md:py-6 text-right">
+                      <td className="px-6 md:px-8 py-4 md:py-6 text-right">
                          <Button variant="ghost" size="icon" onClick={() => { setEditingItem(item); setIsEditOpen(true); }} className="h-10 w-10 rounded-xl hover:bg-primary/10 hover:text-primary">
                            <Edit2 className="h-4 w-4" />
                          </Button>
@@ -464,6 +493,7 @@ export default function StokBahanBakuPage() {
               </table>
             </TabsContent>
 
+            {/* TAB AREA KONTAINER */}
             <TabsContent value="kontainer" className="m-0 min-w-[900px] md:min-w-full">
               <table className="w-full text-left">
                 <thead>
@@ -471,10 +501,10 @@ export default function StokBahanBakuPage() {
                     <th className="px-6 md:px-10 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500">Code</th>
                     <th className="px-4 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500">Nama Bahan</th>
                     <th className="px-4 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-right">Qty Bulk</th>
-                    <th className="px-4 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Estimasi Kritis</th>
                     <th className="px-4 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Sat. Besar</th>
                     <th className="px-4 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-right">Qty Aktif</th>
                     <th className="px-6 md:px-10 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Sat. Kecil</th>
+                    <th className="px-4 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-center">Estimasi Kritis</th>
                     <th className="px-6 md:px-10 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500 text-right">Aksi</th>
                   </tr>
                 </thead>
@@ -483,7 +513,12 @@ export default function StokBahanBakuPage() {
                     <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 md:px-10 py-4 md:py-6 text-[10px] font-black text-slate-900">{item.code}</td>
                       <td className="px-4 md:px-8 py-4 md:py-6 text-xs md:text-sm font-black text-slate-900 uppercase italic">{item.nama}</td>
-                      <td className="px-4 md:px-8 py-4 md:py-6 text-right font-black text-indigo-600 tabular-nums italic text-xl md:text-2xl">{(item.qtyKontainerBesar || 0)}</td>
+                      <td className="px-4 md:px-8 py-4 md:py-6 text-right font-black text-indigo-600 tabular-nums italic text-xl md:text-2xl">{Math.floor(Number(item.qtyKontainerBesar || 0))}</td>
+                      <td className="px-4 md:px-8 py-4 md:py-6 text-center text-[8px] md:text-[9px] font-black uppercase text-indigo-400">{item.satuanBesar}</td>
+                      <td className="px-4 md:px-8 py-4 md:py-6 text-right font-black text-emerald-600 tabular-nums italic text-xl md:text-2xl">
+                        {Math.round(item.qtyKontainerKecil || 0).toLocaleString('id-ID')}
+                      </td>
+                      <td className="px-6 md:px-10 py-4 md:py-6 text-center text-[8px] md:text-[9px] font-black uppercase text-emerald-400">{item.satuanKecil}</td>
                       {(() => {
                         const minStock = getMinStockKontainer(item);
                         const totals = getKontainerTotal(item);
@@ -496,11 +531,6 @@ export default function StokBahanBakuPage() {
                           </td>
                         );
                       })()}
-                      <td className="px-4 md:px-8 py-4 md:py-6 text-center text-[8px] md:text-[9px] font-black uppercase text-indigo-400">{item.satuanBesar}</td>
-                      <td className="px-4 md:px-8 py-4 md:py-6 text-right font-black text-emerald-600 tabular-nums italic text-xl md:text-2xl">
-                        {Math.round(item.qtyKontainerKecil || 0).toLocaleString('id-ID')}
-                      </td>
-                      <td className="px-6 md:px-10 py-4 md:py-6 text-center text-[8px] md:text-[9px] font-black uppercase text-emerald-400">{item.satuanKecil}</td>
                       <td className="px-6 md:px-10 py-4 md:py-6 text-right">
                          <Button variant="ghost" size="icon" onClick={() => { setEditingItem(item); setIsEditOpen(true); }} className="h-10 w-10 rounded-xl hover:bg-primary/10 hover:text-primary">
                            <Edit2 className="h-4 w-4" />
@@ -531,71 +561,75 @@ export default function StokBahanBakuPage() {
               </div>
 
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label className="text-[10px] font-black uppercase text-slate-500">Stok Gudang ({editingItem.satuanBesar})</Label>
-                  <Input 
-                    type="number" 
-                    value={editingItem.qtyBesar || 0}
-                    onChange={(e) => setEditingItem({...editingItem, qtyBesar: Number(e.target.value)})}
-                    className="rounded-xl h-12 border-slate-100 font-black"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-[10px] font-black uppercase text-slate-500">Qty Bulk Kontainer ({editingItem.satuanBesar})</Label>
-                    {(editingItem.qtyKontainerBesar || 0) <= 1 && (editingItem.qtyKontainerBesar || 0) > 0 && (
-                      <span className="text-[9px] font-black uppercase tracking-widest text-amber-500 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 animate-pulse">
-                        ⚡ Auto-kalibrasi saat blur
-                      </span>
-                    )}
+                {/* Gudang Utama */}
+                <div className="space-y-2 p-4 bg-primary/5 rounded-2xl border border-primary/10">
+                  <p className="text-[10px] font-black uppercase text-primary tracking-widest">Gudang Utama</p>
+                  <div className="grid grid-cols-2 gap-4 mt-2">
+                    <div className="space-y-1">
+                      <Label className="text-[9px] font-black uppercase text-slate-500">Stok Besar ({editingItem.satuanBesar})</Label>
+                      <Input 
+                        type="number" 
+                        step="any"
+                        value={editingItem.qtyBesar || 0}
+                        onChange={(e) => setEditingItem({...editingItem, qtyBesar: Number(e.target.value)})}
+                        className="rounded-xl h-11 border-slate-200 font-black bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[9px] font-black uppercase text-amber-700">Stok Kecil ({editingItem.satuanKecil})</Label>
+                      <Input 
+                        type="number" 
+                        step="any"
+                        value={editingItem.qtyGudangKecil || 0}
+                        onChange={(e) => setEditingItem({...editingItem, qtyGudangKecil: Number(e.target.value)})}
+                        className="rounded-xl h-11 border-amber-200 font-black bg-amber-50/50 text-amber-900"
+                      />
+                    </div>
                   </div>
-                  <Input 
-                    type="number" 
-                    step="any"
-                    value={editingItem.qtyKontainerBesar || 0}
-                    onChange={(e) => setEditingItem({...editingItem, qtyKontainerBesar: Number(e.target.value)})}
-                    onBlur={(e) => handleBulkQtyBlur(Number(e.target.value))}
-                    className={cn(
-                      "rounded-xl h-12 border-slate-100 font-black",
-                      (editingItem.qtyKontainerBesar || 0) <= 1 && (editingItem.qtyKontainerBesar || 0) > 0
-                        ? "border-amber-300 bg-amber-50 focus-visible:ring-amber-300"
-                        : ""
-                    )}
-                  />
-                  {(editingItem.qtyKontainerBesar || 0) <= 1 && (editingItem.qtyKontainerBesar || 0) > 0 && (
-                    <p className="text-[9px] font-bold text-amber-600 mt-1">
-                      → akan dikonversi: {Math.round((editingItem.qtyKontainerBesar || 0) * Number(editingItem.qtyKecil || 1) * 100) / 100} {editingItem.satuanKecil} ke Qty Aktif
-                    </p>
-                  )}
                 </div>
-                <div className="space-y-2">
-                  <Label className="text-[10px] font-black uppercase text-slate-500">Qty Aktif Kontainer ({editingItem.satuanKecil})</Label>
-                  <Input 
-                    type="number" 
-                    step="any"
-                    value={editingItem.qtyKontainerKecil || 0}
-                    onChange={(e) => setEditingItem({...editingItem, qtyKontainerKecil: Number(e.target.value)})}
-                    className="rounded-xl h-12 border-slate-100 font-black"
-                  />
+
+                {/* Area Kontainer */}
+                <div className="space-y-2 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                  <p className="text-[10px] font-black uppercase text-slate-700 tracking-widest">Area Kontainer Operasional</p>
+                  <div className="grid grid-cols-2 gap-4 mt-2">
+                    <div className="space-y-1">
+                      <Label className="text-[9px] font-black uppercase text-slate-500">Qty Bulk ({editingItem.satuanBesar})</Label>
+                      <Input 
+                        type="number" 
+                        step="any"
+                        value={editingItem.qtyKontainerBesar || 0}
+                        onChange={(e) => setEditingItem({...editingItem, qtyKontainerBesar: Number(e.target.value)})}
+                        className="rounded-xl h-11 border-slate-200 font-black bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[9px] font-black uppercase text-emerald-700">Qty Aktif ({editingItem.satuanKecil})</Label>
+                      <Input 
+                        type="number" 
+                        step="any"
+                        value={editingItem.qtyKontainerKecil || 0}
+                        onChange={(e) => setEditingItem({...editingItem, qtyKontainerKecil: Number(e.target.value)})}
+                        className="rounded-xl h-11 border-emerald-200 font-black bg-emerald-50/50 text-emerald-900"
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div className="grid md:grid-cols-2 gap-4">
+
+                {/* Minimum Stock */}
+                <div className="grid grid-cols-2 gap-4 pt-2">
                   <div className="space-y-2">
-                    <Label className="text-[10px] font-black uppercase text-slate-500">Estimasi Kritis Gudang</Label>
+                    <Label className="text-[10px] font-black uppercase text-slate-500">Min Stok Gudang</Label>
                     <Input 
                       type="number" 
-                      step="any"
-                      min={0}
                       value={editingItem.qtyMinGudang ?? editingItem.qtyMin ?? 5}
                       onChange={(e) => setEditingItem({...editingItem, qtyMinGudang: Number(e.target.value)})}
                       className="rounded-xl h-12 border-slate-100 font-black"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-[10px] font-black uppercase text-slate-500">Estimasi Kritis Kontainer</Label>
+                    <Label className="text-[10px] font-black uppercase text-slate-500">Min Stok Kontainer</Label>
                     <Input 
                       type="number" 
-                      step="any"
-                      min={0}
                       value={editingItem.qtyMinKontainer ?? editingItem.qtyMin ?? 5}
                       onChange={(e) => setEditingItem({...editingItem, qtyMinKontainer: Number(e.target.value)})}
                       className="rounded-xl h-12 border-slate-100 font-black"
@@ -606,7 +640,7 @@ export default function StokBahanBakuPage() {
 
               <Button 
                 disabled={updating}
-                className="w-full h-14 rounded-2xl bg-primary text-white font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20"
+                className="w-full h-14 rounded-2xl bg-primary text-white font-black uppercase tracking-widest text-[10px] mt-6"
               >
                 {updating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
                 Simpan Perubahan Stok

@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
@@ -36,6 +35,7 @@ interface BahanBaku {
   id: string;
   code: string;
   nama: string;
+  metodePembelian?: string;
   qtyBesar: number;
   satuanBesar: string;
   qtyKecil: number;
@@ -43,6 +43,7 @@ interface BahanBaku {
   qtyMin?: number;
   qtyMinGudang?: number;
   qtyMinKontainer?: number;
+  satuanKalibrasi?: "Gram" | "Pcs";
   gramPerBesar?: number;
   beratBungkusProduk?: number;
   totalGramasiPerProduk?: number;
@@ -61,6 +62,7 @@ export default function MasterBahanBakuPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [editingItem, setEditingItem] = useState<BahanBaku | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [satuanKalibrasiInput, setSatuanKalibrasiInput] = useState<"Gram" | "Pcs">("Gram");
   const [totalGramasiInput, setTotalGramasiInput] = useState(0);
   const [beratBungkusInput, setBeratBungkusInput] = useState(0);
   const [gramPerBesarInput, setGramPerBesarInput] = useState(0);
@@ -88,13 +90,19 @@ export default function MasterBahanBakuPage() {
     return Math.max(0, totalGrams - beratBungkus);
   };
 
+  const getUnitSuffix = (item?: Partial<BahanBaku> | null) => {
+    return item?.satuanKalibrasi === "Pcs" ? "pcs" : "g";
+  };
+
   useEffect(() => {
     queueMicrotask(() => {
       if (editingItem) {
+        setSatuanKalibrasiInput(editingItem.satuanKalibrasi === "Pcs" ? "Pcs" : "Gram");
         setTotalGramasiInput(getGramasiPerProduk(editingItem));
         setBeratBungkusInput(Number(editingItem.beratBungkusProduk || 0));
         setGramPerBesarInput(Number(editingItem.gramPerBesar || 0));
       } else {
+        setSatuanKalibrasiInput("Gram");
         setTotalGramasiInput(0);
         setBeratBungkusInput(0);
         setGramPerBesarInput(0);
@@ -113,11 +121,15 @@ export default function MasterBahanBakuPage() {
       "Nama Barang": item.nama || "-",
       "Qty Besar": formatNumber(item.qtyBesar),
       "Satuan Besar": item.satuanBesar || "-",
-      "Gram per Satuan Besar": formatNumber(item.gramPerBesar || 0),
+      "Satuan Kalibrasi": item.satuanKalibrasi || "Gram",
+      "Nilai per Satuan Besar": formatNumber(item.gramPerBesar || 0),
+      "Bungkus / Packaging": formatNumber(item.beratBungkusProduk || 0),
+      "Total / Prod": formatNumber(item.totalGramasiPerProduk ?? getGramasiPerProduk(item)),
       "Qty Kecil": formatNumber(item.qtyKecil),
       "Satuan Kecil": item.satuanKecil || "-",
       "Min Stok Gudang": formatNumber(item.qtyMinGudang ?? item.qtyMin ?? 5),
       "Min Stok Kontainer": formatNumber(item.qtyMinKontainer ?? item.qtyMin ?? 5),
+      "Metode Pembelian": item.metodePembelian === "Beli Sendiri" ? "2. Beli Sendiri" : "1. Supliyer",
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportData);
@@ -163,13 +175,14 @@ export default function MasterBahanBakuPage() {
       toTitleCase(item.nama),
       formatNumber(item.qtyBesar).toLocaleString('id-ID'),
       item.satuanBesar || "-",
-          formatNumber(item.gramPerBesar || 0).toLocaleString('id-ID') + ' g',
+      formatNumber(item.gramPerBesar || 0).toLocaleString('id-ID') + getUnitSuffix(item),
       formatNumber(item.qtyKecil).toLocaleString('id-ID'),
       item.satuanKecil || "-",
+      item.metodePembelian === "Beli Sendiri" ? "2. Beli Sendiri" : "1. Supliyer",
     ]);
 
     autoTable(docPDF, {
-      head: [["Code", "Nama Barang", "Qty Besar", "Satuan", "Gram/Sat.B", "Konversi Kecil", "Sat. Kecil"]],
+      head: [["Code", "Nama Barang", "Qty Besar", "Satuan", "Gram/Pcs Sat.B", "Konversi Kecil", "Sat. Kecil", "Metode Pembelian"]],
       body: tableData,
       startY: 48,
       theme: 'grid',
@@ -203,16 +216,22 @@ export default function MasterBahanBakuPage() {
         data.forEach((row: any) => {
           const codeValue = row["Code"] || row["code"] || row["Kode"] || "";
           const namaValue = row["Nama Barang"] || row["nama"] || row["Nama"] || "";
+          const rawMetode = String(row["Metode Pembelian"] || row["metodePembelian"] || "").trim();
+          const rawSatuanKalibrasi = String(row["Satuan Kalibrasi"] || "").trim().toLowerCase();
 
           const newDocRef = doc(colRef);
           batch.set(newDocRef, {
             code: String(codeValue).trim(),
             nama: String(namaValue).trim(),
+            metodePembelian: rawMetode.includes("Beli Sendiri") ? "Beli Sendiri" : "Supliyer",
             qtyBesar: formatNumber(row["Qty Besar"] || 0),
             satuanBesar: String(row["Satuan Besar"] || "").trim(),
             qtyKecil: formatNumber(row["Qty Kecil"] || row["Konversi"] || 0),
             satuanKecil: String(row["Satuan Kecil"] || "").trim(),
-            gramPerBesar: formatNumber(row["Gram per Satuan Besar"] || row["Gram/Sat.B"] || 0),
+            satuanKalibrasi: rawSatuanKalibrasi.includes("pcs") ? "Pcs" : "Gram",
+            gramPerBesar: formatNumber(row["Nilai per Satuan Besar"] || row["Gram per Satuan Besar"] || row["Gram/Sat.B"] || 0),
+            beratBungkusProduk: formatNumber(row["Bungkus / Packaging"] || row["Bungkus"] || 0),
+            totalGramasiPerProduk: formatNumber(row["Total / Prod"] || 0),
           });
         });
 
@@ -257,6 +276,7 @@ export default function MasterBahanBakuPage() {
     const data = {
       code: String(formData.get("code") || "").trim(),
       nama: String(formData.get("nama") || "").trim(),
+      metodePembelian: String(formData.get("metodePembelian") || "Supliyer").trim(),
       qtyBesar: formatNumber(formData.get("qtyBesar")),
       satuanBesar: String(formData.get("satuanBesar") || "").trim(),
       qtyMin: formatNumber(formData.get("qtyMin") || 5),
@@ -264,6 +284,7 @@ export default function MasterBahanBakuPage() {
       qtyMinKontainer: formatNumber(formData.get("qtyMinKontainer") || formData.get("qtyMin") || 5),
       qtyKecil,
       satuanKecil: String(formData.get("satuanKecil") || "").trim(),
+      satuanKalibrasi: satuanKalibrasiInput,
       gramPerBesar,
       beratBungkusProduk,
       totalGramasiPerProduk,
@@ -360,6 +381,17 @@ export default function MasterBahanBakuPage() {
                   <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">Nama Barang</Label>
                   <Input name="nama" defaultValue={editingItem?.nama} placeholder="Contoh: Kopi Arabika" className="rounded-xl border-slate-200 h-11" required />
                 </div>
+                <div className="space-y-2 col-span-1 md:col-span-2">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">Metode Pembelian</Label>
+                  <select
+                    name="metodePembelian"
+                    defaultValue={editingItem?.metodePembelian || "Supliyer"}
+                    className="w-full rounded-xl border border-slate-200 bg-white h-11 px-3 text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  >
+                    <option value="Supliyer">1. Supliyer</option>
+                    <option value="Beli Sendiri">2. Beli Sendiri</option>
+                  </select>
+                </div>
                 
                 <div className="rounded-3xl border border-slate-100 bg-slate-50 p-4 space-y-4 sm:p-6">
                   <h4 className="text-[9px] font-black uppercase tracking-widest text-primary">Konfigurasi Besar</h4>
@@ -398,10 +430,27 @@ export default function MasterBahanBakuPage() {
                 </div>
 
                 <div className="col-span-1 rounded-3xl border border-slate-100 bg-slate-50 p-4 space-y-4 sm:p-6 md:col-span-2">
-                  <h4 className="text-[9px] font-black uppercase tracking-widest text-primary">Kalibrasi Gramasi (Acuan)</h4>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <h4 className="text-[9px] font-black uppercase tracking-widest text-primary">Kalibrasi Gramasi / Pcs (Acuan)</h4>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-[9px] font-black uppercase tracking-widest text-slate-500">Pilih Satuan:</Label>
+                      <select
+                        name="satuanKalibrasi"
+                        value={satuanKalibrasiInput}
+                        onChange={(e) => setSatuanKalibrasiInput(e.target.value as "Gram" | "Pcs")}
+                        className="rounded-xl border border-slate-200 bg-white h-9 px-3 text-xs font-black text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      >
+                        <option value="Gram">Gram (g)</option>
+                        <option value="Pcs">Pcs (pcs)</option>
+                      </select>
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">Total Gramasi per Produk (g)</Label>
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                        {satuanKalibrasiInput === "Pcs" ? "Total Pcs per Produk (pcs)" : "Total Gramasi per Produk (g)"}
+                      </Label>
                       <Input
                         type="number"
                         step="any"
@@ -411,7 +460,9 @@ export default function MasterBahanBakuPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">Berat Bungkus Produk (g)</Label>
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                        {satuanKalibrasiInput === "Pcs" ? "Isi/Bungkus per Produk (pcs)" : "Berat Bungkus Produk (g)"}
+                      </Label>
                       <Input
                         name="beratBungkusProduk"
                         type="number"
@@ -422,7 +473,9 @@ export default function MasterBahanBakuPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">Gram per Satuan Besar</Label>
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                        {satuanKalibrasiInput === "Pcs" ? "Pcs per Satuan Besar" : "Gram per Satuan Besar"}
+                      </Label>
                       <Input
                         name="gramPerBesar"
                         type="number"
@@ -434,10 +487,14 @@ export default function MasterBahanBakuPage() {
                     </div>
                     <div className="space-y-2">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">Catatan Kalibrasi</Label>
-                      <Input name="kalibrasiNote" defaultValue={editingItem?.kalibrasiNote || ""} placeholder="Opsional: mis. 1 pack = 250 g" className="rounded-xl bg-white border-slate-200" />
+                      <Input name="kalibrasiNote" defaultValue={editingItem?.kalibrasiNote || ""} placeholder={satuanKalibrasiInput === "Pcs" ? "Opsional: mis. 1 pack = 10 pcs" : "Opsional: mis. 1 pack = 250 g"} className="rounded-xl bg-white border-slate-200" />
                     </div>
                   </div>
-                  <p className="text-[10px] text-slate-500 mt-2">Saat stock opname ditimbang, sistem akan otomatis mengurangi berat bungkus dari total gram sebelum menghitung qty aktif.</p>
+                  <p className="text-[10px] text-slate-500 mt-2">
+                    {satuanKalibrasiInput === "Pcs" 
+                      ? "Saat stock opname dihitung, sistem akan otomatis mengurangi isi/bungkus dari total pcs sebelum menghitung qty aktif."
+                      : "Saat stock opname ditimbang, sistem akan otomatis mengurangi berat bungkus dari total gram sebelum menghitung qty aktif."}
+                  </p>
                 </div>
 
                 <div className="col-span-1 mt-4 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end md:col-span-2">
@@ -454,7 +511,7 @@ export default function MasterBahanBakuPage() {
       </div>
 
       <Card className="border-none shadow-sm rounded-[2rem] bg-white overflow-hidden">
-        <div className="p-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="p-4 md:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="relative w-full md:w-96 group">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 group-focus-within:text-primary transition-colors" />
             <input 
@@ -473,27 +530,28 @@ export default function MasterBahanBakuPage() {
 
         {/* Desktop Table View */}
         <div className="hidden md:block overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left border-collapse text-xs">
             <thead>
-              <tr className="bg-slate-50/80 border-y border-slate-100 border-t-primary/10">
-                <th className="pl-8 pr-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5">Code</th>
-                <th className="px-6 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-left">Nama Bahan</th>
-                <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-right">Qty Besar</th>
-                <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-right">Gram/Sat.B</th>
-                <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-right">Bungkus (g)</th>
-                <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-right">Total/Produk (g)</th>
-                <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-right">Min Stok Gudang</th>
-                <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-right">Min Stok Kontainer</th>
-                <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-left">Satuan</th>
-                <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-right">Konversi</th>
-                <th className="px-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-left">Sat. Kecil</th>
-                <th className="pl-6 pr-8 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5 text-right">Aksi</th>
+              <tr className="bg-slate-50/80 border-y border-slate-100">
+                <th className="pl-4 pr-2 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500">Code</th>
+                <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-left">Nama Bahan</th>
+                <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-right">Qty Besar</th>
+                <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-left">Satuan</th>
+                <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-right">Gram/Besar</th>
+                <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-right">Bungkus</th>
+                <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-right">Total/Prod</th>
+                <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-right">Min Gudang</th>
+                <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-right">Min Kontainer</th>
+                <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-right">Konversi</th>
+                <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-left">Sat. Kecil</th>
+                <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-center">Metode Beli</th>
+                <th className="pr-4 pl-2 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-right">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={12} className="px-8 py-20 text-center">
+                  <td colSpan={13} className="px-8 py-20 text-center">
                     <div className="flex flex-col items-center gap-4">
                       <div className="h-8 w-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
                       <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Sinkronisasi Data...</p>
@@ -502,52 +560,60 @@ export default function MasterBahanBakuPage() {
                 </tr>
               ) : filteredMaterials?.length > 0 ? (
                 filteredMaterials.map((item) => (
-                  <tr key={item.id} className="group hover:bg-slate-50/40 transition-colors">
-                    <td className="pl-8 pr-4 py-5">
-                      <div className="inline-flex items-center px-2 py-1 rounded-lg bg-primary/5 border border-primary/10 transition-colors group-hover:bg-primary/10">
-                        <span className="text-[10px] font-bold text-primary/70 tracking-tighter uppercase tabular-nums">
-                          {item.code || "-"}
-                        </span>
-                      </div>
+                  <tr key={item.id} className="group hover:bg-slate-50/50 transition-colors">
+                    <td className="pl-4 pr-2 py-3">
+                      <span className="text-[9px] font-bold text-primary/80 bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10 tracking-tighter uppercase tabular-nums">
+                        {item.code || "-"}
+                      </span>
                     </td>
-                    <td className="px-6 py-5 text-left">
-                      <span className="text-sm font-medium text-slate-900 block truncate max-w-[180px]">
+                    <td className="px-2 py-3 text-left">
+                      <span className="text-xs font-semibold text-slate-900 block truncate max-w-[150px]" title={item.nama}>
                         {toTitleCase(item.nama)}
                       </span>
                     </td>
-                    <td className="px-4 py-5 text-right font-medium text-slate-900 tabular-nums">
+                    <td className="px-2 py-3 text-right font-medium text-slate-800 tabular-nums text-xs">
                       {formatNumber(item.qtyBesar).toLocaleString('id-ID')}
                     </td>
-                    <td className="px-4 py-5 text-right font-medium text-slate-900 tabular-nums">
-                      {formatNumber(item.gramPerBesar || 0).toLocaleString('id-ID')} g
+                    <td className="px-2 py-3 text-left">
+                      <span className="text-[9px] font-bold text-slate-500 uppercase">{item.satuanBesar}</span>
                     </td>
-                    <td className="px-4 py-5 text-right font-medium text-slate-900 tabular-nums">
-                      {formatNumber(item.beratBungkusProduk || 0).toLocaleString('id-ID')}
+                    <td className="px-2 py-3 text-right font-medium text-slate-800 tabular-nums text-xs">
+                      {formatNumber(item.gramPerBesar || 0).toLocaleString('id-ID')}{getUnitSuffix(item)}
                     </td>
-                    <td className="px-4 py-5 text-right font-medium text-slate-900 tabular-nums">
-                      {formatNumber(item.totalGramasiPerProduk ?? getGramasiPerProduk(item)).toLocaleString('id-ID')}
+                    <td className="px-2 py-3 text-right font-medium text-slate-800 tabular-nums text-xs">
+                      {formatNumber(item.beratBungkusProduk || 0).toLocaleString('id-ID')}{getUnitSuffix(item)}
                     </td>
-                    <td className="px-4 py-5 text-right font-medium text-slate-900 tabular-nums">
+                    <td className="px-2 py-3 text-right font-medium text-slate-800 tabular-nums text-xs">
+                      {formatNumber(item.totalGramasiPerProduk ?? getGramasiPerProduk(item)).toLocaleString('id-ID')}{getUnitSuffix(item)}
+                    </td>
+                    <td className="px-2 py-3 text-right font-medium text-slate-800 tabular-nums text-xs">
                       {formatNumber(item.qtyMinGudang ?? item.qtyMin ?? 5).toLocaleString('id-ID')}
                     </td>
-                    <td className="px-4 py-5 text-right font-medium text-slate-900 tabular-nums">
+                    <td className="px-2 py-3 text-right font-medium text-slate-800 tabular-nums text-xs">
                       {formatNumber(item.qtyMinKontainer ?? item.qtyMin ?? 5).toLocaleString('id-ID')}
                     </td>
-                    <td className="px-4 py-5 text-left">
-                      <span className="text-[10px] font-black text-slate-600 uppercase tracking-tighter">{item.satuanBesar}</span>
-                    </td>
-                    <td className="px-4 py-5 text-right font-medium text-slate-900 tabular-nums">
+                    <td className="px-2 py-3 text-right font-medium text-slate-800 tabular-nums text-xs">
                       {formatNumber(item.qtyKecil).toLocaleString('id-ID')}
                     </td>
-                    <td className="px-4 py-5 text-left">
-                      <span className="text-[10px] font-black text-slate-600 uppercase tracking-tighter">{item.satuanKecil}</span>
+                    <td className="px-2 py-3 text-left">
+                      <span className="text-[9px] font-bold text-slate-500 uppercase">{item.satuanKecil}</span>
                     </td>
-                    <td className="pl-6 pr-8 py-5 text-right">
+                    <td className="px-2 py-3 text-center">
+                      <span className={cn(
+                        "inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold tracking-tight whitespace-nowrap",
+                        item.metodePembelian === "Beli Sendiri" 
+                          ? "bg-amber-50 text-amber-700 border border-amber-200" 
+                          : "bg-blue-50 text-blue-700 border border-blue-200"
+                      )}>
+                        {item.metodePembelian === "Beli Sendiri" ? "2. Beli Sendiri" : "1. Supliyer"}
+                      </span>
+                    </td>
+                    <td className="pr-4 pl-2 py-3 text-right">
                       <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-8 w-8 rounded-lg hover:bg-white hover:shadow-sm text-slate-500 hover:text-primary transition-all"
+                          className="h-7 w-7 rounded-lg hover:bg-white hover:shadow-sm text-slate-500 hover:text-primary transition-all"
                           onClick={() => {
                             setEditingItem(item);
                             setIsDialogOpen(true);
@@ -558,7 +624,7 @@ export default function MasterBahanBakuPage() {
                         <Button 
                           variant="ghost" 
                           size="icon" 
-                          className="h-8 w-8 rounded-lg hover:bg-white hover:shadow-sm text-slate-500 hover:text-rose-600 transition-all"
+                          className="h-7 w-7 rounded-lg hover:bg-white hover:shadow-sm text-slate-500 hover:text-rose-600 transition-all"
                           onClick={() => handleDelete(item.id)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -569,7 +635,7 @@ export default function MasterBahanBakuPage() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={12} className="px-8 py-32 text-center">
+                  <td colSpan={13} className="px-8 py-32 text-center">
                     <div className="max-w-xs mx-auto flex flex-col items-center">
                       <div className="h-16 w-16 bg-slate-50 rounded-[2rem] flex items-center justify-center mb-6 border border-slate-100 shadow-sm">
                         <Database className="h-7 w-7 text-slate-300" />
@@ -646,6 +712,18 @@ export default function MasterBahanBakuPage() {
                     </div>
                   </div>
 
+                  <div className="bg-white p-3 rounded-xl border border-slate-50 space-y-1 shadow-sm">
+                    <span className="text-[8px] font-black uppercase text-slate-400 block tracking-widest">Metode Pembelian</span>
+                    <span className={cn(
+                      "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold tracking-tight mt-0.5",
+                      item.metodePembelian === "Beli Sendiri" 
+                        ? "bg-amber-50 text-amber-700 border border-amber-200" 
+                        : "bg-blue-50 text-blue-700 border border-blue-200"
+                    )}>
+                      {item.metodePembelian === "Beli Sendiri" ? "2. Beli Sendiri" : "1. Supliyer"}
+                    </span>
+                  </div>
+
                   {/* Configuration Limits & Gramasi Details */}
                   <div className="bg-white p-4 rounded-xl border border-slate-50 space-y-3 shadow-sm text-[10px]">
                     <div className="grid grid-cols-2 gap-2 text-slate-600 font-medium">
@@ -663,16 +741,16 @@ export default function MasterBahanBakuPage() {
                     
                     <div className="grid grid-cols-3 gap-2 text-slate-600 font-medium">
                       <div>
-                        <span className="text-slate-400 font-bold block uppercase text-[8px] tracking-wider">Gram/Sat.B</span>
-                        <span className="font-bold text-slate-800">{formatNumber(item.gramPerBesar || 0)} g</span>
+                        <span className="text-slate-400 font-bold block uppercase text-[8px] tracking-wider">Gram/Pcs Sat.B</span>
+                        <span className="font-bold text-slate-800">{formatNumber(item.gramPerBesar || 0)} {getUnitSuffix(item)}</span>
                       </div>
                       <div>
                         <span className="text-slate-400 font-bold block uppercase text-[8px] tracking-wider">Bungkus</span>
-                        <span className="font-bold text-slate-800">{formatNumber(item.beratBungkusProduk || 0)} g</span>
+                        <span className="font-bold text-slate-800">{formatNumber(item.beratBungkusProduk || 0)} {getUnitSuffix(item)}</span>
                       </div>
                       <div>
                         <span className="text-slate-400 font-bold block uppercase text-[8px] tracking-wider">Total/Prod</span>
-                        <span className="font-bold text-slate-800">{formatNumber(item.totalGramasiPerProduk ?? getGramasiPerProduk(item))} g</span>
+                        <span className="font-bold text-slate-800">{formatNumber(item.totalGramasiPerProduk ?? getGramasiPerProduk(item))} {getUnitSuffix(item)}</span>
                       </div>
                     </div>
                   </div>

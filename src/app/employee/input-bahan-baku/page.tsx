@@ -14,7 +14,8 @@ import {
   Hash, 
   FileText,
   Loader2,
-  Package
+  Package,
+  AlertCircle
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,10 +47,12 @@ import {
 } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { applyPurchase } from "@/lib/hpp";
 
 interface InputItem {
   materialId: string;
   qty: number;
+  qtyKecilPerUnit?: number;
   price: number;
 }
 
@@ -59,11 +62,10 @@ export default function EmployeeInputBahanBakuPage() {
   const db = useFirestore();
   const { toast } = useToast();
   
-
   const [activeTab, setActiveTab] = useState<ActiveTab>("pembelian");
-  const [purchaseType] = useState<string>("belanja");
+  const [purchaseType] = useState<string>("belanja"); // Khusus Karyawan: Selalu Beli Sendiri
   const [nomorNota, setNomorNota] = useState<string>("");
-  const [items, setItems] = useState<InputItem[]>([{ materialId: "", qty: 0, price: 0 }]);
+  const [items, setItems] = useState<InputItem[]>([{ materialId: "", qty: 0, qtyKecilPerUnit: 1, price: 0 }]);
   const [movementItems, setMovementItems] = useState<InputItem[]>([{ materialId: "", qty: 0, price: 0 }]);
   const [returnItems, setReturnItems] = useState<InputItem[]>([{ materialId: "", qty: 0, price: 0 }]);
   const [productionBatch, setProductionBatch] = useState([{ resepId: "", qty: 1 }]);
@@ -127,14 +129,14 @@ export default function EmployeeInputBahanBakuPage() {
           key: "pembelian",
           title: "Histori Pembelian",
           icon: ShoppingCart,
-          accent: "bg-orange-50 text-orange-600",
+          accent: "bg-amber-50 text-amber-600",
           logs: filteredHistory.filter((log: any) => log.type === "belanja" || log.type === "supplier"),
         };
     }
   }, [activeTab, history, pemakaianHistory]);
 
   const handleAddItem = () => {
-    setItems([...items, { materialId: "", qty: 0, price: 0 }]);
+    setItems([...items, { materialId: "", qty: 0, qtyKecilPerUnit: 1, price: 0 }]);
   };
 
   const handleAddMovementItem = () => {
@@ -177,7 +179,16 @@ export default function EmployeeInputBahanBakuPage() {
 
   const handleItemChange = (index: number, field: keyof InputItem, value: any) => {
     const newItems = [...items];
-    newItems[index] = { ...newItems[index], [field]: value };
+    if (field === 'materialId') {
+      const selectedMat = (materials as any[])?.find(m => m.id === value);
+      newItems[index] = {
+        ...newItems[index],
+        materialId: value,
+        qtyKecilPerUnit: Number(selectedMat?.qtyKecil || 1),
+      };
+    } else {
+      newItems[index] = { ...newItems[index], [field]: value };
+    }
     setItems(newItems);
   };
 
@@ -305,54 +316,115 @@ export default function EmployeeInputBahanBakuPage() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Validasi
-    const validItems = items.filter(item => item.materialId && item.qty > 0);
-    if (!nomorNota || validItems.length === 0) {
+    // Validasi dasar nomor nota & item terisi
+    if (!nomorNota) {
       toast({
         variant: "destructive",
-        title: "Input Tidak Lengkap",
-        description: "Silakan isi nomor nota dan setidaknya satu bahan dengan jumlah yang benar.",
+        title: "Nomor Nota Wajib Diisi",
+        description: "Silakan masukkan nomor nota/invoice penerimaan barang.",
       });
       return;
+    }
+
+    const validItems = items.filter(item => item.materialId && item.qty > 0);
+    if (validItems.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Bahan Baku Kosong",
+        description: "Pilih minimal satu bahan baku dengan jumlah lebih dari 0.",
+      });
+      return;
+    }
+
+    // Validasi Beli Sendiri: qtyKecilPerUnit wajib > 0
+    for (const item of validItems) {
+      const mat = (materials as any[])?.find(m => m.id === item.materialId);
+      if (!item.qtyKecilPerUnit || item.qtyKecilPerUnit <= 0) {
+        toast({
+          variant: "destructive",
+          title: "Isi Pack/Box Wajib Diisi",
+          description: `Bahan "${mat?.nama || 'Terpilih'}" wajib menginput isi per ${mat?.satuanBesar || 'pack/box/pcs'} (> 0).`,
+        });
+        return;
+      }
     }
 
     setSaving(true);
     try {
       const batch = writeBatch(db);
       
-      // Siapkan data detail untuk log
+      // Pada halaman Employee: Selalu Beli Sendiri & masuk ke Area Kontainer
       const logItems = validItems.map(item => {
         const material = (materials as any[])?.find(m => m.id === item.materialId);
+        const currentMaterial = material || { qtyBesar: 0, qtyKontainerBesar: 0, qtyKontainerKecil: 0, stockValue: 0 };
         
-        // Update stok di Area Kontainer (tambah qtyKontainerBesar)
+        const standardConversion = Number(material?.qtyKecil || 1);
+        const actualConversion = Number(item.qtyKecilPerUnit || material?.qtyKecil || 1);
+
+        const totalSmallUnitsPurchased = item.qty * actualConversion;
+        const fullBulkUnits = Math.floor(totalSmallUnitsPurchased / (standardConversion || 1));
+        const remainderSmallUnits = Math.round((totalSmallUnitsPurchased - (fullBulkUnits * standardConversion)) * 100) / 100;
+        
+        const pricePerKecil = actualConversion > 0 ? (item.price / actualConversion) : item.price;
+        const totalBulkEquivalent = standardConversion > 0 ? (totalSmallUnitsPurchased / standardConversion) : item.qty;
+        const updated = applyPurchase(currentMaterial, totalBulkEquivalent, item.price);
+
         const materialRef = doc(db, "bahan-baku", item.materialId);
-        batch.update(materialRef, {
-          qtyKontainerBesar: increment(item.qty),
+        
+        const priceHistoryEntry = {
+          price: item.price,
+          priceKecil: pricePerKecil,
+          qtyKecilPerUnit: actualConversion,
+          recordedAt: new Date().toISOString(),
+          note: `Beli Sendiri Karyawan (${actualConversion} ${material?.satuanKecil || 'pcs'}/${material?.satuanBesar || 'pack'}) -> Area Kontainer`
+        };
+
+        const updatePayload: Record<string, any> = {
+          stockValue: updated.stockValue,
+          avgPrice: updated.avgPrice,
           currentPrice: item.price,
-          avgPrice: item.price,
-          priceHistory: Array.isArray(material?.priceHistory) ? [...material.priceHistory, { price: item.price, recordedAt: new Date().toISOString(), note: "Input belanja karyawan" }].slice(-10) : [{ price: item.price, recordedAt: new Date().toISOString(), note: "Input belanja karyawan" }],
-        });
+          hargaSatuanKecil: pricePerKecil,
+          priceHistory: Array.isArray(material?.priceHistory) 
+            ? [...material.priceHistory, priceHistoryEntry].slice(-10) 
+            : [priceHistoryEntry],
+        };
+
+        if (fullBulkUnits > 0) {
+          updatePayload.qtyKontainerBesar = increment(fullBulkUnits);
+        }
+        if (remainderSmallUnits > 0) {
+          updatePayload.qtyKontainerKecil = increment(remainderSmallUnits);
+        }
+
+        batch.update(materialRef, updatePayload);
 
         return {
           materialId: item.materialId,
           materialName: material?.nama || "-",
           materialCode: material?.code || "-",
+          isBeliSendiri: true,
           qty: item.qty,
+          addedBulkQty: fullBulkUnits,
+          addedSmallUnits: remainderSmallUnits,
           unit: material?.satuanBesar || "-",
+          qtyKecilPerUnit: actualConversion,
+          satuanKecil: material?.satuanKecil || "-",
+          totalQtyKecil: totalSmallUnitsPurchased,
           price: item.price,
-          purchasePrice: item.price,
+          hargaSatuanKecil: pricePerKecil,
+          avgPrice: updated.avgPrice,
           subtotal: item.qty * item.price,
         };
       });
 
-      // Catat Log Pembelian dengan location: "kontainer"
       const logRef = doc(collection(db, "log_pembelian_bahan"));
       batch.set(logRef, {
         nomorNota: nomorNota,
-        type: purchaseType,
+        type: "belanja",
+        targetLocation: "kontainer",
+        location: "kontainer",
         items: logItems,
         totalItems: logItems.length,
-        location: "kontainer",
         tanggal: new Date().toISOString().split("T")[0],
         createdAt: serverTimestamp(),
       });
@@ -360,12 +432,12 @@ export default function EmployeeInputBahanBakuPage() {
       await batch.commit();
 
       toast({
-        title: "Nota Berhasil Disimpan",
-        description: `Nota #${nomorNota} dengan ${logItems.length} bahan telah ditambahkan ke Area Kontainer.`,
+        title: "Nota Beli Sendiri Disimpan",
+        description: `Nota #${nomorNota} dengan ${logItems.length} bahan telah ditambahkan ke Stok Area Kontainer.`,
       });
 
       // Reset Form
-      setItems([{ materialId: "", qty: 0, price: 0 }]);
+      setItems([{ materialId: "", qty: 0, qtyKecilPerUnit: 1, price: 0 }]);
       setNomorNota("");
       
     } catch (error) {
@@ -373,7 +445,7 @@ export default function EmployeeInputBahanBakuPage() {
       toast({
         variant: "destructive",
         title: "Gagal Menyimpan",
-        description: "Terjadi kesalahan sistem.",
+        description: "Terjadi kesalahan sistem saat menyimpan nota penerimaan.",
       });
     } finally {
       setSaving(false);
@@ -386,7 +458,7 @@ export default function EmployeeInputBahanBakuPage() {
 
   // Revert stok saat menghapus log nota masuk
   const handleDeleteLog = async (logId: string) => {
-    if (!confirm("Hapus catatan nota ini dan kembalikan stok?")) return;
+    if (!confirm("Hapus catatan nota ini dan kembalikan/kurangi stok kontainer?")) return;
     setSaving(true);
     try {
       const logDocRef = doc(db, "log_pembelian_bahan", logId);
@@ -396,20 +468,47 @@ export default function EmployeeInputBahanBakuPage() {
 
       const batch = writeBatch(db);
 
-      // Kurangi stok qtyKontainerBesar sesuai data nota
       logData.items?.forEach((item: any) => {
         const materialRef = doc(db, "bahan-baku", item.materialId);
-        batch.update(materialRef, {
-          qtyKontainerBesar: increment(-item.qty)
-        });
+        
+        let bulkToDeduct = 0;
+        let smallToDeduct = 0;
+
+        if (typeof item.addedBulkQty === 'number' || typeof item.addedSmallUnits === 'number') {
+          bulkToDeduct = Number(item.addedBulkQty || 0);
+          smallToDeduct = Number(item.addedSmallUnits || 0);
+        } else {
+          const matDetail = (materials as any[])?.find(m => m.id === item.materialId);
+          const standardConversion = Number(matDetail?.qtyKecil || 1);
+          const totalSmall = Number(item.totalQtyKecil || (item.qty * (item.qtyKecilPerUnit || standardConversion)));
+          bulkToDeduct = Math.floor(totalSmall / (standardConversion || 1));
+          smallToDeduct = Math.round((totalSmall - (bulkToDeduct * standardConversion)) * 100) / 100;
+        }
+
+        const updatePayload: Record<string, any> = {};
+        const subtotal = Number(item.subtotal || (item.qty * item.price) || 0);
+
+        if (subtotal > 0) {
+          updatePayload.stockValue = increment(-subtotal);
+        }
+        if (bulkToDeduct > 0) {
+          updatePayload.qtyKontainerBesar = increment(-bulkToDeduct);
+        }
+        if (smallToDeduct > 0) {
+          updatePayload.qtyKontainerKecil = increment(-smallToDeduct);
+        }
+
+        if (Object.keys(updatePayload).length > 0) {
+          batch.update(materialRef, updatePayload);
+        }
       });
 
       batch.delete(logDocRef);
       await batch.commit();
 
       toast({ 
-        title: "Nota Dihapus", 
-        description: "Catatan nota berhasil dihapus dan stok kontainer dikembalikan." 
+        title: "Nota Dihapus & Stok Dikurangi", 
+        description: "Catatan nota berhasil dihapus dan stok kontainer telah ditarik balik." 
       });
     } catch (e: any) {
       console.error(e);
@@ -439,7 +538,7 @@ export default function EmployeeInputBahanBakuPage() {
         const materialRef = doc(db, "bahan-baku", item.materialId);
         batch.update(materialRef, {
           qtyKontainerBesar: increment(item.qty),
-          qtyGudang: increment(-item.qty)
+          qtyBesar: increment(-item.qty)
         });
         return { materialId: item.materialId, materialName: material.nama, materialCode: material.code, qty: item.qty, unit: material.satuanBesar };
       });
@@ -482,7 +581,7 @@ export default function EmployeeInputBahanBakuPage() {
         const materialRef = doc(db, "bahan-baku", item.materialId);
         batch.update(materialRef, {
           qtyKontainerBesar: increment(-item.qty),
-          qtyGudang: increment(item.qty)
+          qtyBesar: increment(item.qty)
         });
         return { materialId: item.materialId, materialName: material.nama, materialCode: material.code, qty: item.qty, unit: material.satuanBesar };
       });
@@ -515,7 +614,7 @@ export default function EmployeeInputBahanBakuPage() {
         <div className="space-y-1">
           <h1 className="text-2xl sm:text-4xl font-black tracking-tighter text-slate-900 uppercase italic leading-none">Input Bahan Baku</h1>
           <p className="text-[9px] sm:text-[10px] text-slate-600 font-black uppercase tracking-[0.2em] mt-2">
-            Area Kontainer (Update Stok Kontainer per Nota)
+            Area Kontainer Operasional • Khusus Pembelian Beli Sendiri (Stok Kontainer)
           </p>
         </div>
       </div>
@@ -546,19 +645,17 @@ export default function EmployeeInputBahanBakuPage() {
 
             {activeTab === "pembelian" && (
               <form onSubmit={handleSave} className="mt-6 sm:mt-8 space-y-6 sm:space-y-10">
-              {/* Header Nota */}
+              {/* Header Nota: Jenis Pembelian (Beli Sendiri) & Nomor Nota */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-8">
                 <div className="space-y-2">
-                  <Label className="text-[11px] md:text-[12px] font-black uppercase tracking-widest text-slate-600">Jenis Pembelian</Label>
-                  <div className="flex bg-slate-50 p-1.5 rounded-2xl border border-slate-100">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="flex-1 rounded-xl h-11 sm:h-12 text-[10px] font-black uppercase tracking-widest gap-2 transition-all bg-white shadow-sm text-primary"
-                      disabled
-                    >
-                      <ShoppingCart className="h-4 w-4" /> Belanja
-                    </Button>
+                  <Label className="text-[11px] md:text-[12px] font-black uppercase tracking-widest text-slate-600">Jenis Pembelian & Tujuan Stok</Label>
+                  <div className="flex bg-amber-50/70 p-1.5 rounded-2xl border border-amber-200/60 items-center justify-between px-4 h-12">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-amber-900 flex items-center gap-2">
+                      <ShoppingCart className="h-4 w-4 text-amber-600" /> Beli Sendiri
+                    </span>
+                    <span className="text-[9px] font-black uppercase px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      → Stok Kontainer
+                    </span>
                   </div>
                 </div>
 
@@ -577,10 +674,21 @@ export default function EmployeeInputBahanBakuPage() {
                 </div>
               </div>
 
+              {/* Banner Penjelasan Beli Sendiri */}
+              <div className="bg-amber-50 border border-amber-200/80 rounded-2xl p-4 text-amber-900 flex items-start gap-3 text-xs">
+                <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-black uppercase tracking-wide text-[10px]">Kategori Pembelian Beli Sendiri Aktif</p>
+                  <p className="text-[11px] mt-0.5 leading-relaxed">
+                    Setiap pembelian bahan baku oleh karyawan diperuntukkan untuk <strong>Beli Sendiri</strong> dan stok otomatis <strong>masuk langsung ke Area Kontainer</strong>. Harap periksa & sesuaikan isi per pack/box jika berbeda dari ukuran standar.
+                  </p>
+                </div>
+              </div>
+
               {/* Daftar Bahan Baku */}
               <div className="space-y-4 sm:space-y-6 pt-4 border-t border-slate-50">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-2">
-                  <h3 className="text-sm font-black uppercase italic tracking-tighter text-slate-900">Rincian Bahan Baku</h3>
+                  <h3 className="text-sm font-black uppercase italic tracking-tighter text-slate-900">Rincian Bahan Baku (Beli Sendiri)</h3>
                   <Button 
                     type="button" 
                     variant="ghost" 
@@ -594,16 +702,23 @@ export default function EmployeeInputBahanBakuPage() {
                 <div className="space-y-4">
                   {items.map((item, index) => {
                     const matDetail = (materials as any[])?.find(m => m.id === item.materialId);
+
                     return (
-                      <div key={index} className="flex flex-col md:flex-row gap-3 sm:gap-4 items-end bg-slate-50 p-4 sm:p-6 rounded-[1.25rem] sm:rounded-[2rem] border border-slate-100 group transition-all animate-in fade-in slide-in-from-top-2">
-                        <div className="flex-1 w-full space-y-2">
-                          <Label className="text-[10px] md:text-[11px] font-black uppercase tracking-widest text-slate-500">Pilih Bahan Baku</Label>
+                      <div key={index} className="flex flex-col md:flex-row gap-3 sm:gap-4 items-center bg-amber-50/40 p-4 sm:p-5 rounded-[1.5rem] border border-amber-200/60 transition-all animate-in fade-in slide-in-from-top-2">
+                        {/* Pilih Bahan Baku */}
+                        <div className="flex-1 w-full space-y-1.5">
+                          <div className="flex items-center gap-2 h-5">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Pilih Bahan Baku</Label>
+                            <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200/60">
+                              Beli Sendiri
+                            </span>
+                          </div>
                           <Select 
                             value={item.materialId} 
                             onValueChange={(val) => handleItemChange(index, 'materialId', val)}
                           >
-                            <SelectTrigger className="rounded-xl border-none h-12 bg-white shadow-sm font-black text-slate-900 text-sm md:text-base">
-                              <SelectValue placeholder="Pilih..." />
+                            <SelectTrigger className="rounded-xl border-none h-12 bg-white shadow-sm font-black text-slate-900 text-xs sm:text-sm">
+                              <SelectValue placeholder="Pilih bahan baku..." />
                             </SelectTrigger>
                             <SelectContent className="rounded-2xl border-none shadow-2xl">
                               {materials?.map((m: any) => (
@@ -615,49 +730,94 @@ export default function EmployeeInputBahanBakuPage() {
                           </Select>
                         </div>
                         
-                        <div className="w-full md:w-32 space-y-2">
-                          <Label className="text-[10px] md:text-[11px] font-black uppercase tracking-widest text-slate-500">Jumlah</Label>
-                          <div className="relative">
+                        {/* Isi per Pack/Box/Sak (Unit Suffix Integrated inside Input) */}
+                        <div className="w-full md:w-36 space-y-1.5">
+                          <div className="flex items-center h-5">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-amber-800 truncate">
+                              Isi per {matDetail?.satuanBesar || 'Kemasan'} <span className="text-rose-500">*</span>
+                            </Label>
+                          </div>
+                          <div className="relative flex items-center">
                             <Input 
                               type="number" 
                               step="any"
-                              value={item.qty}
-                              onChange={(e) => handleItemChange(index, 'qty', Number(e.target.value))}
-                              className="rounded-xl border-none h-11 sm:h-12 bg-white shadow-sm font-black text-center text-sm sm:text-base md:text-lg"
+                              value={item.qtyKecilPerUnit ?? matDetail?.qtyKecil ?? 1}
+                              onChange={(e) => handleItemChange(index, 'qtyKecilPerUnit', Number(e.target.value))}
+                              className="rounded-xl border-amber-300 focus:border-amber-500 h-12 bg-amber-50/80 font-black text-center text-amber-900 text-sm sm:text-base shadow-sm pr-12"
+                              placeholder={String(matDetail?.qtyKecil || 1)}
+                              required
                             />
+                            <span className="absolute right-2.5 text-[9px] font-black uppercase text-amber-800 bg-amber-200/80 px-1.5 py-0.5 rounded-md pointer-events-none">
+                              {matDetail?.satuanKecil || 'Pcs'}
+                            </span>
                           </div>
                         </div>
 
-                        <div className="w-full md:w-24 space-y-2">
-                           <Label className="text-[10px] md:text-[11px] font-black uppercase tracking-widest text-slate-500">Satuan</Label>
-                           <div className="h-11 sm:h-12 flex items-center justify-center bg-white rounded-xl shadow-sm text-[11px] md:text-[12px] font-black uppercase text-slate-600">
-                              {matDetail?.satuanBesar || "-"}
-                           </div>
-                        </div>
-
-                        <div className="w-full md:w-36 space-y-2">
-                          <Label className="text-[10px] md:text-[11px] font-black uppercase tracking-widest text-slate-500">Nominal</Label>
-                          <Input
-                            type="number"
+                        {/* Jumlah */}
+                        <div className="w-full md:w-28 space-y-1.5">
+                          <div className="flex items-center h-5">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500 truncate">Jumlah</Label>
+                          </div>
+                          <Input 
+                            type="number" 
                             step="any"
-                            min="0"
-                            value={item.price}
-                            onChange={(e) => handleItemChange(index, 'price', Number(e.target.value))}
-                            className="rounded-xl border-none h-11 sm:h-12 bg-white shadow-sm font-black text-center text-sm sm:text-base md:text-lg"
+                            value={item.qty || ""}
+                            onChange={(e) => handleItemChange(index, 'qty', Number(e.target.value))}
+                            className="rounded-xl border-none h-12 bg-white shadow-sm font-black text-center text-sm sm:text-base md:text-lg"
                             placeholder="0"
                           />
                         </div>
 
-                        <Button 
-                          type="button" 
-                          variant="ghost" 
-                          size="icon" 
-                          onClick={() => handleRemoveItem(index)}
-                          className="h-11 sm:h-12 w-full sm:w-12 rounded-xl text-slate-300 hover:text-rose-600 transition-colors bg-white shadow-sm border-none"
-                          disabled={items.length === 1}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
+                        {/* Satuan Besar */}
+                        <div className="w-full md:w-24 space-y-1.5">
+                           <div className="flex items-center h-5">
+                             <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500 truncate">Satuan</Label>
+                           </div>
+                           <div className="h-12 flex items-center justify-center bg-white rounded-xl shadow-sm text-[11px] md:text-xs font-black uppercase text-slate-700">
+                              {matDetail?.satuanBesar || "-"}
+                           </div>
+                        </div>
+
+                        {/* Harga Satuan per Unit Besar */}
+                        <div className="w-full md:w-32 space-y-1.5">
+                          <div className="flex items-center h-5">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500 truncate">
+                              Harga / {matDetail?.satuanBesar || 'Unit'}
+                            </Label>
+                          </div>
+                          <Input
+                            type="number"
+                            step="any"
+                            value={item.price || ""}
+                            onChange={(e) => handleItemChange(index, 'price', Number(e.target.value))}
+                            className="rounded-xl border-none h-12 bg-white shadow-sm font-black text-center text-sm sm:text-base"
+                            placeholder="0"
+                          />
+                        </div>
+
+                        {/* Total Pembelian (Harga Satuan x Jumlah) */}
+                        <div className="w-full md:w-36 space-y-1.5">
+                          <div className="flex items-center h-5">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-emerald-700 truncate">Total Pembelian</Label>
+                          </div>
+                          <div className="h-12 flex items-center justify-center bg-emerald-50/80 rounded-xl border border-emerald-200/80 shadow-sm font-black text-emerald-900 text-sm sm:text-base px-2">
+                            Rp {Number((item.qty || 0) * (item.price || 0)).toLocaleString('id-ID')}
+                          </div>
+                        </div>
+
+                        {/* Delete Action */}
+                        <div className="flex items-end pt-6 md:pt-0">
+                          <Button 
+                            type="button" 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={() => handleRemoveItem(index)}
+                            className="h-12 w-12 rounded-xl text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-colors bg-white shadow-sm border-none shrink-0"
+                            disabled={items.length === 1}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     );
                   })}
@@ -672,60 +832,82 @@ export default function EmployeeInputBahanBakuPage() {
                   {saving ? "Memproses Data..." : (
                     <>
                       <Save className="h-4 w-4" />
-                      Simpan Pembelian & Tambah Stok Kontainer
+                      Simpan Nota Beli Sendiri & Masuk Stok Kontainer
                     </>
                   )}
                 </Button>
               </div>
-              </form>
+            </form>
             )}
 
             {activeTab === "pemakaian" && (
-              <form onSubmit={handleSavePemakaian} className="mt-8 space-y-8">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <form onSubmit={handleSavePemakaian} className="mt-6 sm:mt-8 space-y-6 sm:space-y-10">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-8">
                   <div className="space-y-2">
-                    <Label className="text-[11px] md:text-[12px] font-black uppercase tracking-widest text-slate-600">Tanggal Pemakaian</Label>
+                    <Label className="text-[11px] md:text-[12px] font-black uppercase tracking-widest text-slate-600">Tanggal Operasional</Label>
                     <Input
                       type="date"
                       value={selectedPemakaianDate}
                       onChange={(e) => setSelectedPemakaianDate(e.target.value)}
-                      className="rounded-2xl border-slate-100 h-14 bg-slate-50 font-black text-base text-slate-900"
+                      className="rounded-2xl border-slate-100 h-12 sm:h-14 bg-slate-50 font-black text-sm sm:text-base text-slate-900"
                     />
-                  </div>
-                  <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em]">Informasi</p>
-                    <p className="mt-2 font-semibold">Pemakaian akan mengurangi stok kontainer sesuai takaran resep yang dipilih.</p>
                   </div>
                 </div>
 
-                <div className="space-y-6 pt-4 border-t border-slate-50">
-                  <div className="flex items-center justify-between px-2">
-                    <h3 className="text-sm font-black uppercase italic tracking-tighter text-slate-900">Daftar Pemakaian</h3>
-                    <Button type="button" variant="ghost" onClick={handleAddProductionItem} className="h-10 text-[10px] font-black text-primary uppercase tracking-widest gap-2 hover:bg-primary/5">
-                      <PlusCircle className="h-4 w-4" /> Tambah Item
+                <div className="space-y-4 sm:space-y-6 pt-4 border-t border-slate-50">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-2">
+                    <h3 className="text-sm font-black uppercase italic tracking-tighter text-slate-900">Rincian Pemakaian Bahan / Pelengkap</h3>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={handleAddProductionItem}
+                      className="h-10 w-full sm:w-auto text-[10px] font-black text-primary uppercase tracking-widest gap-2 hover:bg-primary/5"
+                    >
+                      <PlusCircle className="h-4 w-4" /> Tambah Baris
                     </Button>
                   </div>
+
                   <div className="space-y-4">
                     {productionBatch.map((item, index) => (
-                      <div key={index} className="flex flex-col md:flex-row gap-4 items-end rounded-[2rem] border border-slate-100 bg-slate-50 p-6">
+                      <div key={index} className="flex flex-col md:flex-row gap-3 sm:gap-4 items-end bg-slate-50 p-4 sm:p-6 rounded-[1.25rem] sm:rounded-[2rem] border border-slate-100">
                         <div className="flex-1 w-full space-y-2">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Pilih Pemakaian</Label>
-                          <Select value={item.resepId} onValueChange={(val) => handleProductionItemChange(index, "resepId", val)}>
-                            <SelectTrigger className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-900">
-                              <SelectValue placeholder="Pilih pemakaian..." />
+                          <Label className="text-[10px] md:text-[11px] font-black uppercase tracking-widest text-slate-500">Pilih Bahan / Resep Pelengkap</Label>
+                          <Select
+                            value={item.resepId}
+                            onValueChange={(val) => handleProductionItemChange(index, "resepId", val)}
+                          >
+                            <SelectTrigger className="rounded-xl border-none h-12 bg-white shadow-sm font-black text-slate-900 text-sm md:text-base">
+                              <SelectValue placeholder="Pilih..." />
                             </SelectTrigger>
                             <SelectContent className="rounded-2xl border-none shadow-2xl">
                               {listResep?.map((r: any) => (
-                                <SelectItem key={r.id} value={r.id} className="rounded-xl">{r.namaPelengkap}</SelectItem>
+                                <SelectItem key={r.id} value={r.id} className="rounded-xl">
+                                  {r.namaPelengkap}
+                                </SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
                         </div>
+
                         <div className="w-full md:w-32 space-y-2">
-                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Jumlah</Label>
-                          <Input type="number" min={1} value={item.qty} onChange={(e) => handleProductionItemChange(index, "qty", Number(e.target.value))} className="h-12 rounded-xl border-none bg-white text-center font-black shadow-sm" />
+                          <Label className="text-[10px] md:text-[11px] font-black uppercase tracking-widest text-slate-500">Jumlah Bikin/Pakai</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            value={item.qty}
+                            onChange={(e) => handleProductionItemChange(index, "qty", Number(e.target.value))}
+                            className="rounded-xl border-none h-11 sm:h-12 bg-white shadow-sm font-black text-center text-sm sm:text-base md:text-lg"
+                          />
                         </div>
-                        <Button type="button" variant="ghost" size="icon" onClick={() => handleRemoveProductionItem(index)} className="h-12 w-12 rounded-xl border-none bg-white text-slate-300 shadow-sm hover:text-rose-600" disabled={productionBatch.length === 1}>
+
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleRemoveProductionItem(index)}
+                          className="h-11 sm:h-12 w-full sm:w-12 rounded-xl text-slate-300 hover:text-rose-600 transition-colors bg-white shadow-sm border-none"
+                          disabled={productionBatch.length === 1}
+                        >
                           <X className="h-4 w-4" />
                         </Button>
                       </div>
@@ -733,260 +915,246 @@ export default function EmployeeInputBahanBakuPage() {
                   </div>
                 </div>
 
-                <Button disabled={saving || productionBatch.some((item) => !item.resepId)} className="h-16 w-full rounded-[1.5rem] bg-primary text-white font-black uppercase tracking-[0.2em] text-[11px] shadow-xl shadow-primary/20">
-                  {saving ? "Memproses..." : "Simpan & Potong Stok"}
-                </Button>
+                <div className="pt-6">
+                  <Button
+                    disabled={saving || productionBatch.some((i) => !i.resepId)}
+                    className="w-full h-14 sm:h-16 rounded-[1.25rem] sm:rounded-[1.5rem] bg-violet-600 hover:bg-violet-700 text-white font-black uppercase tracking-[0.2em] text-[10px] sm:text-[11px] shadow-xl shadow-violet-200 gap-2 sm:gap-3 transition-all active:scale-[0.98]"
+                  >
+                    {saving ? "Memproses Data..." : (
+                      <>
+                        <Save className="h-4 w-4" />
+                        Simpan & Potong Stok Kontainer
+                      </>
+                    )}
+                  </Button>
+                </div>
               </form>
             )}
 
             {activeTab === "ambil" && (
-              <form onSubmit={handleTakeFromWarehouse} className="mt-8 space-y-10">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <form onSubmit={handleTakeFromWarehouse} className="mt-6 sm:mt-8 space-y-6 sm:space-y-10">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-8">
                   <div className="space-y-2">
-                    <Label className="text-[11px] md:text-[12px] font-black uppercase tracking-widest text-slate-600">Nomor Referensi</Label>
+                    <Label className="text-[11px] md:text-[12px] font-black uppercase tracking-widest text-slate-600">Nomor Referensi / Catatan</Label>
                     <div className="relative">
                       <Hash className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                      <Input value={nomorNota} onChange={(e) => setNomorNota(e.target.value.toUpperCase())} className="rounded-2xl border-slate-100 h-14 bg-slate-50 pl-12 font-black text-base text-slate-900" placeholder="CONTOH: AMBIL/001" required />
+                      <Input
+                        value={nomorNota}
+                        onChange={(e) => setNomorNota(e.target.value.toUpperCase())}
+                        className="rounded-2xl border-slate-100 h-12 sm:h-14 bg-slate-50 pl-12 font-black text-sm sm:text-base md:text-lg text-slate-900"
+                        placeholder="CONTOH: AMBIL-001"
+                        required
+                      />
                     </div>
-                  </div>
-                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em]">Informasi</p>
-                    <p className="mt-2 font-semibold">Barang yang diambil dari gudang akan otomatis masuk ke stock kontainer.</p>
                   </div>
                 </div>
 
-                <div className="space-y-6 pt-4 border-t border-slate-50">
-                  <div className="flex items-center justify-between px-2">
-                    <h3 className="text-sm font-black uppercase italic tracking-tighter text-slate-900">Daftar Barang yang Diambil</h3>
-                    <Button type="button" variant="ghost" onClick={handleAddMovementItem} className="h-10 text-[10px] font-black text-primary uppercase tracking-widest gap-2 hover:bg-primary/5">
+                <div className="space-y-4 sm:space-y-6 pt-4 border-t border-slate-50">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-2">
+                    <h3 className="text-sm font-black uppercase italic tracking-tighter text-slate-900">Barang Diambil Dari Gudang</h3>
+                    <Button type="button" variant="ghost" onClick={handleAddMovementItem} className="h-10 text-[10px] font-black text-primary uppercase tracking-widest gap-2">
                       <PlusCircle className="h-4 w-4" /> Tambah Item
                     </Button>
                   </div>
+
                   <div className="space-y-4">
-                    {movementItems.map((item, index) => {
-                      const matDetail = (materials as any[])?.find(m => m.id === item.materialId);
-                      return (
-                        <div key={index} className="flex flex-col md:flex-row gap-4 items-end rounded-[2rem] border border-slate-100 bg-slate-50 p-6">
-                          <div className="flex-1 w-full space-y-2">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Pilih Barang</Label>
-                            <Select value={item.materialId} onValueChange={(val) => handleMovementItemChange(index, "materialId", val)}>
-                              <SelectTrigger className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-900">
-                                <SelectValue placeholder="Pilih barang..." />
-                              </SelectTrigger>
-                              <SelectContent className="rounded-2xl border-none shadow-2xl">
-                                {materials?.map((m: any) => (
-                                  <SelectItem key={m.id} value={m.id} className="rounded-xl">{m.code} - {m.nama}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            {matDetail && (
-                              <div className="flex flex-wrap gap-2 pt-1">
-                                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-amber-700">
-                                  Sisa Gudang: {Number(matDetail.qtyGudang || 0)} {matDetail.satuanBesar || "pcs"}
-                                </div>
-                                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">
-                                  Sisa Kontainer: {Number(matDetail.qtyKontainerBesar || 0)} {matDetail.satuanBesar || "pcs"}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          <div className="w-full md:w-32 space-y-2">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Jumlah</Label>
-                            <Input type="number" step="any" value={item.qty} onChange={(e) => handleMovementItemChange(index, "qty", Number(e.target.value))} className="h-12 rounded-xl border-none bg-white text-center font-black shadow-sm" />
-                          </div>
-                          <div className="w-full md:w-24 space-y-2">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Satuan</Label>
-                            <div className="flex h-12 items-center justify-center rounded-xl bg-white text-[11px] font-black uppercase text-slate-600 shadow-sm">{matDetail?.satuanBesar || "-"}</div>
-                          </div>
-                          <Button type="button" variant="ghost" size="icon" onClick={() => handleRemoveMovementItem(index)} className="h-12 w-12 rounded-xl border-none bg-white text-slate-300 shadow-sm hover:text-rose-600" disabled={movementItems.length === 1}>
-                            <X className="h-4 w-4" />
-                          </Button>
+                    {movementItems.map((item, index) => (
+                      <div key={index} className="flex flex-col md:flex-row gap-3 sm:gap-4 items-end bg-slate-50 p-4 sm:p-6 rounded-[1.25rem] sm:rounded-[2rem] border border-slate-100">
+                        <div className="flex-1 w-full space-y-2">
+                          <Label className="text-[10px] md:text-[11px] font-black uppercase text-slate-500">Pilih Bahan</Label>
+                          <Select value={item.materialId} onValueChange={(val) => handleMovementItemChange(index, "materialId", val)}>
+                            <SelectTrigger className="rounded-xl border-none h-12 bg-white font-black">
+                              <SelectValue placeholder="Pilih..." />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-2xl border-none shadow-2xl">
+                              {materials?.map((m: any) => (
+                                <SelectItem key={m.id} value={m.id} className="rounded-xl">
+                                  {m.code} - {m.nama} (Stok Gudang: {m.qtyBesar || 0} {m.satuanBesar})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
-                      );
-                    })}
+                        <div className="w-full md:w-32 space-y-2">
+                          <Label className="text-[10px] md:text-[11px] font-black uppercase text-slate-500">Jumlah Dipindah</Label>
+                          <Input
+                            type="number"
+                            value={item.qty}
+                            onChange={(e) => handleMovementItemChange(index, "qty", Number(e.target.value))}
+                            className="rounded-xl border-none h-12 bg-white font-black text-center"
+                          />
+                        </div>
+                        <Button type="button" variant="ghost" size="icon" onClick={() => handleRemoveMovementItem(index)} className="h-12 w-12 rounded-xl text-slate-300" disabled={movementItems.length === 1}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
-                <Button disabled={saving} className="h-16 w-full rounded-[1.5rem] bg-primary text-white font-black uppercase tracking-[0.2em] text-[11px] shadow-xl shadow-primary/20">
-                  {saving ? "Memproses..." : "Simpan Ambil Stok Gudang"}
+                <Button disabled={saving || movementItems.some((i) => !i.materialId)} className="w-full h-14 bg-amber-600 text-white font-black uppercase text-[10px] tracking-widest">
+                  Simpan Pengambilan Gudang
                 </Button>
               </form>
             )}
 
             {activeTab === "kembali" && (
-              <form onSubmit={handleReturnToWarehouse} className="mt-8 space-y-10">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <form onSubmit={handleReturnToWarehouse} className="mt-6 sm:mt-8 space-y-6 sm:space-y-10">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-8">
                   <div className="space-y-2">
-                    <Label className="text-[11px] md:text-[12px] font-black uppercase tracking-widest text-slate-600">Nomor Referensi</Label>
+                    <Label className="text-[11px] md:text-[12px] font-black uppercase tracking-widest text-slate-600">Nomor Referensi Pengembalian</Label>
                     <div className="relative">
                       <Hash className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                      <Input value={nomorNota} onChange={(e) => setNomorNota(e.target.value.toUpperCase())} className="rounded-2xl border-slate-100 h-14 bg-slate-50 pl-12 font-black text-base text-slate-900" placeholder="CONTOH: KEMBALI/001" required />
+                      <Input
+                        value={nomorNota}
+                        onChange={(e) => setNomorNota(e.target.value.toUpperCase())}
+                        className="rounded-2xl border-slate-100 h-12 sm:h-14 bg-slate-50 pl-12 font-black text-sm sm:text-base md:text-lg text-slate-900"
+                        placeholder="CONTOH: RET-001"
+                        required
+                      />
                     </div>
-                  </div>
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em]">Informasi</p>
-                    <p className="mt-2 font-semibold">Barang yang dikembalikan akan otomatis berkurang di stock kontainer dan masuk ke gudang.</p>
                   </div>
                 </div>
 
-                <div className="space-y-6 pt-4 border-t border-slate-50">
-                  <div className="flex items-center justify-between px-2">
-                    <h3 className="text-sm font-black uppercase italic tracking-tighter text-slate-900">Daftar Barang yang Dikembalikan</h3>
-                    <Button type="button" variant="ghost" onClick={handleAddReturnItem} className="h-10 text-[10px] font-black text-primary uppercase tracking-widest gap-2 hover:bg-primary/5">
+                <div className="space-y-4 sm:space-y-6 pt-4 border-t border-slate-50">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-2">
+                    <h3 className="text-sm font-black uppercase italic tracking-tighter text-slate-900">Barang Dikembalikan Ke Gudang</h3>
+                    <Button type="button" variant="ghost" onClick={handleAddReturnItem} className="h-10 text-[10px] font-black text-primary uppercase tracking-widest gap-2">
                       <PlusCircle className="h-4 w-4" /> Tambah Item
                     </Button>
                   </div>
+
                   <div className="space-y-4">
-                    {returnItems.map((item, index) => {
-                      const matDetail = (materials as any[])?.find(m => m.id === item.materialId);
-                      return (
-                        <div key={index} className="flex flex-col md:flex-row gap-4 items-end rounded-[2rem] border border-slate-100 bg-slate-50 p-6">
-                          <div className="flex-1 w-full space-y-2">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Pilih Barang</Label>
-                            <Select value={item.materialId} onValueChange={(val) => handleReturnItemChange(index, "materialId", val)}>
-                              <SelectTrigger className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-900">
-                                <SelectValue placeholder="Pilih barang..." />
-                              </SelectTrigger>
-                              <SelectContent className="rounded-2xl border-none shadow-2xl">
-                                {materials?.map((m: any) => (
-                                  <SelectItem key={m.id} value={m.id} className="rounded-xl">{m.code} - {m.nama}</SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            {matDetail && (
-                              <div className="flex flex-wrap gap-2 pt-1">
-                                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-emerald-700">
-                                  Sisa Kontainer: {Number(matDetail.qtyKontainerBesar || 0)} {matDetail.satuanBesar || "pcs"}
-                                </div>
-                                <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-sky-700">
-                                  Sisa Gudang: {Number(matDetail.qtyGudang || 0)} {matDetail.satuanBesar || "pcs"}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          <div className="w-full md:w-32 space-y-2">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Jumlah</Label>
-                            <Input type="number" step="any" value={item.qty} onChange={(e) => handleReturnItemChange(index, "qty", Number(e.target.value))} className="h-12 rounded-xl border-none bg-white text-center font-black shadow-sm" />
-                          </div>
-                          <div className="w-full md:w-24 space-y-2">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Satuan</Label>
-                            <div className="flex h-12 items-center justify-center rounded-xl bg-white text-[11px] font-black uppercase text-slate-600 shadow-sm">{matDetail?.satuanBesar || "-"}</div>
-                          </div>
-                          <Button type="button" variant="ghost" size="icon" onClick={() => handleRemoveReturnItem(index)} className="h-12 w-12 rounded-xl border-none bg-white text-slate-300 shadow-sm hover:text-rose-600" disabled={returnItems.length === 1}>
-                            <X className="h-4 w-4" />
-                          </Button>
+                    {returnItems.map((item, index) => (
+                      <div key={index} className="flex flex-col md:flex-row gap-3 sm:gap-4 items-end bg-slate-50 p-4 sm:p-6 rounded-[1.25rem] sm:rounded-[2rem] border border-slate-100">
+                        <div className="flex-1 w-full space-y-2">
+                          <Label className="text-[10px] md:text-[11px] font-black uppercase text-slate-500">Pilih Bahan</Label>
+                          <Select value={item.materialId} onValueChange={(val) => handleReturnItemChange(index, "materialId", val)}>
+                            <SelectTrigger className="rounded-xl border-none h-12 bg-white font-black">
+                              <SelectValue placeholder="Pilih..." />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-2xl border-none shadow-2xl">
+                              {materials?.map((m: any) => (
+                                <SelectItem key={m.id} value={m.id} className="rounded-xl">
+                                  {m.code} - {m.nama} (Stok Kontainer: {m.qtyKontainerBesar || 0} {m.satuanBesar})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
-                      );
-                    })}
+                        <div className="w-full md:w-32 space-y-2">
+                          <Label className="text-[10px] md:text-[11px] font-black uppercase text-slate-500">Jumlah Dikembalikan</Label>
+                          <Input
+                            type="number"
+                            value={item.qty}
+                            onChange={(e) => handleReturnItemChange(index, "qty", Number(e.target.value))}
+                            className="rounded-xl border-none h-12 bg-white font-black text-center"
+                          />
+                        </div>
+                        <Button type="button" variant="ghost" size="icon" onClick={() => handleRemoveReturnItem(index)} className="h-12 w-12 rounded-xl text-slate-300" disabled={returnItems.length === 1}>
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
-                <Button disabled={saving} className="h-16 w-full rounded-[1.5rem] bg-primary text-white font-black uppercase tracking-[0.2em] text-[11px] shadow-xl shadow-primary/20">
-                  {saving ? "Memproses..." : "Simpan Pengembalian Barang"}
+                <Button disabled={saving || returnItems.some((i) => !i.materialId)} className="w-full h-14 bg-emerald-600 text-white font-black uppercase text-[10px] tracking-widest">
+                  Simpan Pengembalian Ke Gudang
                 </Button>
               </form>
             )}
           </div>
         </Card>
 
-        <div className="space-y-6">
-          <div className="flex items-center gap-3 px-4">
-            <History className="h-5 w-5 text-primary" />
-            <h3 className="text-sm font-black uppercase tracking-widest text-slate-900">Nota Terakhir</h3>
+        {/* Histori Nota */}
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 px-2">
+            <History className="h-4 w-4 text-slate-400" />
+            <h3 className="text-xs font-black uppercase tracking-widest text-slate-900">
+              {activeHistorySection.title}
+            </h3>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-            <Card className="rounded-[2.5rem] bg-white border-none shadow-sm overflow-hidden">
-              <div className="p-6 space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                    <Package className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Stok Kontainer</h4>
-                    <p className="text-sm font-black text-slate-900 uppercase italic">Harga Beli / Satuan Besar</p>
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  {materials?.length ? materials.slice(0, 6).map((material: any) => (
-                    <div key={material.id} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 border border-slate-100">
-                      <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{material.code}</p>
-                        <p className="text-xs font-black text-slate-800 uppercase italic">{material.nama}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-black text-primary tabular-nums">{Number(material.qtyKontainerBesar || 0)}</p>
-                        <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">{material.satuanBesar || "pcs"}</p>
-                        <p className="text-[9px] font-bold text-slate-500">Rp {Number(material.hargaBeliSatuanBesar || 0).toLocaleString('id-ID')}</p>
-                      </div>
-                    </div>
-                  )) : (
-                    <div className="py-6 text-center text-[10px] font-black uppercase tracking-widest text-slate-400">Belum ada data stok</div>
-                  )}
-                </div>
-              </div>
-            </Card>
-
-            <div className="space-y-4">
-              {(() => {
-                const Icon = activeHistorySection.icon;
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {activeHistorySection.logs && activeHistorySection.logs.length > 0 ? (
+              activeHistorySection.logs.map((log: any) => {
+                const IconComponent = activeHistorySection.icon;
                 return (
-                  <Card className="rounded-[2rem] bg-white border-none shadow-sm overflow-hidden">
-                    <div className="p-4 sm:p-6 space-y-3">
+                  <Card key={log.id} className="rounded-3xl bg-white border-none shadow-sm overflow-hidden p-6 space-y-4">
+                    <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className={cn("h-10 w-10 rounded-2xl flex items-center justify-center shrink-0", activeHistorySection.accent)}>
-                          <Icon className="h-4 w-4" />
+                        <div className={cn("p-3 rounded-2xl", activeHistorySection.accent)}>
+                          <IconComponent className="h-5 w-5" />
                         </div>
                         <div>
-                          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{activeHistorySection.title}</h4>
-                          <p className="text-xs font-black text-slate-900 uppercase italic">{activeHistorySection.logs.length} riwayat</p>
+                          {activeTab === "pemakaian" ? (
+                            <>
+                              <h4 className="text-xs font-black text-slate-900 uppercase">Produksi Pelengkap</h4>
+                              <p className="text-[9px] font-bold text-slate-400 uppercase">
+                                {log.tanggal ? new Date(log.tanggal).toLocaleDateString('id-ID') : 'Hari ini'}
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <h4 className="text-xs font-black text-slate-900 uppercase">#{log.nomorNota}</h4>
+                              <p className="text-[9px] font-bold text-slate-400 uppercase">
+                                {log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleDateString('id-ID') : 'Baru saja'}
+                              </p>
+                            </>
+                          )}
                         </div>
                       </div>
 
-                      <div className="space-y-3">
-                        {activeHistorySection.logs.length > 0 ? activeHistorySection.logs.slice(0, 4).map((log: any) => (
-                          <div key={log.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">#{log.nomorNota}</p>
-                                <p className="mt-1 text-xs font-black text-slate-900 uppercase italic">
-                                  {log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleDateString('id-ID') : 'Baru saja'}
-                                </p>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-[9px] font-black text-primary uppercase">{log.totalItems} bahan</p>
-                              </div>
-                            </div>
+                      {activeTab === "pembelian" && (
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={() => handleDeleteLog(log.id)}
+                          className="h-8 w-8 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
 
-                            <div className="mt-3 space-y-2">
-                              {log.items?.slice(0, 2).map((item: any, i: number) => (
-                                <div key={i} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px]">
-                                  <div className="flex flex-col">
-                                    <span className="font-bold text-slate-400 text-[8px]">{item.materialCode || item.resepId}</span>
-                                    <span className="font-black text-slate-800 uppercase italic">{item.materialName || item.namaResep || 'Item'}</span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-black text-primary tabular-nums">{activeHistorySection.key === 'kembali' ? '-' : activeHistorySection.key === 'ambil' ? '+' : '+'}{item.qty ?? item.jumlah ?? 0}</span>
-                                    <span className="font-bold text-slate-400 uppercase text-[8px]">{item.unit || 'pcs'}</span>
-                                  </div>
-                                </div>
-                              ))}
-                              {log.items?.length > 2 && (
-                                <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">+{log.items.length - 2} item lain</p>
-                              )}
-                            </div>
-                          </div>
-                        )) : (
-                          <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-[10px] font-black uppercase tracking-widest text-slate-400">
-                            Belum ada riwayat
-                          </div>
-                        )}
-                      </div>
+                    <div className="space-y-2 border-t border-slate-50 pt-3">
+                      {log.items?.map((item: any, idx: number) => (
+                        <div key={idx} className="flex items-center justify-between text-[10px] bg-slate-50 p-2.5 rounded-xl">
+                          {activeTab === "pemakaian" ? (
+                            <>
+                              <span className="font-bold text-slate-700 uppercase">{item.namaResep || "Pelengkap"}</span>
+                              <span className="font-black text-violet-600">{item.jumlah} Resep</span>
+                            </>
+                          ) : (
+                            <>
+                              <div className="flex flex-col">
+                                <span className="font-bold text-slate-700 uppercase">{item.materialName}</span>
+                                {item.isBeliSendiri && item.qtyKecilPerUnit && (
+                                  <span className="text-[8px] text-amber-700 font-bold">
+                                    Isi: {item.qtyKecilPerUnit} {item.satuanKecil || 'pcs'}/{item.unit || 'pack'}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-black text-slate-900">+{item.qty} {item.unit}</span>
+                                {item.price > 0 && (
+                                  <span className="font-bold text-slate-400">Rp {item.price.toLocaleString("id-ID")}</span>
+                                )}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   </Card>
                 );
-              })()}
-            </div>
+              })
+            ) : (
+              <div className="col-span-full py-12 text-center bg-white rounded-3xl opacity-40">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Belum Ada Histori</p>
+              </div>
+            )}
           </div>
         </div>
       </div>

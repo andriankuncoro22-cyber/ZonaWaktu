@@ -25,11 +25,6 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
 /* ─────────────────── helpers ─────────────────── */
-function getMonthYear(dateStr: string) {
-  const [year, month] = dateStr.split("-");
-  return `${year}-${month}`;
-}
-
 function monthLabel(ym: string) {
   const [year, month] = ym.split("-");
   const d = new Date(Number(year), Number(month) - 1, 1);
@@ -42,6 +37,8 @@ interface BahanRow {
   nama: string;
   qty: number;
   satuanKecil: string;
+  hargaSatuanKecil: number;
+  totalHarga: number;
 }
 
 export default function LaporanPemakaianBahanBakuPage() {
@@ -69,13 +66,18 @@ export default function LaporanPemakaianBahanBakuPage() {
     try {
       // 1. Load all bahan baku
       const bahanSnap = await getDocs(collection(db, "bahan-baku"));
-      const bahanMap: { [id: string]: { code: string; nama: string; satuanKecil: string } } = {};
+      const bahanMap: { [id: string]: { code: string; nama: string; satuanKecil: string; hargaSatuanKecil: number } } = {};
       bahanSnap.forEach((d) => {
         const data = d.data();
+        const conversionRate = Number(data.qtyKecil || 1);
+        const priceBesar = Number(data.currentPrice ?? data.avgPrice ?? data.hargaBeliSatuanBesar ?? 0);
+        const unitPriceKecil = Number(data.hargaSatuanKecil ?? (conversionRate > 0 ? priceBesar / conversionRate : 0));
+
         bahanMap[d.id] = {
           code: data.code ?? "-",
           nama: data.nama ?? "-",
           satuanKecil: data.satuanKecil ?? "",
+          hargaSatuanKecil: unitPriceKecil,
         };
       });
 
@@ -142,12 +144,21 @@ export default function LaporanPemakaianBahanBakuPage() {
         });
       });
 
-      // 5. Build rows
+      // 6. Build rows with Total Harga Bahan Baku calculation
       const rows: BahanRow[] = Object.entries(agg)
         .map(([bahanId, qty]) => {
           const bahan = bahanMap[bahanId];
           if (!bahan) return null;
-          return { code: bahan.code, nama: bahan.nama, qty, satuanKecil: bahan.satuanKecil };
+          const hargaSatuanKecil = bahan.hargaSatuanKecil || 0;
+          const totalHarga = Math.round(qty * hargaSatuanKecil);
+          return { 
+            code: bahan.code, 
+            nama: bahan.nama, 
+            qty, 
+            satuanKecil: bahan.satuanKecil,
+            hargaSatuanKecil,
+            totalHarga
+          };
         })
         .filter(Boolean)
         .sort((a: any, b: any) => a.code.localeCompare(b.code)) as BahanRow[];
@@ -168,7 +179,20 @@ export default function LaporanPemakaianBahanBakuPage() {
       "Nama Bahan": r.nama,
       Qty: r.qty,
       "Satuan Kecil": r.satuanKecil,
+      "Harga Satuan Kecil": r.hargaSatuanKecil,
+      "Total Harga Bahan Baku": r.totalHarga,
     }));
+
+    const totalBiaya = rows.reduce((sum, r) => sum + r.totalHarga, 0);
+    wsData.push({
+      Code: "TOTAL",
+      "Nama Bahan": "Total Keseluruhan Pemakaian",
+      Qty: 0,
+      "Satuan Kecil": "",
+      "Harga Satuan Kecil": 0,
+      "Total Harga Bahan Baku": totalBiaya,
+    });
+
     const ws = XLSX.utils.json_to_sheet(wsData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Pemakaian");
@@ -208,9 +232,27 @@ export default function LaporanPemakaianBahanBakuPage() {
     docPDF.setTextColor(80);
     docPDF.text(label, 105, 45, { align: "center" });
 
+    const totalBiaya = rows.reduce((sum, r) => sum + r.totalHarga, 0);
+
+    const bodyData: any[] = rows.map((r) => [
+      r.code, 
+      r.nama, 
+      r.qty.toLocaleString("id-ID"), 
+      r.satuanKecil,
+      `Rp ${r.totalHarga.toLocaleString("id-ID")}`
+    ]);
+
+    bodyData.push([
+      "TOTAL",
+      "TOTAL KESELURUHAN",
+      "",
+      "",
+      `Rp ${totalBiaya.toLocaleString("id-ID")}`
+    ]);
+
     autoTable(docPDF, {
-      head: [["CODE", "NAMA BAHAN", "QTY", "SATUAN KECIL"]],
-      body: rows.map((r) => [r.code, r.nama, r.qty.toLocaleString("id-ID"), r.satuanKecil]),
+      head: [["CODE", "NAMA BAHAN", "QTY", "SATUAN KECIL", "TOTAL HARGA BAHAN BAKU"]],
+      body: bodyData,
       startY: 52,
       theme: "grid",
       headStyles: { fillColor: [139, 26, 26] },
@@ -219,7 +261,6 @@ export default function LaporanPemakaianBahanBakuPage() {
 
     docPDF.save(`Laporan_Pemakaian_${label}.pdf`);
   }
-
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
@@ -314,11 +355,14 @@ export default function LaporanPemakaianBahanBakuPage() {
               )}
             </div>
 
-            {/* Summary badge */}
+            {/* Summary badges */}
             {hariRows && hariRows.length > 0 && (
-              <div className="px-6 md:px-8 pt-6 flex items-center gap-3">
+              <div className="px-6 md:px-8 pt-6 flex flex-wrap items-center gap-3">
                 <span className="bg-primary/5 text-primary border border-primary/10 rounded-2xl px-4 py-2 text-[10px] font-black uppercase tracking-widest">
                   {hariRows.length} Jenis Bahan
+                </span>
+                <span className="bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded-2xl px-4 py-2 text-[10px] font-black uppercase tracking-widest">
+                  Total Harga: Rp {hariRows.reduce((sum, r) => sum + r.totalHarga, 0).toLocaleString("id-ID")}
                 </span>
                 <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">
                   Periode: {new Date(hariDate + "T00:00:00").toLocaleDateString("id-ID", {
@@ -389,11 +433,14 @@ export default function LaporanPemakaianBahanBakuPage() {
               )}
             </div>
 
-            {/* Summary badge */}
+            {/* Summary badges */}
             {bulanRows && bulanRows.length > 0 && (
-              <div className="px-6 md:px-8 pt-6 flex items-center gap-3">
+              <div className="px-6 md:px-8 pt-6 flex flex-wrap items-center gap-3">
                 <span className="bg-primary/5 text-primary border border-primary/10 rounded-2xl px-4 py-2 text-[10px] font-black uppercase tracking-widest">
                   {bulanRows.length} Jenis Bahan
+                </span>
+                <span className="bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded-2xl px-4 py-2 text-[10px] font-black uppercase tracking-widest">
+                  Total Harga: Rp {bulanRows.reduce((sum, r) => sum + r.totalHarga, 0).toLocaleString("id-ID")}
                 </span>
                 <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">
                   Periode: {monthLabel(bulanYM)}
@@ -433,9 +480,11 @@ function ReportTable({ rows, loading }: { rows: BahanRow[] | null; loading: bool
     );
   }
 
+  const grandTotal = rows.reduce((sum, r) => sum + r.totalHarga, 0);
+
   return (
     <div className="overflow-x-auto custom-scrollbar">
-      <table className="w-full text-left min-w-[480px]">
+      <table className="w-full text-left min-w-[600px]">
         <thead>
           <tr className="bg-slate-50/80">
             <th className="px-6 md:px-8 py-4 text-[9px] md:text-[10px] font-black uppercase text-slate-500 tracking-widest">
@@ -445,10 +494,13 @@ function ReportTable({ rows, loading }: { rows: BahanRow[] | null; loading: bool
               Nama Bahan
             </th>
             <th className="px-4 md:px-6 py-4 text-[9px] md:text-[10px] font-black uppercase text-slate-500 tracking-widest text-right">
-              Qty
+              Qty Pemakaian
             </th>
             <th className="px-6 md:px-8 py-4 text-[9px] md:text-[10px] font-black uppercase text-slate-500 tracking-widest text-center">
               Satuan Kecil
+            </th>
+            <th className="px-6 md:px-8 py-4 text-[9px] md:text-[10px] font-black uppercase text-emerald-800 tracking-widest text-right">
+              Total Harga Bahan Baku
             </th>
           </tr>
         </thead>
@@ -464,7 +516,7 @@ function ReportTable({ rows, loading }: { rows: BahanRow[] | null; loading: bool
               <td className="px-4 md:px-6 py-4 text-sm font-black text-slate-900 uppercase italic">
                 {row.nama}
               </td>
-              <td className="px-4 md:px-6 py-4 text-right font-black text-primary tabular-nums italic text-xl md:text-2xl">
+              <td className="px-4 md:px-6 py-4 text-right font-black text-primary tabular-nums italic text-lg md:text-xl">
                 {row.qty % 1 === 0
                   ? row.qty.toLocaleString("id-ID")
                   : row.qty.toLocaleString("id-ID", { maximumFractionDigits: 2 })}
@@ -472,9 +524,22 @@ function ReportTable({ rows, loading }: { rows: BahanRow[] | null; loading: bool
               <td className="px-6 md:px-8 py-4 text-center text-[9px] md:text-[10px] font-black uppercase text-primary tracking-widest">
                 {row.satuanKecil}
               </td>
+              <td className="px-6 md:px-8 py-4 text-right font-black text-emerald-700 tabular-nums italic text-base md:text-lg">
+                Rp {row.totalHarga.toLocaleString("id-ID")}
+              </td>
             </tr>
           ))}
         </tbody>
+        <tfoot>
+          <tr className="bg-slate-100/80 font-black">
+            <td colSpan={4} className="px-6 md:px-8 py-4 text-right text-xs uppercase tracking-widest text-slate-700">
+              Total Keseluruhan Harga Bahan Baku:
+            </td>
+            <td className="px-6 md:px-8 py-4 text-right text-lg md:text-xl text-emerald-800 tabular-nums italic">
+              Rp {grandTotal.toLocaleString("id-ID")}
+            </td>
+          </tr>
+        </tfoot>
       </table>
     </div>
   );

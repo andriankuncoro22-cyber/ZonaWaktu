@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { 
   TrendingUp,
   MoreHorizontal,
@@ -9,7 +9,8 @@ import {
   Package,
   ShoppingCart,
   AlertTriangle,
-  ArrowRight
+  ArrowRight,
+  Calendar
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -38,6 +39,9 @@ import { getTotalAvailableQty, getAverageCost, calculateRecipeIngredientCost } f
 export default function DashboardPage() {
   const db = useFirestore();
   const mounted = true; // client component — always mounted
+
+  const [finPeriod, setFinPeriod] = useState<"month" | "yesterday">("month");
+  const [pemakaianPeriod, setPemakaianPeriod] = useState<"today" | "month">("today");
 
   // --- Local types for stats computation ---
   interface ProdukDoc { id: string; code?: string; [k: string]: unknown; }
@@ -83,33 +87,61 @@ export default function DashboardPage() {
   const operasionalKontainerQuery = useMemoFirebase(() => collection(db, "operasional-kontainer"), [db]);
   const { data: operasionalKontainerData } = useCollection(operasionalKontainerQuery);
 
-  const todayStr = new Date().toISOString().split('T')[0];
-  const pemakaianQuery = useMemoFirebase(() => query(collection(db, "log_produksi_pelengkap"), where("tanggal", "==", todayStr)), [db, todayStr]);
+  // Fetch recent log_produksi_pelengkap for filtering today vs monthly usage
+  const pemakaianQuery = useMemoFirebase(() => 
+    query(collection(db, "log_produksi_pelengkap"), orderBy("createdAt", "desc"), limit(300)), 
+    [db]
+  );
   const { data: pemakaianData } = useCollection(pemakaianQuery);
 
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+  
+  const yesterdayInfo = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    const iso = d.toISOString().split('T')[0];
+    const formatted = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+    return { iso, formatted };
+  }, []);
+
   const stats = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayStr;
+    const yesterday = yesterdayInfo.iso;
     const thisMonth = new Date().toISOString().slice(0, 7);
 
-    // 1. Penjualan
+    // 1. Penjualan (Bulan Ini & H-1)
     const totalSalesMonth = penjualanData
-      ?.filter(p => p.tanggal.startsWith(thisMonth))
+      ?.filter(p => p.tanggal?.startsWith(thisMonth))
+      .reduce((sum, p) => sum + (p.total || 0), 0) || 0;
+
+    const totalSalesYesterday = penjualanData
+      ?.filter(p => p.tanggal === yesterday)
       .reduce((sum, p) => sum + (p.total || 0), 0) || 0;
 
     const ordersToday = penjualanData
       ?.filter(p => p.tanggal === today)
       .length || 0;
 
-    // 2. Operasional
-    const totalOperasionalToko = operasionalTokoData
+    // 2. Operasional (Bulan Ini & H-1)
+    const totalOperasionalTokoMonth = operasionalTokoData
       ?.filter(op => op.tanggal?.startsWith(thisMonth))
       .reduce((sum, op) => sum + (Number(op.nominal) || Number(op.total) || 0), 0) || 0;
 
-    const totalOperasionalKontainer = operasionalKontainerData
+    const totalOperasionalKontainerMonth = operasionalKontainerData
       ?.filter(op => op.tanggal?.startsWith(thisMonth))
       .reduce((sum, op) => sum + (Number(op.nominal) || 0), 0) || 0;
 
-    const totalOperasionalMonth = totalOperasionalToko + totalOperasionalKontainer;
+    const totalOperasionalMonth = totalOperasionalTokoMonth + totalOperasionalKontainerMonth;
+
+    const totalOperasionalTokoYesterday = operasionalTokoData
+      ?.filter(op => op.tanggal === yesterday)
+      .reduce((sum, op) => sum + (Number(op.nominal) || Number(op.total) || 0), 0) || 0;
+
+    const totalOperasionalKontainerYesterday = operasionalKontainerData
+      ?.filter(op => op.tanggal === yesterday)
+      .reduce((sum, op) => sum + (Number(op.nominal) || 0), 0) || 0;
+
+    const totalOperasionalYesterday = totalOperasionalTokoYesterday + totalOperasionalKontainerYesterday;
 
     // 3. Estimasi Pemakaian Bahan (HPP berdasarkan Resep vs Harga Bahan)
     const productCodeMap: Record<string, string> = {};
@@ -128,7 +160,7 @@ export default function DashboardPage() {
     });
 
     let totalHppMonth = 0;
-    const thisMonthSales = (penjualanData as PenjualanLog[])?.filter(p => p.tanggal.startsWith(thisMonth)) || [];
+    const thisMonthSales = (penjualanData as PenjualanLog[])?.filter(p => p.tanggal?.startsWith(thisMonth)) || [];
     thisMonthSales.forEach((closing) => {
       closing.items?.forEach((item) => {
         const qty = Number(item.total || 0);
@@ -141,9 +173,26 @@ export default function DashboardPage() {
       });
     });
 
-    // 4. Margin Keuntungan (Laba Bersih): Omset - Operasional - Estimasi HPP
+    let totalHppYesterday = 0;
+    const yesterdaySales = (penjualanData as PenjualanLog[])?.filter(p => p.tanggal === yesterday) || [];
+    yesterdaySales.forEach((closing) => {
+      closing.items?.forEach((item) => {
+        const qty = Number(item.total || 0);
+        const productId = productCodeMap[item.code];
+        const recipe = recipeMap[productId] || [];
+        recipe.forEach((ingredient: KomposisiItem) => {
+          const material = materialMap[ingredient?.bahanBakuId];
+          totalHppYesterday += calculateRecipeIngredientCost(ingredient, material, qty);
+        });
+      });
+    });
+
+    // 4. Margin Keuntungan (Laba Bersih)
     const profitMonth = Math.max(0, totalSalesMonth - totalOperasionalMonth - totalHppMonth);
-    const profitMargin = totalSalesMonth > 0 ? (profitMonth / totalSalesMonth) * 100 : 0;
+    const profitMarginMonth = totalSalesMonth > 0 ? (profitMonth / totalSalesMonth) * 100 : 0;
+
+    const profitYesterday = Math.max(0, totalSalesYesterday - totalOperasionalYesterday - totalHppYesterday);
+    const profitMarginYesterday = totalSalesYesterday > 0 ? (profitYesterday / totalSalesYesterday) * 100 : 0;
 
     const lowStockItems = (bahanBakuData as BahanBakuDoc[])
       ?.filter(b => (Number(b.qtyBesar) || 0) <= (Number(b.qtyMinGudang ?? b.qtyMin ?? 5))) || [];
@@ -161,6 +210,7 @@ export default function DashboardPage() {
 
     return {
       totalSalesMonth,
+      totalSalesYesterday,
       ordersToday,
       totalMaterials: bahanBakuData?.length || 0,
       lowStockCount: lowStockItems.length,
@@ -168,12 +218,16 @@ export default function DashboardPage() {
       lowKontainerCount: lowKontainerItems.length,
       lowKontainerItems,
       hppMonth: totalHppMonth,
+      hppYesterday: totalHppYesterday,
       operasionalMonth: totalOperasionalMonth,
+      operasionalYesterday: totalOperasionalYesterday,
       salesMonth: totalSalesMonth,
       profitMonth,
-      profitMargin
+      profitMarginMonth,
+      profitYesterday,
+      profitMarginYesterday
     };
-  }, [penjualanData, bahanBakuData, produkData, resepData, operasionalTokoData, operasionalKontainerData]);
+  }, [penjualanData, bahanBakuData, produkData, resepData, operasionalTokoData, operasionalKontainerData, todayStr, yesterdayInfo]);
 
   const chartData = useMemo(() => {
     const days = [];
@@ -187,19 +241,30 @@ export default function DashboardPage() {
       const dayTotal = penjualanData
         ?.filter(p => p.tanggal === dayStr)
         .reduce((sum, p) => sum + (p.total || 0), 0) || 0;
- 
+
       days.push({ name: dayName, value: dayTotal });
     }
     return days;
   }, [penjualanData]);
 
-  const dailyUsage = useMemo(() => {
+  // Pemakaian Bahan Baku (Dukungan Hari Ini & Per Bulan)
+  const usageDataFiltered = useMemo(() => {
     const agg: { [id: string]: number } = {};
     if (!pemakaianData || !resepData) return [];
     const resepMap: any = {};
     resepData.forEach((r: any) => { resepMap[r.id] = r; });
 
-    pemakaianData.forEach((log: any) => {
+    const thisMonth = new Date().toISOString().slice(0, 7);
+
+    const logsToProcess = pemakaianData.filter((log: any) => {
+      if (pemakaianPeriod === "today") {
+        return log.tanggal === todayStr;
+      } else {
+        return log.tanggal?.startsWith(thisMonth);
+      }
+    });
+
+    logsToProcess.forEach((log: any) => {
       const items = log.items || [];
       items.forEach((it: any) => {
         const resep = resepMap[it.resepId];
@@ -216,7 +281,7 @@ export default function DashboardPage() {
     }).sort((a: any, b: any) => b.qty - a.qty);
 
     return rows;
-  }, [pemakaianData, resepData, bahanBakuData]);
+  }, [pemakaianData, resepData, bahanBakuData, pemakaianPeriod, todayStr]);
 
   const bestSellers = useMemo(() => {
     const thisMonth = new Date().toISOString().slice(0,7);
@@ -241,6 +306,13 @@ export default function DashboardPage() {
   }, [bestSellers]);
 
   const bb043 = useMemo(() => (bahanBakuData || []).find(b => (b.code || '').toUpperCase() === 'BB043') || null, [bahanBakuData]);
+
+  // Dynamic Financial Stats based on filter selection
+  const currentSales = finPeriod === "month" ? stats.salesMonth : stats.totalSalesYesterday;
+  const currentOperasional = finPeriod === "month" ? stats.operasionalMonth : stats.operasionalYesterday;
+  const currentHpp = finPeriod === "month" ? stats.hppMonth : stats.hppYesterday;
+  const currentProfit = finPeriod === "month" ? stats.profitMonth : stats.profitYesterday;
+  const currentProfitMargin = finPeriod === "month" ? stats.profitMarginMonth : stats.profitMarginYesterday;
 
   return (
     <div className="space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-1000 pb-10">
@@ -276,8 +348,8 @@ export default function DashboardPage() {
           },
           { 
             label: "Margin Keuntungan", 
-            value: `${stats.profitMargin.toFixed(1)}%`, 
-            change: `${((stats.profitMargin) >= 50) ? 'Sehat' : 'Normal'}`, 
+            value: `${stats.profitMarginMonth.toFixed(1)}%`, 
+            change: `${((stats.profitMarginMonth) >= 50) ? 'Sehat' : 'Normal'}`, 
             icon: Package, 
             color: "bg-emerald-50 text-emerald-600" 
           },
@@ -417,58 +489,112 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-8">
         {/* Card 1: HPP, Margin & Profit */}
         <Card className="border-none shadow-sm rounded-[2rem] bg-white p-6 md:p-8 flex flex-col justify-between">
-          <div>
-            <h4 className="text-sm font-black uppercase tracking-widest text-slate-900 italic mb-1">Analisis Keuangan</h4>
-            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Performa Profitabilitas Toko Bulan Ini</p>
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+            <div>
+              <h4 className="text-sm font-black uppercase tracking-widest text-slate-900 italic mb-1">Analisis Keuangan</h4>
+              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                {finPeriod === "month" ? "Performa Profitabilitas Toko Bulan Ini" : `Performa Profitabilitas H-1 (${yesterdayInfo.formatted})`}
+              </p>
+            </div>
+            {/* Filter Toggle Period */}
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/60 self-start shrink-0">
+              <button
+                type="button"
+                onClick={() => setFinPeriod("month")}
+                className={cn(
+                  "px-2.5 py-1 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all",
+                  finPeriod === "month" ? "bg-white text-primary shadow-sm" : "text-slate-500 hover:text-slate-800"
+                )}
+              >
+                Bulan Ini
+              </button>
+              <button
+                type="button"
+                onClick={() => setFinPeriod("yesterday")}
+                className={cn(
+                  "px-2.5 py-1 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all",
+                  finPeriod === "yesterday" ? "bg-white text-amber-700 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                )}
+              >
+                H-1 (Kemarin)
+              </button>
+            </div>
           </div>
           
           <div className="space-y-4 my-6">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-black text-slate-400 uppercase">Omset Kotor</span>
-              <span className="text-sm font-black text-slate-900">Rp {(stats.salesMonth).toLocaleString('id-ID')}</span>
+              <span className="text-sm font-black text-slate-900">Rp {currentSales.toLocaleString('id-ID')}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-black text-slate-400 uppercase">Total Operasional</span>
-              <span className="text-sm font-black text-slate-700">Rp {(stats.operasionalMonth).toLocaleString('id-ID')}</span>
+              <span className="text-sm font-black text-slate-700">Rp {currentOperasional.toLocaleString('id-ID')}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-black text-slate-400 uppercase">Estimasi Pemakaian Bahan</span>
-              <span className="text-sm font-black text-primary">Rp {(stats.hppMonth).toLocaleString('id-ID')}</span>
+              <span className="text-sm font-black text-primary">Rp {currentHpp.toLocaleString('id-ID')}</span>
             </div>
             
             <div className="h-[1px] bg-slate-100" />
             
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-black text-slate-400 uppercase">Laba Bersih</span>
-              <span className="text-sm font-black text-emerald-600">Rp {(stats.profitMonth).toLocaleString('id-ID')}</span>
+              <span className="text-sm font-black text-emerald-600">Rp {currentProfit.toLocaleString('id-ID')}</span>
             </div>
 
             {/* Profit Margin Progress Bar */}
             <div className="space-y-1.5 pt-2">
               <div className="flex items-center justify-between text-[9px] font-black text-slate-500 uppercase">
                 <span>Profit Margin Ratio</span>
-                <span className="text-slate-800">{stats.profitMargin.toFixed(1)}%</span>
+                <span className="text-slate-800">{currentProfitMargin.toFixed(1)}%</span>
               </div>
               <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${Math.min(100, stats.profitMargin)}%` }} />
+                <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${Math.min(100, currentProfitMargin)}%` }} />
               </div>
             </div>
           </div>
 
           <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wide leading-relaxed">
-            * HPP dihitung secara otomatis berdasarkan data closing harian resep & bahan baku aktif.
+            * HPP dihitung secara otomatis berdasarkan data closing {finPeriod === "month" ? "harian" : "tanggal kemarin"} resep & bahan baku aktif.
           </div>
         </Card>
 
-        {/* Card 2: Pemakaian Bahan Baku Hari Ini */}
+        {/* Card 2: Pemakaian Bahan Baku */}
         <Card className="border-none shadow-sm rounded-[2rem] bg-white p-6 md:p-8 flex flex-col justify-between">
-          <div>
-            <h4 className="text-sm font-black uppercase tracking-widest text-slate-900 italic mb-1">Pemakaian Bahan Baku</h4>
-            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Top Konsumsi Terbanyak Hari Ini</p>
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+            <div>
+              <h4 className="text-sm font-black uppercase tracking-widest text-slate-900 italic mb-1">Pemakaian Bahan Baku</h4>
+              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">
+                {pemakaianPeriod === "today" ? "Top Konsumsi Terbanyak Hari Ini" : "Top Konsumsi Terbanyak Bulan Ini"}
+              </p>
+            </div>
+            {/* Filter Toggle Period */}
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/60 self-start shrink-0">
+              <button
+                type="button"
+                onClick={() => setPemakaianPeriod("today")}
+                className={cn(
+                  "px-2.5 py-1 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all",
+                  pemakaianPeriod === "today" ? "bg-white text-primary shadow-sm" : "text-slate-500 hover:text-slate-800"
+                )}
+              >
+                Hari Ini
+              </button>
+              <button
+                type="button"
+                onClick={() => setPemakaianPeriod("month")}
+                className={cn(
+                  "px-2.5 py-1 text-[9px] font-black uppercase tracking-wider rounded-lg transition-all",
+                  pemakaianPeriod === "month" ? "bg-white text-violet-700 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                )}
+              >
+                Per Bulan
+              </button>
+            </div>
           </div>
 
           <div className="space-y-4 my-6 flex-1 overflow-y-auto">
-            {dailyUsage.length > 0 ? dailyUsage.slice(0, 4).map((r: any, idx: number) => (
+            {usageDataFiltered.length > 0 ? usageDataFiltered.slice(0, 4).map((r: any, idx: number) => (
               <div key={r.id} className="flex items-center justify-between">
                 <div className="flex items-center gap-3 truncate max-w-[70%]">
                   <span className="text-xs font-black text-slate-400">#0{idx + 1}</span>
@@ -481,7 +607,9 @@ export default function DashboardPage() {
             )) : (
               <div className="py-10 text-center opacity-30 flex flex-col items-center gap-2">
                 <Package className="h-8 w-8 text-slate-400" />
-                <p className="text-[9px] font-black uppercase tracking-widest">Belum ada pemakaian hari ini</p>
+                <p className="text-[9px] font-black uppercase tracking-widest">
+                  {pemakaianPeriod === "today" ? "Belum ada pemakaian hari ini" : "Belum ada pemakaian bulan ini"}
+                </p>
               </div>
             )}
           </div>
