@@ -91,7 +91,7 @@ export default function HppReportPage() {
         }
 
         const qty = Number(item.total ?? item.qty ?? 0);
-        const jual = Number(item.pendapatan ?? item.totalHarga ?? (qty * Number(item.price || 0)) ?? 0);
+        const jual = Number(item.pendapatan ?? item.totalHarga ?? (qty * Number(item.price || 0)));
         const productId = productCodeMap[item.code] || productCodeMap[item.kode];
         const recipe = Array.isArray(productId ? recipeMap[productId] : []) 
           ? (productId ? recipeMap[productId] : []) 
