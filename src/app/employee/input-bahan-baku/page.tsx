@@ -79,10 +79,15 @@ export default function EmployeeInputBahanBakuPage() {
   const [selectedPemakaianDate, setSelectedPemakaianDate] = useState(new Date().toISOString().split("T")[0]);
   const [saving, setSaving] = useState(false);
   const [expandedLog, setExpandedLog] = useState<string | null>(null);
+  const [selectedKaryawanId, setSelectedKaryawanId] = useState<string>("");
 
   // Fetch Master Bahan Baku
   const materialsQuery = useMemoFirebase(() => query(collection(db, "bahan-baku"), orderBy("nama", "asc")), [db]);
   const { data: materials } = useCollection(materialsQuery);
+
+  // Fetch Karyawan
+  const karyawanQuery = useMemoFirebase(() => query(collection(db, "karyawan"), orderBy("nama", "asc")), [db]);
+  const { data: listKaryawan } = useCollection(karyawanQuery);
 
   const resepQuery = useMemoFirebase(() =>
     query(collection(db, "resep"), where("type", "==", "pelengkap")),
@@ -323,6 +328,16 @@ export default function EmployeeInputBahanBakuPage() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Validasi karyawan
+    if (!selectedKaryawanId) {
+      toast({
+        variant: "destructive",
+        title: "Karyawan Belum Dipilih",
+        description: "Silakan pilih nama karyawan yang melakukan pembelian.",
+      });
+      return;
+    }
+
     // Validasi dasar nomor nota & item terisi
     if (!nomorNota) {
       toast({
@@ -427,6 +442,8 @@ export default function EmployeeInputBahanBakuPage() {
       const logRef = doc(collection(db, "log_pembelian_bahan"));
       batch.set(logRef, {
         nomorNota: nomorNota,
+        karyawanId: selectedKaryawanId,
+        karyawanNama: (listKaryawan as any[])?.find((k: any) => k.id === selectedKaryawanId)?.nama || "-",
         type: "belanja",
         targetLocation: "kontainer",
         location: "kontainer",
@@ -446,6 +463,7 @@ export default function EmployeeInputBahanBakuPage() {
       // Reset Form
       setItems([{ materialId: "", qty: 0, qtyKecilPerUnit: 1, price: 0 }]);
       setNomorNota("");
+      setSelectedKaryawanId("");
       
     } catch (error) {
       console.error("Gagal simpan nota masuk:", error);
@@ -652,8 +670,8 @@ export default function EmployeeInputBahanBakuPage() {
 
             {activeTab === "pembelian" && (
               <form onSubmit={handleSave} className="mt-6 sm:mt-8 space-y-6 sm:space-y-10">
-              {/* Header Nota: Jenis Pembelian (Beli Sendiri) & Nomor Nota */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-8">
+              {/* Header Nota: Jenis Pembelian (Beli Sendiri), Nama Karyawan & Nomor Nota */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-8">
                 <div className="space-y-2">
                   <Label className="text-[11px] md:text-[12px] font-black uppercase tracking-widest text-slate-600">Jenis Pembelian & Tujuan Stok</Label>
                   <div className="flex bg-amber-50/70 p-1.5 rounded-2xl border border-amber-200/60 items-center justify-between px-4 h-12">
@@ -664,6 +682,22 @@ export default function EmployeeInputBahanBakuPage() {
                       → Stok Kontainer
                     </span>
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-[11px] md:text-[12px] font-black uppercase tracking-widest text-slate-600">Nama Karyawan <span className="text-rose-500">*</span></Label>
+                  <Select value={selectedKaryawanId} onValueChange={setSelectedKaryawanId} required>
+                    <SelectTrigger className="rounded-2xl border-slate-100 h-12 sm:h-14 bg-slate-50 font-black text-slate-900 text-xs sm:text-sm">
+                      <SelectValue placeholder="Pilih karyawan..." />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-2xl border-none shadow-2xl">
+                      {listKaryawan?.map((k: any) => (
+                        <SelectItem key={k.id} value={k.id} className="rounded-xl">
+                          {k.nama}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-2">
@@ -711,20 +745,15 @@ export default function EmployeeInputBahanBakuPage() {
                     const matDetail = (materials as any[])?.find(m => m.id === item.materialId);
 
                     return (
-                      <div key={index} className="flex flex-col md:flex-row gap-3 sm:gap-4 items-center bg-amber-50/40 p-4 sm:p-5 rounded-[1.5rem] border border-amber-200/60 transition-all animate-in fade-in slide-in-from-top-2">
+                      <div key={index} className="relative flex flex-col lg:flex-row gap-3 lg:gap-4 items-stretch lg:items-center bg-amber-50/40 p-4 sm:p-5 rounded-[1.5rem] border border-amber-200/60 transition-all animate-in fade-in slide-in-from-top-2">
                         {/* Pilih Bahan Baku */}
-                        <div className="flex-1 w-full space-y-1.5">
-                          <div className="flex items-center gap-2 h-5">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Pilih Bahan Baku</Label>
-                            <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200/60">
-                              Beli Sendiri
-                            </span>
-                          </div>
+                        <div className="w-full lg:flex-1 space-y-1">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Bahan Baku</Label>
                           <Select 
                             value={item.materialId} 
                             onValueChange={(val) => handleItemChange(index, 'materialId', val)}
                           >
-                            <SelectTrigger className="rounded-xl border-none h-12 bg-white shadow-sm font-black text-slate-900 text-xs sm:text-sm">
+                            <SelectTrigger className="rounded-xl border-none h-12 bg-white shadow-sm font-black text-slate-900 text-xs sm:text-sm text-left">
                               <SelectValue placeholder="Pilih bahan baku..." />
                             </SelectTrigger>
                             <SelectContent className="rounded-2xl border-none shadow-2xl">
@@ -737,89 +766,85 @@ export default function EmployeeInputBahanBakuPage() {
                           </Select>
                         </div>
                         
-                        {/* Isi per Pack/Box/Sak (Unit Suffix Integrated inside Input) */}
-                        <div className="w-full md:w-36 space-y-1.5">
-                          <div className="flex items-center h-5">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-amber-800 truncate">
-                              Isi per {matDetail?.satuanBesar || 'Kemasan'} <span className="text-rose-500">*</span>
+                        {/* Baris 1: Isi Kemasan, Jumlah, Satuan */}
+                        <div className="grid grid-cols-[1.2fr_1fr_0.8fr] gap-2 lg:flex lg:items-center lg:gap-4 lg:w-auto">
+                          {/* Isi per Pack/Box/Sak (Unit Suffix Integrated inside Input) */}
+                          <div className="w-full lg:w-36 space-y-1">
+                            <Label className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-amber-800 truncate block">
+                              Isi / {matDetail?.satuanBesar || 'Kemasan'} <span className="text-rose-500">*</span>
                             </Label>
+                            <div className="relative flex items-center">
+                              <Input 
+                                type="number" 
+                                step="any"
+                                value={item.qtyKecilPerUnit ?? matDetail?.qtyKecil ?? 1}
+                                onChange={(e) => handleItemChange(index, 'qtyKecilPerUnit', Number(e.target.value))}
+                                className="rounded-xl border-amber-300 focus:border-amber-500 h-11 sm:h-12 bg-amber-50/80 font-black text-center text-amber-900 text-xs sm:text-sm shadow-sm pr-10 sm:pr-12"
+                                placeholder={String(matDetail?.qtyKecil || 1)}
+                                required
+                              />
+                              <span className="absolute right-2 sm:right-2.5 text-[8px] sm:text-[9px] font-black uppercase text-amber-800 bg-amber-200/80 px-1.5 py-0.5 rounded pointer-events-none">
+                                {matDetail?.satuanKecil || 'Pcs'}
+                              </span>
+                            </div>
                           </div>
-                          <div className="relative flex items-center">
+
+                          {/* Jumlah */}
+                          <div className="w-full lg:w-28 space-y-1">
+                            <Label className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-slate-500 block">Jumlah</Label>
                             <Input 
                               type="number" 
                               step="any"
-                              value={item.qtyKecilPerUnit ?? matDetail?.qtyKecil ?? 1}
-                              onChange={(e) => handleItemChange(index, 'qtyKecilPerUnit', Number(e.target.value))}
-                              className="rounded-xl border-amber-300 focus:border-amber-500 h-12 bg-amber-50/80 font-black text-center text-amber-900 text-sm sm:text-base shadow-sm pr-12"
-                              placeholder={String(matDetail?.qtyKecil || 1)}
-                              required
+                              value={item.qty || ""}
+                              onChange={(e) => handleItemChange(index, 'qty', Number(e.target.value))}
+                              className="rounded-xl border-none h-11 sm:h-12 bg-white shadow-sm font-black text-center text-xs sm:text-base placeholder:text-slate-300"
+                              placeholder="0"
                             />
-                            <span className="absolute right-2.5 text-[9px] font-black uppercase text-amber-800 bg-amber-200/80 px-1.5 py-0.5 rounded-md pointer-events-none">
-                              {matDetail?.satuanKecil || 'Pcs'}
-                            </span>
                           </div>
-                        </div>
 
-                        {/* Jumlah */}
-                        <div className="w-full md:w-28 space-y-1.5">
-                          <div className="flex items-center h-5">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500 truncate">Jumlah</Label>
-                          </div>
-                          <Input 
-                            type="number" 
-                            step="any"
-                            value={item.qty || ""}
-                            onChange={(e) => handleItemChange(index, 'qty', Number(e.target.value))}
-                            className="rounded-xl border-none h-12 bg-white shadow-sm font-black text-center text-sm sm:text-base md:text-lg"
-                            placeholder="0"
-                          />
-                        </div>
-
-                        {/* Satuan Besar */}
-                        <div className="w-full md:w-24 space-y-1.5">
-                           <div className="flex items-center h-5">
-                             <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500 truncate">Satuan</Label>
-                           </div>
-                           <div className="h-12 flex items-center justify-center bg-white rounded-xl shadow-sm text-[11px] md:text-xs font-black uppercase text-slate-700">
+                          {/* Satuan Besar */}
+                          <div className="w-full lg:w-24 space-y-1">
+                            <Label className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-slate-500 block">Satuan</Label>
+                            <div className="h-11 sm:h-12 flex items-center justify-center bg-white rounded-xl shadow-sm text-xs font-black uppercase text-slate-700 border border-slate-100/50">
                               {matDetail?.satuanBesar || "-"}
-                           </div>
+                            </div>
+                          </div>
                         </div>
 
-                        {/* Harga Satuan per Unit Besar */}
-                        <div className="w-full md:w-32 space-y-1.5">
-                          <div className="flex items-center h-5">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-slate-500 truncate">
+                        {/* Baris 2: Harga, Total */}
+                        <div className="grid grid-cols-2 gap-2 lg:flex lg:items-center lg:gap-4 lg:w-auto">
+                          {/* Harga Satuan per Unit Besar */}
+                          <div className="w-full lg:w-32 space-y-1">
+                            <Label className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-slate-500 block">
                               Harga / {matDetail?.satuanBesar || 'Unit'}
                             </Label>
+                            <Input
+                              type="text"
+                              inputMode="numeric"
+                              value={item.price === 0 ? "" : formatThousand(item.price)}
+                              onChange={(e) => handleItemChange(index, 'price', Number(e.target.value.replace(/\D/g, "")) || 0)}
+                              className="rounded-xl border-none h-11 sm:h-12 bg-white shadow-sm font-black text-center text-xs sm:text-sm"
+                              placeholder="0"
+                            />
                           </div>
-                          <Input
-                             type="text"
-                             inputMode="numeric"
-                             value={item.price === 0 ? "" : formatThousand(item.price)}
-                             onChange={(e) => handleItemChange(index, 'price', Number(e.target.value.replace(/\D/g, "")) || 0)}
-                             className="rounded-xl border-none h-12 bg-white shadow-sm font-black text-center text-sm sm:text-base"
-                             placeholder="0"
-                           />
-                        </div>
 
-                        {/* Total Pembelian (Harga Satuan x Jumlah) */}
-                        <div className="w-full md:w-36 space-y-1.5">
-                          <div className="flex items-center h-5">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-emerald-700 truncate">Total Pembelian</Label>
-                          </div>
-                          <div className="h-12 flex items-center justify-center bg-emerald-50/80 rounded-xl border border-emerald-200/80 shadow-sm font-black text-emerald-900 text-sm sm:text-base px-2">
-                            Rp {Number((item.qty || 0) * (item.price || 0)).toLocaleString('id-ID')}
+                          {/* Total Pembelian (Harga Satuan x Jumlah) */}
+                          <div className="w-full lg:w-36 space-y-1">
+                            <Label className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-emerald-700 block">Total</Label>
+                            <div className="h-11 sm:h-12 flex items-center justify-center bg-emerald-50/80 rounded-xl border border-emerald-200/80 shadow-sm font-black text-emerald-900 text-xs sm:text-sm px-1.5 text-center">
+                              Rp {Number((item.qty || 0) * (item.price || 0)).toLocaleString('id-ID')}
+                            </div>
                           </div>
                         </div>
 
                         {/* Delete Action */}
-                        <div className="flex items-end pt-6 md:pt-0">
+                        <div className="absolute top-2 right-2 lg:relative lg:top-0 lg:right-0 lg:self-end">
                           <Button 
                             type="button" 
                             variant="ghost" 
                             size="icon" 
                             onClick={() => handleRemoveItem(index)}
-                            className="h-12 w-12 rounded-xl text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition-colors bg-white shadow-sm border-none shrink-0"
+                            className="h-8 w-8 sm:h-12 sm:w-12 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors bg-white shadow-sm border-none shrink-0"
                             disabled={items.length === 1}
                           >
                             <X className="h-4 w-4" />
@@ -1107,6 +1132,7 @@ export default function EmployeeInputBahanBakuPage() {
                               <h4 className="text-xs font-black text-slate-900 uppercase">#{log.nomorNota}</h4>
                               <p className="text-[9px] font-bold text-slate-400 uppercase">
                                 {log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleDateString('id-ID') : 'Baru saja'}
+                                {log.karyawanNama && ` • ${log.karyawanNama}`}
                               </p>
                             </>
                           )}

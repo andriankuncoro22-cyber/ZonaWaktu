@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
 import { collection, doc, query, orderBy, serverTimestamp, writeBatch } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
-import { DollarSign, Search, Save, Package, RefreshCw, ShoppingBag, Truck } from "lucide-react";
+import { Search, Save, Package, RefreshCw, ShoppingBag, Truck } from "lucide-react";
 import { applyPriceUpdate } from "@/lib/hpp";
 import { cn } from "@/lib/utils";
 
@@ -270,7 +270,7 @@ export default function HargaBahanBakuPage() {
                       Harga Per {selectedMaterial.satuanBesar || "Satuan Besar"}
                     </Label>
                     <div className="relative">
-                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400 pointer-events-none">Rp</span>
                       <Input 
                         value={priceBesarInput} 
                         onChange={(e) => handleBesarChange(e.target.value)} 
@@ -286,7 +286,7 @@ export default function HargaBahanBakuPage() {
                       Harga Per {selectedMaterial.satuanKecil || "Satuan Kecil"}
                     </Label>
                     <div className="relative">
-                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400 pointer-events-none">Rp</span>
                       <Input 
                         value={priceKecilInput} 
                         onChange={(e) => handleKecilChange(e.target.value)} 

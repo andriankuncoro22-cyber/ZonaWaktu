@@ -273,15 +273,7 @@ export default function ProdukPage() {
               PDF
             </Button>
           </div>
-          
-          <Button 
-            variant="destructive"
-            onClick={handleDeleteAll}
-            className="rounded-2xl px-6 font-bold h-12 uppercase tracking-widest text-[10px] gap-2 shadow-sm border-none bg-rose-50 text-rose-600 hover:bg-rose-100"
-          >
-            <Trash className="h-4 w-4" />
-            Hapus Semua
-          </Button>
+
 
           <Dialog open={isDialogOpen} onOpenChange={(open) => {
             setIsDialogOpen(open);
@@ -362,7 +354,8 @@ export default function ProdukPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          {/* Desktop Table View */}
+          <table className="hidden md:table w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50/80 border-y border-slate-100 border-t-primary/10">
                 <th className="pl-8 pr-4 py-5 text-[10px] font-black uppercase tracking-wider text-slate-700 border-b-primary/5">Code</th>
@@ -451,6 +444,67 @@ export default function ProdukPage() {
               )}
             </tbody>
           </table>
+
+          {/* Mobile Cards View */}
+          <div className="md:hidden p-2 grid grid-cols-3 gap-1.5 sm:gap-2.5 bg-slate-50/20">
+            {loading ? (
+              <div className="col-span-3 py-20 text-center">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="h-8 w-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                  <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Sinkronisasi Katalog...</p>
+                </div>
+              </div>
+            ) : filteredProducts?.length > 0 ? (
+              filteredProducts.map((item) => (
+                <Card key={item.id} className="relative rounded-xl bg-white border border-slate-100 p-2 flex flex-col justify-between min-h-[110px] sm:min-h-[125px] shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+                  {/* Actions absolute top-1 right-1 */}
+                  <div className="absolute top-1 right-1 flex items-center gap-0.5">
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setEditingItem(item);
+                        setIsDialogOpen(true);
+                      }}
+                      className="h-5 w-5 rounded-md hover:bg-slate-100 text-slate-400 hover:text-slate-900 transition-colors flex items-center justify-center bg-slate-50 border border-slate-100"
+                    >
+                      <Edit2 className="h-2.5 w-2.5" />
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => handleDelete(item.id)}
+                      className="h-5 w-5 rounded-md hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition-colors flex items-center justify-center bg-slate-50 border border-slate-100"
+                    >
+                      <Trash2 className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-0.5 pr-9">
+                    <span className="text-[7px] font-black uppercase text-primary/70 tracking-tight block">
+                      {item.code || "-"}
+                    </span>
+                    <h4 className="text-[9px] sm:text-[10px] font-black text-slate-900 uppercase italic line-clamp-2 leading-tight">
+                      {item.nama}
+                    </h4>
+                  </div>
+
+                  <div className="space-y-1 pt-1.5 border-t border-slate-100/60 mt-1">
+                    {/* Category */}
+                    <span className="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-[6px] sm:text-[7px] font-black uppercase tracking-wider text-slate-600 truncate max-w-full">
+                      {item.kategori || "General"}
+                    </span>
+                    {/* Prices */}
+                    <div className="text-[8px] sm:text-[9px] font-bold text-slate-800 tabular-nums italic">
+                      Rp {formatNumber(item.hargaJual).toLocaleString('id-ID')}
+                    </div>
+                  </div>
+                </Card>
+              ))
+            ) : (
+              <div className="col-span-3 py-20 text-center">
+                <h3 className="text-xs font-black text-slate-900 uppercase italic">Katalog Belum Tersedia</h3>
+              </div>
+            )}
+          </div>
         </div>
       </Card>
     </div>

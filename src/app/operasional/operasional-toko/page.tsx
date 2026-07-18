@@ -19,6 +19,13 @@ import { CalendarDays, Coins, Loader2, Save, Trash2, Wallet2 } from "lucide-reac
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 
+const formatThousand = (val: number | string) => {
+  if (val === null || val === undefined || val === '') return '';
+  const numStr = String(val).replace(/[^\d]/g, '');
+  if (!numStr) return '';
+  return Number(numStr).toLocaleString("id-ID");
+};
+
 interface OperasionalEntry {
   id: string;
   tanggal?: string;
@@ -196,11 +203,12 @@ export default function OperasionalTokoPage() {
                 </Label>
                 <Input
                   id="nominal"
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
                   placeholder="0"
-                  value={nominal}
-                  onChange={(e) => setNominal(e.target.value)}
-                  className="h-12 rounded-xl bg-slate-50 border-none"
+                  value={nominal === "" ? "" : formatThousand(nominal)}
+                  onChange={(e) => setNominal(e.target.value.replace(/\D/g, ""))}
+                  className="h-12 rounded-xl bg-slate-50 border-none font-black text-sm"
                 />
               </div>
             </div>

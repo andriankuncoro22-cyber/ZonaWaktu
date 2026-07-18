@@ -431,8 +431,9 @@ export default function StokBahanBakuPage() {
 
           <div className="overflow-x-auto custom-scrollbar">
             {/* TAB GUDANG UTAMA */}
-            <TabsContent value="gudang" className="m-0 min-w-[850px] md:min-w-full">
-              <table className="w-full text-left">
+            <TabsContent value="gudang" className="m-0 min-w-0 lg:min-w-[850px] md:min-w-full">
+              {/* Desktop Table View */}
+              <table className="hidden lg:table w-full text-left">
                 <thead>
                   <tr className="bg-slate-50/50">
                     <th className="px-6 md:px-8 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500">Code</th>
@@ -491,11 +492,72 @@ export default function StokBahanBakuPage() {
                   ))}
                 </tbody>
               </table>
+
+              {/* Mobile Cards View */}
+              <div className="lg:hidden p-3 grid grid-cols-2 gap-2 sm:gap-3 bg-slate-50/20">
+                {loading ? (
+                  <div className="col-span-2 py-20 text-center">
+                    <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+                  </div>
+                ) : filteredMaterials?.map((item) => {
+                  const minStock = getMinStockGudang(item);
+                  const totalGudang = getGudangTotal(item);
+                  const status = getStatusLabel(totalGudang, minStock);
+
+                  return (
+                    <Card key={item.id} className="relative rounded-2xl bg-white border border-slate-100 p-3 sm:p-4 flex flex-col justify-between space-y-3 shadow-sm overflow-hidden min-h-[145px]">
+                      {/* Edit Button absolute top-2 right-2 */}
+                      <button 
+                        type="button"
+                        onClick={() => { setEditingItem(item); setIsEditOpen(true); }} 
+                        className="absolute top-2 right-2 h-7 w-7 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-900 transition-colors flex items-center justify-center bg-slate-50 border border-slate-100"
+                      >
+                        <Edit2 className="h-3 w-3" />
+                      </button>
+
+                      <div className="space-y-1">
+                        <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider block">
+                          {item.code || "-"}
+                        </span>
+                        <h4 className="text-[10px] sm:text-[11px] font-black text-slate-900 uppercase italic line-clamp-2 leading-tight pr-6">
+                          {item.nama}
+                        </h4>
+                      </div>
+
+                      <div className="space-y-1 pt-1.5 border-t border-slate-100/60">
+                        {/* Stok Besar */}
+                        <div className="flex items-center justify-between text-[9px] sm:text-[10px] leading-none">
+                          <span className="text-slate-400 font-bold">Besar</span>
+                          <span className="font-black text-primary italic">
+                            {Math.floor(Number(item.qtyBesar || 0))} <span className="text-[7px] sm:text-[8px] font-bold text-slate-400 uppercase tracking-widest">{item.satuanBesar}</span>
+                          </span>
+                        </div>
+
+                        {/* Stok Kecil */}
+                        <div className="flex items-center justify-between text-[9px] sm:text-[10px] leading-none">
+                          <span className="text-slate-400 font-bold">Kecil</span>
+                          <span className="font-black text-amber-600 italic">
+                            {Math.round(Number(item.qtyGudangKecil || 0)).toLocaleString('id-ID')} <span className="text-[7px] sm:text-[8px] font-bold text-amber-500 uppercase tracking-widest">{item.satuanKecil}</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Status Badge */}
+                      <div className="pt-0.5 flex">
+                        <span className={`inline-flex items-center justify-center rounded-md border px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider ${status.color} w-full text-center`}>
+                          {status.label} ({minStock})
+                        </span>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
             </TabsContent>
 
             {/* TAB AREA KONTAINER */}
-            <TabsContent value="kontainer" className="m-0 min-w-[900px] md:min-w-full">
-              <table className="w-full text-left">
+            <TabsContent value="kontainer" className="m-0 min-w-0 lg:min-w-[900px] md:min-w-full">
+              {/* Desktop Table View */}
+              <table className="hidden lg:table w-full text-left">
                 <thead>
                   <tr className="bg-slate-50/50">
                     <th className="px-6 md:px-10 py-4 md:py-6 text-[9px] md:text-[10px] font-black uppercase text-slate-500">Code</th>
@@ -540,6 +602,66 @@ export default function StokBahanBakuPage() {
                   ))}
                 </tbody>
               </table>
+
+              {/* Mobile Cards View */}
+              <div className="lg:hidden p-3 grid grid-cols-2 gap-2 sm:gap-3 bg-slate-50/20">
+                {loading ? (
+                  <div className="col-span-2 py-20 text-center">
+                    <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+                  </div>
+                ) : filteredMaterials?.map((item) => {
+                  const minStock = getMinStockKontainer(item);
+                  const totals = getKontainerTotal(item);
+                  const status = getStatusLabel(totals, minStock);
+
+                  return (
+                    <Card key={item.id} className="relative rounded-2xl bg-white border border-slate-100 p-3 sm:p-4 flex flex-col justify-between space-y-3 shadow-sm overflow-hidden min-h-[145px]">
+                      {/* Edit Button absolute top-2 right-2 */}
+                      <button 
+                        type="button"
+                        onClick={() => { setEditingItem(item); setIsEditOpen(true); }} 
+                        className="absolute top-2 right-2 h-7 w-7 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-900 transition-colors flex items-center justify-center bg-slate-50 border border-slate-100"
+                      >
+                        <Edit2 className="h-3 w-3" />
+                      </button>
+
+                      <div className="space-y-1">
+                        <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider block">
+                          {item.code || "-"}
+                        </span>
+                        <h4 className="text-[10px] sm:text-[11px] font-black text-slate-900 uppercase italic line-clamp-2 leading-tight pr-6">
+                          {item.nama}
+                        </h4>
+                      </div>
+
+                      <div className="space-y-1 pt-1.5 border-t border-slate-100/60">
+                        {/* Qty Bulk */}
+                        <div className="flex items-center justify-between text-[9px] sm:text-[10px] leading-none">
+                          <span className="text-slate-400 font-bold">Bulk</span>
+                          <span className="font-black text-indigo-600 italic">
+                            {Math.floor(Number(item.qtyKontainerBesar || 0))} <span className="text-[7px] sm:text-[8px] font-bold text-indigo-400 uppercase tracking-widest">{item.satuanBesar}</span>
+                          </span>
+                        </div>
+
+                        {/* Qty Aktif */}
+                        <div className="flex items-center justify-between text-[9px] sm:text-[10px] leading-none">
+                          <span className="text-slate-400 font-bold">Aktif</span>
+                          <span className="font-black text-emerald-600 italic">
+                            {Math.round(item.qtyKontainerKecil || 0).toLocaleString('id-ID')} <span className="text-[7px] sm:text-[8px] font-bold text-emerald-500 uppercase tracking-widest">{item.satuanKecil}</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Status Badge */}
+                      <div className="pt-0.5 flex">
+                        <span className={`inline-flex items-center justify-center rounded-md border px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider ${status.color} w-full text-center`}>
+                          {status.label} ({minStock})
+                        </span>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
             </TabsContent>
           </div>
         </Card>

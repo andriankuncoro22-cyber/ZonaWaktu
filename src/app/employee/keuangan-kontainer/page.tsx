@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { useCollection, useFirestore, useMemoFirebase } from "@/firebase";
 import { addDoc, collection, query, serverTimestamp, where } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
 const formatCurrency = (value: number) =>
   `Rp ${Number(value || 0).toLocaleString("id-ID")}`;
@@ -103,10 +104,48 @@ export default function EmployeeKeuanganKontainerPage() {
   }, [cashOnHand, expectedCashToSettle]);
 
   const summaryRows = [
-    { label: "Cash dari closing hari ini", value: dailyClosing?.transactionReport?.cashTotal || 0, accent: "text-slate-900" },
-    { label: "Pengeluaran operasional kontainer", value: operationalTotal, accent: "text-rose-600" },
-    { label: "Belanja bahan baku kontainer", value: purchaseTotal, accent: "text-rose-600" },
-    { label: "Cash yang harus disetorkan", value: expectedCashToSettle, accent: "text-emerald-600" },
+    { 
+      label: "Total penjualan dari closing", 
+      value: dailyClosing?.total || 0, 
+      bgClass: "bg-blue-50/50 border-blue-100", 
+      labelClass: "text-blue-500", 
+      valueClass: "text-blue-900" 
+    },
+    { 
+      label: "QRIS dari closing", 
+      value: dailyClosing?.transactionReport?.qrisTotal || 0, 
+      bgClass: "bg-purple-50/50 border-purple-100", 
+      labelClass: "text-purple-500", 
+      valueClass: "text-purple-900" 
+    },
+    { 
+      label: "Cash dari closing", 
+      value: dailyClosing?.transactionReport?.cashTotal || 0, 
+      bgClass: "bg-sky-50/50 border-sky-100", 
+      labelClass: "text-sky-500", 
+      valueClass: "text-sky-900" 
+    },
+    { 
+      label: "Operasional kontainer", 
+      value: operationalTotal, 
+      bgClass: "bg-rose-50/50 border-rose-100", 
+      labelClass: "text-rose-500", 
+      valueClass: "text-rose-600" 
+    },
+    { 
+      label: "Belanja bahan baku", 
+      value: purchaseTotal, 
+      bgClass: "bg-red-50/50 border-red-100", 
+      labelClass: "text-red-500", 
+      valueClass: "text-red-600" 
+    },
+    { 
+      label: "Cash yang harus disetorkan", 
+      value: expectedCashToSettle, 
+      bgClass: "bg-emerald-50 border-emerald-200 shadow-sm", 
+      labelClass: "text-emerald-700 font-bold", 
+      valueClass: "text-emerald-700 font-black text-xl" 
+    },
   ];
 
   const handleSave = async () => {
@@ -207,11 +246,21 @@ export default function EmployeeKeuanganKontainerPage() {
             </div>
 
             <div className="grid gap-6 p-6 md:grid-cols-[1.2fr_0.8fr] md:p-8">
-              <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
                 {summaryRows.map((row) => (
-                  <div key={row.label} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50/60 px-4 py-3">
-                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">{row.label}</span>
-                    <span className={`text-sm font-black ${row.accent}`}>{formatCurrency(row.value)}</span>
+                  <div 
+                    key={row.label} 
+                    className={cn(
+                      "rounded-2xl p-3 sm:p-5 border flex flex-col justify-between min-h-[90px] sm:min-h-[115px] shadow-sm/5 transition-all hover:scale-[1.01] duration-300", 
+                      row.bgClass
+                    )}
+                  >
+                    <span className={cn("text-[8px] sm:text-[9px] font-black uppercase tracking-wider leading-relaxed", row.labelClass)}>
+                      {row.label}
+                    </span>
+                    <span className={cn("text-sm sm:text-lg font-black mt-2 sm:mt-3 tabular-nums", row.valueClass)}>
+                      {formatCurrency(row.value)}
+                    </span>
                   </div>
                 ))}
               </div>

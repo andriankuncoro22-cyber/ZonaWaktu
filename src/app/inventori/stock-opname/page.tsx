@@ -63,8 +63,8 @@ export default function StockOpnamePage() {
   };
 
   // Local state to hold kontainer opname inputs per item
-  const [kontainerInputs, setKontainerInputs] = useState<Record<string, { aktif: number; grams: number }>>({});
-  const [bulkInputs, setBulkInputs] = useState<Record<string, number>>({});
+  const [kontainerInputs, setKontainerInputs] = useState<Record<string, { aktif: any; grams: any }>>({});
+  const [bulkInputs, setBulkInputs] = useState<Record<string, any>>({});
   const [processing, setProcessing] = useState(false);
 
   // history
@@ -76,13 +76,11 @@ export default function StockOpnamePage() {
     if (!materials) return;
     const filtered = (materials as any[])
       .filter(item => item.nama?.toLowerCase().includes(searchTerm.toLowerCase()) || item.code?.toLowerCase().includes(searchTerm.toLowerCase()));
-    const next: Record<string, { aktif: number; grams: number }> = {};
-    const nextBulk: Record<string, number> = {};
+    const next: Record<string, { aktif: any; grams: any }> = {};
+    const nextBulk: Record<string, any> = {};
     filtered.forEach((it: any) => {
-      const aktif = Number(it.qtyKontainerKecil || 0);
-      const grams = getTotalWeightFromAktif(it, aktif);
-      next[it.id] = { aktif, grams };
-      nextBulk[it.id] = Number(it.qtyKontainerBesar || 0);
+      next[it.id] = { aktif: "", grams: "" };
+      nextBulk[it.id] = "";
     });
     queueMicrotask(() => {
       setKontainerInputs(next);
@@ -238,8 +236,10 @@ export default function StockOpnamePage() {
           </div>
 
           <div className="overflow-x-auto custom-scrollbar">
-            <TabsContent value="gudang" className="m-0 min-w-[800px]">
-              <table className="w-full text-left">
+            {/* TAB GUDANG UTAMA */}
+            <TabsContent value="gudang" className="m-0 min-w-0 lg:min-w-[800px]">
+              {/* Desktop Table View */}
+              <table className="hidden lg:table w-full text-left">
                 <thead>
                   <tr className="bg-slate-50/50">
                     <th className="px-10 py-6 text-[10px] font-black uppercase text-slate-500 tracking-widest">Bahan Baku</th>
@@ -283,10 +283,51 @@ export default function StockOpnamePage() {
                   ))}
                 </tbody>
               </table>
+
+              {/* Mobile Cards View */}
+              <div className="lg:hidden p-3 grid grid-cols-2 gap-2 sm:gap-3 bg-slate-50/20">
+                {loading ? (
+                  <div className="col-span-2 py-20 text-center">
+                    <RefreshCcw className="h-8 w-8 animate-spin mx-auto text-primary opacity-20" />
+                  </div>
+                ) : filteredMaterials?.map((item: any) => (
+                  <Card key={item.id} className="relative rounded-2xl bg-white border border-slate-100 p-3 sm:p-4 flex flex-col justify-between space-y-3 shadow-sm overflow-hidden">
+                    <div className="space-y-1">
+                      <span className="text-[8px] font-black uppercase text-primary tracking-wider block">{item.code}</span>
+                      <h4 className="text-[10px] sm:text-[11px] font-black text-slate-900 uppercase italic line-clamp-2 leading-tight">{item.nama}</h4>
+                    </div>
+
+                    <div className="space-y-1 pt-1.5 border-t border-slate-100/60">
+                      <div className="flex items-center justify-between text-[9px] sm:text-[10px] leading-none">
+                        <span className="text-slate-400 font-bold">Sistem</span>
+                        <span className="font-black text-slate-800 italic">
+                          {item.qtyBesar || 0} <span className="text-[7px] sm:text-[8px] font-bold text-slate-400 uppercase tracking-widest">{item.satuanBesar}</span>
+                        </span>
+                      </div>
+
+                      <div className="space-y-1 pt-1">
+                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block">Fisik</span>
+                        <div className="relative w-full">
+                          <Input type="number" placeholder="0" className="rounded-xl h-9 bg-slate-50 border-none font-black text-center text-xs pr-8" />
+                          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[7px] font-black text-slate-300 uppercase">{item.satuanBesar}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-0.5">
+                      <Button variant="ghost" size="sm" className="h-8 w-full rounded-xl text-emerald-500 hover:bg-emerald-50 border border-emerald-100 flex items-center justify-center gap-1 text-[8px] font-black uppercase">
+                        <CheckCircle2 className="h-3 w-3" /> Verifikasi
+                      </Button>
+                    </div>
+                  </Card>
+                ))}
+              </div>
             </TabsContent>
 
-            <TabsContent value="kontainer" className="m-0 min-w-[1000px]">
-              <table className="w-full text-left">
+            {/* TAB AREA KONTAINER */}
+            <TabsContent value="kontainer" className="m-0 min-w-0 lg:min-w-[1000px]">
+              {/* Desktop Table View */}
+              <table className="hidden lg:table w-full text-left">
                 <thead>
                   <tr className="bg-slate-50/50">
                     <th className="px-10 py-6 text-[10px] font-black uppercase text-slate-500 tracking-widest">Bahan Baku</th>
@@ -317,7 +358,10 @@ export default function StockOpnamePage() {
                            <Input
                              type="number"
                              value={bulkInputs[item.id] ?? ""}
-                             onChange={(e) => setBulkInputs(prev => ({ ...prev, [item.id]: Number(e.target.value || 0) }))}
+                             onChange={(e) => {
+                               const val = e.target.value;
+                               setBulkInputs(prev => ({ ...prev, [item.id]: val === "" ? "" : Number(val) }));
+                             }}
                              placeholder="0"
                              className="rounded-xl h-12 bg-slate-50 border-none font-black text-center text-lg pr-12"
                            />
@@ -380,10 +424,118 @@ export default function StockOpnamePage() {
                   ))}
                 </tbody>
               </table>
+
+              {/* Mobile Cards View */}
+              <div className="lg:hidden p-3 grid grid-cols-2 gap-2 sm:gap-3 bg-slate-50/20">
+                {filteredMaterials?.map((item: any) => (
+                  <Card key={item.id} className="relative rounded-2xl bg-white border border-slate-100 p-3 sm:p-4 flex flex-col justify-between space-y-3.5 shadow-sm overflow-hidden">
+                    <div className="space-y-1">
+                      <span className="text-[8px] font-black uppercase text-primary tracking-wider block">{item.code}</span>
+                      <h4 className="text-[10px] sm:text-[11px] font-black text-slate-900 uppercase italic line-clamp-2 leading-tight">{item.nama}</h4>
+                    </div>
+
+                    <div className="space-y-2.5 pt-2 border-t border-slate-100/60 text-[9px] sm:text-[10px]">
+                      {/* Sistem Section */}
+                      <div className="space-y-1 bg-slate-50 p-2 rounded-xl">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400 font-bold">Bulk</span>
+                          <span className="font-black text-indigo-600">
+                            {item.qtyKontainerBesar || 0} <span className="text-[7px] font-bold text-slate-400 uppercase">{item.satuanBesar}</span>
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400 font-bold">Aktif</span>
+                          <span className="font-black text-emerald-600">
+                            {Math.round(item.qtyKontainerKecil || 0)} <span className="text-[7px] font-bold text-slate-400 uppercase">{item.satuanKecil}</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Input Fisik Section */}
+                      <div className="space-y-2">
+                        {/* Bulk Input */}
+                        <div className="space-y-1">
+                          <span className="text-[8px] font-black text-indigo-500 uppercase tracking-widest block">Input Bulk</span>
+                          <div className="relative w-full">
+                            <Input
+                              type="number"
+                              value={bulkInputs[item.id] ?? ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setBulkInputs(prev => ({ ...prev, [item.id]: val === "" ? "" : Number(val) }));
+                              }}
+                              placeholder="0"
+                              className="rounded-xl h-9 bg-slate-50 border-none font-black text-center text-xs pr-8"
+                            />
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[6px] font-black text-indigo-400 uppercase">{item.satuanBesar}</span>
+                          </div>
+                        </div>
+
+                        {/* Input Aktif */}
+                        <div className="space-y-1">
+                          <span className="text-[8px] font-black text-emerald-500 uppercase tracking-widest block">Input Aktif</span>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <div className="relative w-full">
+                              <Input
+                                type="number"
+                                value={kontainerInputs[item.id]?.aktif ?? ''}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value || 0);
+                                  setKontainerInputs(prev => ({
+                                    ...prev,
+                                    [item.id]: {
+                                      ...(prev[item.id] || { aktif: 0, grams: 0 }),
+                                      aktif: val,
+                                      grams: getTotalWeightFromAktif(item, val),
+                                    },
+                                  }));
+                                }}
+                                placeholder="0"
+                                className="rounded-xl h-9 bg-slate-50 border-none font-black text-center text-xs pr-8"
+                              />
+                              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[6px] font-black text-emerald-400 uppercase">{item.satuanKecil}</span>
+                            </div>
+                            <div className="relative w-full">
+                              <Input
+                                type="number"
+                                value={kontainerInputs[item.id]?.grams ?? ''}
+                                onChange={(e) => {
+                                  const gramsVal = Number(e.target.value || 0);
+                                  setKontainerInputs(prev => ({
+                                    ...prev,
+                                    [item.id]: {
+                                      ...(prev[item.id] || { aktif: 0, grams: 0 }),
+                                      grams: gramsVal,
+                                      aktif: Math.round(getAktifFromGrams(item, gramsVal) * 100) / 100,
+                                    },
+                                  }));
+                                }}
+                                placeholder={item.satuanKalibrasi === "Pcs" ? "pcs" : "g"}
+                                className="rounded-xl h-9 bg-slate-50 border-none font-black text-center text-xs pr-8"
+                              />
+                              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[6px] font-black text-slate-400 uppercase">
+                                {item.satuanKalibrasi === "Pcs" ? "pcs" : "g"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-0.5">
+                      <Button variant="ghost" size="sm" className="h-8 w-full rounded-xl text-primary hover:bg-primary/5 border border-primary/10 flex items-center justify-center gap-1 text-[8px] font-black uppercase">
+                        <CheckCircle2 className="h-3 w-3" /> Verifikasi
+                      </Button>
+                    </div>
+                  </Card>
+                ))}
+              </div>
             </TabsContent>
 
-            <TabsContent value="akhir" className="m-0 min-w-[1000px]">
-              <table className="w-full text-left">
+            {/* TAB HASIL AKHIR */}
+            <TabsContent value="akhir" className="m-0 min-w-0 lg:min-w-[1000px]">
+              {/* Desktop Table View */}
+              <table className="hidden lg:table w-full text-left">
                 <thead>
                   <tr className="bg-slate-50/50">
                     <th className="px-10 py-6 text-[10px] font-black uppercase text-slate-500 tracking-widest">Bahan Baku</th>
@@ -443,6 +595,62 @@ export default function StockOpnamePage() {
                   })}
                 </tbody>
               </table>
+
+              {/* Mobile Cards View */}
+              <div className="lg:hidden p-3 grid grid-cols-2 gap-2 sm:gap-3 bg-slate-50/20">
+                {filteredMaterials?.map((item: any) => {
+                  const qtyGudang = Number(item.qtyBesar || 0);
+                  const qtyBulk = Number(item.qtyKontainerBesar || 0);
+                  const qtyAktif = Number(item.qtyKontainerKecil || 0);
+                  const konversi = Number(item.qtyKecil || 1);
+
+                  const totalKecil = ((qtyGudang + qtyBulk) * konversi) + qtyAktif;
+                  const hasilBesar = Math.floor(totalKecil / konversi);
+                  const hasilKecil = Math.round(totalKecil % konversi);
+
+                  return (
+                    <Card key={item.id} className="relative rounded-2xl bg-white border border-slate-100 p-3 sm:p-4 flex flex-col justify-between space-y-3.5 shadow-sm overflow-hidden">
+                      <div className="space-y-1">
+                        <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider block">{item.code}</span>
+                        <h4 className="text-[10px] sm:text-[11px] font-black text-slate-900 uppercase italic line-clamp-2 leading-tight">{item.nama}</h4>
+                      </div>
+
+                      <div className="space-y-1.5 pt-2 border-t border-slate-100/60 text-[9px] sm:text-[10px]">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400 font-bold">Gudang</span>
+                          <span className="font-black text-slate-700">{qtyGudang} {item.satuanBesar}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400 font-bold">Kont. Bulk</span>
+                          <span className="font-black text-indigo-600">{qtyBulk} {item.satuanBesar}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400 font-bold">Kont. Aktif</span>
+                          <span className="font-black text-emerald-600">{qtyAktif} {item.satuanKecil}</span>
+                        </div>
+                      </div>
+
+                      <div className="pt-1.5 border-t border-slate-100/60 text-right space-y-0.5">
+                        <span className="text-[8px] font-black uppercase text-slate-400 tracking-widest block text-left">Total Keseluruhan</span>
+                        <div className="text-base font-black text-primary italic leading-none">
+                          {hasilBesar} <span className="text-[8px] font-bold text-slate-400 uppercase">{item.satuanBesar}</span>
+                        </div>
+                        {hasilKecil !== 0 && (
+                          <div className="text-[8px] font-black text-slate-500 uppercase">
+                            {hasilKecil} {item.satuanKecil}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="pt-0.5 flex">
+                        <span className="inline-flex items-center justify-center gap-1 rounded-md bg-emerald-50 text-emerald-600 text-[8px] font-black uppercase border border-emerald-100 px-2 py-0.5 w-full text-center">
+                          <CheckCircle2 className="h-3 w-3" /> Stabil
+                        </span>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
             </TabsContent>
           </div>
 
@@ -472,8 +680,14 @@ export default function StockOpnamePage() {
                     (filteredMaterials || []).forEach((it: any) => {
                       const beforeBulk = Number(it.qtyKontainerBesar || 0);
                       const beforeAktif = Number(it.qtyKontainerKecil || 0);
-                      const afterBulk = Number(bulkInputs[it.id] ?? beforeBulk);
-                      const afterAktif = Number(kontainerInputs[it.id]?.aktif ?? beforeAktif);
+                      const inputBulk = bulkInputs[it.id];
+                      const afterBulk = (inputBulk === "" || inputBulk === undefined || inputBulk === null)
+                        ? beforeBulk
+                        : Number(inputBulk);
+                      const inputAktif = kontainerInputs[it.id]?.aktif;
+                      const afterAktif = (inputAktif === "" || inputAktif === undefined || inputAktif === null)
+                        ? beforeAktif
+                        : Number(inputAktif);
                       const ref = doc(db, "bahan-baku", it.id);
                       batch.update(ref, { qtyKontainerBesar: afterBulk, qtyKontainerKecil: afterAktif });
                       historyItems.push({ id: it.id, code: it.code, nama: it.nama, before: { qtyKontainerBesar: beforeBulk, qtyKontainerKecil: beforeAktif }, after: { qtyKontainerBesar: afterBulk, qtyKontainerKecil: afterAktif } });

@@ -650,111 +650,82 @@ export default function MasterBahanBakuPage() {
               )}
             </tbody>
           </table>
-        </div>
-
-        {/* Mobile Card View */}
-        <div className="block md:hidden divide-y divide-slate-100 px-6">
+        </div>        {/* Mobile Card View */}
+        <div className="block md:hidden p-3 bg-slate-50/20">
           {loading ? (
             <div className="py-20 text-center flex flex-col items-center gap-4">
               <div className="h-8 w-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
               <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Sinkronisasi Data...</p>
             </div>
           ) : filteredMaterials?.length > 0 ? (
-            <div className="grid gap-4 py-6">
+            <div className="grid grid-cols-2 gap-2 sm:gap-3">
               {filteredMaterials.map((item) => (
-                <div key={item.id} className="bg-slate-50/50 rounded-2xl p-5 border border-slate-100 flex flex-col gap-4">
-                  {/* Header: Code & Action Buttons */}
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="space-y-1">
-                      <span className="inline-block text-[9px] font-black bg-primary/5 text-primary border border-primary/10 px-2 py-0.5 rounded-md uppercase tracking-wider">
-                        {item.code || "-"}
+                <Card key={item.id} className="relative rounded-2xl bg-white border border-slate-100 p-3.5 flex flex-col justify-between space-y-3 shadow-sm overflow-hidden min-h-[160px]">
+                  {/* Actions absolute top-2 right-2 */}
+                  <div className="absolute top-2 right-2 flex items-center gap-0.5">
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setEditingItem(item);
+                        setIsDialogOpen(true);
+                      }}
+                      className="h-6 w-6 rounded-md hover:bg-slate-100 text-slate-400 hover:text-slate-900 transition-colors flex items-center justify-center bg-slate-50 border border-slate-100"
+                    >
+                      <Edit2 className="h-3 w-3" />
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => handleDelete(item.id)}
+                      className="h-6 w-6 rounded-md hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition-colors flex items-center justify-center bg-slate-50 border border-slate-100"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-1 pr-11">
+                    <span className="text-[8px] font-black uppercase text-primary/70 tracking-wider block">
+                      {item.code || "-"}
+                    </span>
+                    <h4 className="text-[10px] sm:text-[11px] font-black text-slate-900 uppercase italic line-clamp-2 leading-tight">
+                      {item.nama}
+                    </h4>
+                  </div>
+
+                  <div className="space-y-1.5 pt-2 border-t border-slate-100/60 text-[9px] sm:text-[10px]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400 font-bold">Stok</span>
+                      <span className="font-black text-slate-800">
+                        {formatNumber(item.qtyBesar).toLocaleString('id-ID')} <span className="text-[7px] font-bold text-slate-400 uppercase">{item.satuanBesar}</span>
                       </span>
-                      <h4 className="text-sm font-black text-slate-900 uppercase italic leading-tight">
-                        {item.nama}
-                      </h4>
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className="h-8 w-8 rounded-lg bg-white border border-slate-100 shadow-sm text-slate-500 hover:text-primary"
-                        onClick={() => {
-                          setEditingItem(item);
-                          setIsDialogOpen(true);
-                        }}
-                      >
-                        <Edit2 className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className="h-8 w-8 rounded-lg bg-white border border-slate-100 shadow-sm text-slate-500 hover:text-rose-600"
-                        onClick={() => handleDelete(item.id)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400 font-bold">Konversi</span>
+                      <span className="font-black text-slate-800">
+                        {formatNumber(item.qtyKecil).toLocaleString('id-ID')} <span className="text-[7px] font-bold text-slate-400 uppercase">{item.satuanKecil}</span>
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400 font-bold">Min Gudang</span>
+                      <span className="font-black text-slate-700">{formatNumber(item.qtyMinGudang ?? item.qtyMin ?? 5)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400 font-bold">Min Kontainer</span>
+                      <span className="font-black text-slate-700">{formatNumber(item.qtyMinKontainer ?? item.qtyMin ?? 5)}</span>
                     </div>
                   </div>
 
-                  {/* Qty & Conversion Details Grid */}
-                  <div className="grid grid-cols-2 gap-4 text-xs">
-                    <div className="bg-white p-3 rounded-xl border border-slate-50 space-y-1 shadow-sm">
-                      <span className="text-[8px] font-black uppercase text-slate-400 block tracking-widest">Qty Besar</span>
-                      <span className="font-bold text-slate-800">
-                        {formatNumber(item.qtyBesar).toLocaleString('id-ID')} <span className="text-[9px] font-black text-slate-400 uppercase">{item.satuanBesar}</span>
-                      </span>
-                    </div>
-                    <div className="bg-white p-3 rounded-xl border border-slate-50 space-y-1 shadow-sm">
-                      <span className="text-[8px] font-black uppercase text-slate-400 block tracking-widest">Konversi</span>
-                      <span className="font-bold text-slate-800">
-                        {formatNumber(item.qtyKecil).toLocaleString('id-ID')} <span className="text-[9px] font-black text-slate-400 uppercase">{item.satuanKecil}</span>
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="bg-white p-3 rounded-xl border border-slate-50 space-y-1 shadow-sm">
-                    <span className="text-[8px] font-black uppercase text-slate-400 block tracking-widest">Metode Pembelian</span>
+                  <div className="pt-1.5 border-t border-slate-100/60 flex flex-col gap-1">
+                    <span className="text-[7px] font-black uppercase text-slate-400 tracking-wider">Metode Beli</span>
                     <span className={cn(
-                      "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold tracking-tight mt-0.5",
+                      "inline-flex items-center justify-center px-2 py-0.5 rounded text-[8px] font-bold tracking-tight w-full text-center border",
                       item.metodePembelian === "Beli Sendiri" 
-                        ? "bg-amber-50 text-amber-700 border border-amber-200" 
-                        : "bg-blue-50 text-blue-700 border border-blue-200"
+                        ? "bg-amber-50 text-amber-700 border-amber-200" 
+                        : "bg-blue-50 text-blue-700 border-blue-200"
                     )}>
-                      {item.metodePembelian === "Beli Sendiri" ? "2. Beli Sendiri" : "1. Supliyer"}
+                      {item.metodePembelian === "Beli Sendiri" ? "Beli Sendiri" : "Supliyer"}
                     </span>
                   </div>
-
-                  {/* Configuration Limits & Gramasi Details */}
-                  <div className="bg-white p-4 rounded-xl border border-slate-50 space-y-3 shadow-sm text-[10px]">
-                    <div className="grid grid-cols-2 gap-2 text-slate-600 font-medium">
-                      <div>
-                        <span className="text-slate-400 font-bold block uppercase text-[8px] tracking-wider">Min Gudang</span>
-                        <span className="font-bold text-slate-800">{formatNumber(item.qtyMinGudang ?? item.qtyMin ?? 5)} {item.satuanBesar}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 font-bold block uppercase text-[8px] tracking-wider">Min Kontainer</span>
-                        <span className="font-bold text-slate-800">{formatNumber(item.qtyMinKontainer ?? item.qtyMin ?? 5)} {item.satuanBesar}</span>
-                      </div>
-                    </div>
-                    
-                    <div className="h-[1px] bg-slate-100" />
-                    
-                    <div className="grid grid-cols-3 gap-2 text-slate-600 font-medium">
-                      <div>
-                        <span className="text-slate-400 font-bold block uppercase text-[8px] tracking-wider">Gram/Pcs Sat.B</span>
-                        <span className="font-bold text-slate-800">{formatNumber(item.gramPerBesar || 0)} {getUnitSuffix(item)}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 font-bold block uppercase text-[8px] tracking-wider">Bungkus</span>
-                        <span className="font-bold text-slate-800">{formatNumber(item.beratBungkusProduk || 0)} {getUnitSuffix(item)}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 font-bold block uppercase text-[8px] tracking-wider">Total/Prod</span>
-                        <span className="font-bold text-slate-800">{formatNumber(item.totalGramasiPerProduk ?? getGramasiPerProduk(item))} {getUnitSuffix(item)}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                </Card>
               ))}
             </div>
           ) : (
@@ -764,9 +735,6 @@ export default function MasterBahanBakuPage() {
                   <Database className="h-7 w-7 text-slate-300" />
                 </div>
                 <h3 className="text-sm font-black text-slate-900 uppercase italic">Database Kosong</h3>
-                <p className="text-[10px] font-bold text-slate-500 uppercase mt-2 leading-relaxed tracking-wider">
-                  Mulai dengan mengimpor file Excel atau tambah bahan baku secara manual.
-                </p>
               </div>
             </div>
           )}
