@@ -58,6 +58,13 @@ interface InputItem {
 
 type ActiveTab = "pembelian" | "ambil" | "kembali" | "pemakaian";
 
+const formatThousand = (val: number | string) => {
+  if (val === null || val === undefined || val === '') return '';
+  const numStr = String(val).replace(/[^\d]/g, '');
+  if (!numStr) return '';
+  return Number(numStr).toLocaleString("id-ID");
+};
+
 export default function EmployeeInputBahanBakuPage() {
   const db = useFirestore();
   const { toast } = useToast();
@@ -786,13 +793,13 @@ export default function EmployeeInputBahanBakuPage() {
                             </Label>
                           </div>
                           <Input
-                            type="number"
-                            step="any"
-                            value={item.price || ""}
-                            onChange={(e) => handleItemChange(index, 'price', Number(e.target.value))}
-                            className="rounded-xl border-none h-12 bg-white shadow-sm font-black text-center text-sm sm:text-base"
-                            placeholder="0"
-                          />
+                             type="text"
+                             inputMode="numeric"
+                             value={item.price === 0 ? "" : formatThousand(item.price)}
+                             onChange={(e) => handleItemChange(index, 'price', Number(e.target.value.replace(/\D/g, "")) || 0)}
+                             className="rounded-xl border-none h-12 bg-white shadow-sm font-black text-center text-sm sm:text-base"
+                             placeholder="0"
+                           />
                         </div>
 
                         {/* Total Pembelian (Harga Satuan x Jumlah) */}

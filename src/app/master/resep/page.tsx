@@ -494,6 +494,21 @@ function RecipeCard({
   getMaterialDetail, 
   toTitleCase 
 }: any) {
+  const getPricePerSmallUnit = (mat: any) => {
+    if (!mat) return 0;
+    const explicitPriceKecil = Number(mat.hargaSatuanKecil || 0);
+    if (explicitPriceKecil > 0) return explicitPriceKecil;
+
+    const conversionRate = Number(mat.qtyKecil || 1);
+    const unitPrice = Number(mat.currentPrice ?? mat.avgPrice ?? mat.hargaBeliSatuanBesar ?? 0);
+    return conversionRate > 0 ? unitPrice / conversionRate : 0;
+  };
+
+  const totalHpp = recipe ? recipe.komposisi.reduce((sum: number, comp: any) => {
+    const mat = getMaterialDetail(comp.bahanBakuId);
+    return sum + (getPricePerSmallUnit(mat) * Number(comp.jumlah || 0));
+  }, 0) : 0;
+
   return (
     <Card 
       className={cn(
@@ -555,6 +570,7 @@ function RecipeCard({
                 <thead>
                   <tr className="border-b border-slate-200/50">
                     <th className="pb-3 text-[9px] font-black uppercase tracking-widest text-slate-700">Bahan</th>
+                    <th className="pb-3 text-[9px] font-black uppercase tracking-widest text-slate-700 text-right">Harga / Rincian</th>
                     <th className="pb-3 text-[9px] font-black uppercase tracking-widest text-slate-700 text-right">Qty</th>
                     <th className="pb-3 pl-3 text-[9px] font-black uppercase tracking-widest text-slate-700">Satuan</th>
                   </tr>
@@ -573,6 +589,11 @@ function RecipeCard({
                           </div>
                         </td>
                         <td className="py-3 text-right">
+                          <span className="text-xs font-semibold text-slate-600 tabular-nums">
+                            Rp {(getPricePerSmallUnit(mat) * comp.jumlah).toLocaleString("id-ID", { maximumFractionDigits: 1 })}
+                          </span>
+                        </td>
+                        <td className="py-3 text-right">
                           <span className="text-xs font-black text-slate-900 tabular-nums">{comp.jumlah}</span>
                         </td>
                         <td className="py-3 pl-3">
@@ -582,6 +603,15 @@ function RecipeCard({
                     );
                   })}
                 </tbody>
+                <tfoot>
+                  <tr className="border-t border-slate-200/50 font-black">
+                    <td className="py-3 text-[9px] font-black uppercase tracking-widest text-slate-700">Total HPP Resep:</td>
+                    <td className="py-3 text-right text-xs font-black text-primary tabular-nums">
+                      Rp {totalHpp.toLocaleString("id-ID", { maximumFractionDigits: 0 })}
+                    </td>
+                    <td colSpan={2}></td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           ) : (

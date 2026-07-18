@@ -22,6 +22,13 @@ import { useToast } from "@/hooks/use-toast";
 const formatCurrency = (value: number) =>
   `Rp ${Number(value || 0).toLocaleString("id-ID")}`;
 
+const formatThousand = (val: number | string) => {
+  if (val === null || val === undefined || val === '') return '';
+  const numStr = String(val).replace(/[^\d]/g, '');
+  if (!numStr) return '';
+  return Number(numStr).toLocaleString("id-ID");
+};
+
 export default function EmployeeKeuanganKontainerPage() {
   const db = useFirestore();
   const { toast } = useToast();
@@ -217,9 +224,10 @@ export default function EmployeeKeuanganKontainerPage() {
                 <div className="mt-4 space-y-2">
                   <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Nominal Kas</Label>
                   <Input
-                    type="number"
-                    value={cashOnHand}
-                    onChange={(e) => setCashOnHand(e.target.value)}
+                    type="text"
+                    inputMode="numeric"
+                    value={cashOnHand === "" ? "" : formatThousand(cashOnHand)}
+                    onChange={(e) => setCashOnHand(e.target.value.replace(/\D/g, ""))}
                     placeholder="0"
                     className="h-12 rounded-xl border-none bg-white shadow-sm"
                   />

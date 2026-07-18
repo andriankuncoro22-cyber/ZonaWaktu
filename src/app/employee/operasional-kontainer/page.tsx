@@ -27,6 +27,13 @@ import { useToast } from "@/hooks/use-toast";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 
+const formatThousand = (val: number | string) => {
+  if (val === null || val === undefined || val === '') return '';
+  const numStr = String(val).replace(/[^\d]/g, '');
+  if (!numStr) return '';
+  return Number(numStr).toLocaleString("id-ID");
+};
+
 export default function EmployeeOperasionalKontainerPage() {
   const db = useFirestore();
   const { toast } = useToast();
@@ -173,10 +180,11 @@ export default function EmployeeOperasionalKontainerPage() {
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">Rp</span>
                     <Input
                       id="amount"
-                      type="number"
-                      placeholder="Contoh: 50000"
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="Contoh: 50.000"
+                      value={amount === "" ? "" : formatThousand(amount)}
+                      onChange={(e) => setAmount(e.target.value.replace(/\D/g, ""))}
                       disabled={saving}
                       className="rounded-xl h-12 bg-slate-50 border-none font-black pl-10 placeholder:font-normal placeholder:text-slate-400"
                       required

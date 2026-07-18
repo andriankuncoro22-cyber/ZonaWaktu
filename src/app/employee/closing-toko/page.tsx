@@ -177,6 +177,13 @@ export default function EmployeeClosingTokoPage({
     return 0;
   };
 
+  const formatThousand = (val: number | string) => {
+    if (val === null || val === undefined || val === '') return '';
+    const numStr = String(val).replace(/[^\d]/g, '');
+    if (!numStr) return '';
+    return Number(numStr).toLocaleString('id-ID');
+  };
+
   const normalizeExcelHeader = (value: any) => {
     if (value === null || value === undefined) return "";
     return String(value)
@@ -576,11 +583,28 @@ export default function EmployeeClosingTokoPage({
           return {
             name: String(getExcelCellValue(itemRow, ["nama", "name"]) ?? "").trim(),
             code: String(getExcelCellValue(itemRow, ["code", "kode"]) ?? "").trim(),
-            total: parseNumber(getExcelCellValue(itemRow, ["total", "jumlah", "amount"]) ?? 0),
+            total: parseNumber(getExcelCellValue(itemRow, ["jumlah barang", "jumlahbarang", "qty", "quantity", "total", "jumlah", "amount", "jumlah transaksi", "jumlahtransaksi"]) ?? 0),
             pendapatan: parseNumber(getExcelCellValue(itemRow, ["pendapatan", "income", "revenue"]) ?? 0),
             keuntungan: parseNumber(getExcelCellValue(itemRow, ["keuntungan", "profit", "laba"]) ?? 0)
           };
-        }).filter(item => item.name || item.code);
+        }).filter(item => {
+          if (!item.name && !item.code) return false;
+
+          const nameLower = item.name.toLowerCase();
+          const codeLower = item.code.toLowerCase();
+
+          // Exclude summary/total/grand rows
+          const isTotalRow = [
+            "total",
+            "semua",
+            "jumlah",
+            "summary",
+            "grand",
+            "subtotal"
+          ].some(keyword => nameLower.includes(keyword) || codeLower.includes(keyword));
+
+          return !isTotalRow;
+        });
 
         if (items.length > 0) {
           const totalPendapatan = items.reduce((sum, item) => sum + item.pendapatan, 0);
@@ -610,7 +634,7 @@ export default function EmployeeClosingTokoPage({
   };
 
   const handleTransactionReportChange = (field: keyof TransactionReportForm, value: string) => {
-    const parsed = Number(value.replace(/[^\d.-]/g, "")) || 0;
+    const parsed = Number(value.replace(/\D/g, "")) || 0;
     setTransactionReport((prev) => {
       const nextState = { ...prev, [field]: parsed };
       if (uploadedExcelReport && field !== "cashTotal") {
@@ -766,22 +790,50 @@ export default function EmployeeClosingTokoPage({
               <p className="mt-3 text-sm text-slate-500">Isi rincian total transaksi sesuai laporan Excel yang diupload.</p>
               <div className="mt-6 grid gap-4 md:grid-cols-2">
                 {[
-                  { key: "qrisTotal", label: "Total Transaksi Non Tunai (QRIS)", helper: "QRIS" },
-                  { key: "cashTotal", label: "Total Transaksi Cash", helper: "Cash" },
-                  { key: "goFoodTotal", label: "Transaksi Non Tunai GoFood", helper: "GoFood" },
-                  { key: "otherTotal", label: "Transaksi Metode Lainnya", helper: "Lainnya" },
+                  { 
+                    key: "qrisTotal", 
+                    label: "Total Transaksi Non Tunai (QRIS)", 
+                    helper: "QRIS",
+                    bgClass: "bg-purple-50/50 border border-purple-100",
+                    labelClass: "text-purple-800",
+                    helperClass: "text-purple-500"
+                  },
+                  { 
+                    key: "cashTotal", 
+                    label: "Total Transaksi Cash", 
+                    helper: "Cash",
+                    bgClass: "bg-emerald-50/50 border border-emerald-100",
+                    labelClass: "text-emerald-800",
+                    helperClass: "text-emerald-500"
+                  },
+                  { 
+                    key: "goFoodTotal", 
+                    label: "Transaksi Non Tunai GoFood", 
+                    helper: "GoFood",
+                    bgClass: "bg-rose-50/50 border border-rose-100",
+                    labelClass: "text-rose-800",
+                    helperClass: "text-rose-500"
+                  },
+                  { 
+                    key: "otherTotal", 
+                    label: "Transaksi Metode Lainnya", 
+                    helper: "Lainnya",
+                    bgClass: "bg-amber-50/50 border border-amber-100",
+                    labelClass: "text-amber-800",
+                    helperClass: "text-amber-500"
+                  },
                 ].map((field) => (
-                  <div key={field.key} className="rounded-2xl bg-slate-50 p-4">
-                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">{field.label}</Label>
+                  <div key={field.key} className={cn("rounded-2xl p-5 transition-all shadow-sm/5", field.bgClass)}>
+                    <Label className={cn("text-[10px] font-black uppercase tracking-[0.2em]", field.labelClass)}>{field.label}</Label>
                     <Input
                       type="text"
                       inputMode="numeric"
-                      value={transactionReport[field.key as keyof TransactionReportForm] === 0 ? "" : transactionReport[field.key as keyof TransactionReportForm]}
+                      value={transactionReport[field.key as keyof TransactionReportForm] === 0 ? "" : formatThousand(transactionReport[field.key as keyof TransactionReportForm])}
                       onChange={(e) => handleTransactionReportChange(field.key as keyof TransactionReportForm, e.target.value)}
                       placeholder="0"
                       className="mt-3 h-12 rounded-xl border-none bg-white shadow-sm"
                     />
-                    <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">{field.helper}</p>
+                    <p className={cn("mt-2 text-[10px] font-black uppercase tracking-[0.2em]", field.helperClass)}>{field.helper}</p>
                   </div>
                 ))}
               </div>

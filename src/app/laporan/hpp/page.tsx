@@ -213,7 +213,12 @@ export default function HppReportPage() {
             <TrendingUp className="h-6 w-6 text-primary" />
           </div>
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Laba Kotor</p>
-          <h3 className="text-2xl font-black text-primary">Rp {totals.labaKotor.toLocaleString("id-ID")}</h3>
+          <div className="flex items-baseline gap-2">
+            <h3 className="text-2xl font-black text-primary">Rp {totals.labaKotor.toLocaleString("id-ID")}</h3>
+            <span className="text-[10px] font-black text-slate-400">
+              ({totals.totalJual > 0 ? ((totals.labaKotor / totals.totalJual) * 100).toLocaleString("id-ID", { maximumFractionDigits: 1 }) : 0}%)
+            </span>
+          </div>
         </Card>
 
         <Card className="rounded-[2rem] border-none shadow-sm bg-slate-900 p-6 text-white">
@@ -236,12 +241,13 @@ export default function HppReportPage() {
                 <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Nominal Total Jual</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Nominal Total Harga Bahan Baku</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Laba Kotor</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">% Laba Kotor</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="py-16 text-center text-slate-500">Memuat data...</td>
+                  <td colSpan={7} className="py-16 text-center text-slate-500">Memuat data...</td>
                 </tr>
               ) : productSummary.length > 0 ? (
                 productSummary.map((item: any) => (
@@ -252,11 +258,14 @@ export default function HppReportPage() {
                     <td className="px-6 py-4 text-sm font-black text-emerald-600 text-right">Rp {item.totalJual.toLocaleString("id-ID")}</td>
                     <td className="px-6 py-4 text-sm font-black text-amber-700 text-right">Rp {item.totalHpp.toLocaleString("id-ID")}</td>
                     <td className="px-6 py-4 text-sm font-black text-primary text-right">Rp {item.labaKotor.toLocaleString("id-ID")}</td>
+                    <td className="px-6 py-4 text-sm font-black text-slate-700 text-right">
+                      {item.totalJual > 0 ? ((item.labaKotor / item.totalJual) * 100).toLocaleString("id-ID", { maximumFractionDigits: 1 }) : 0}%
+                    </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="py-16 text-center text-slate-500">Tidak ada data penjualan untuk periode ini.</td>
+                  <td colSpan={7} className="py-16 text-center text-slate-500">Tidak ada data penjualan untuk periode ini.</td>
                 </tr>
               )}
             </tbody>
