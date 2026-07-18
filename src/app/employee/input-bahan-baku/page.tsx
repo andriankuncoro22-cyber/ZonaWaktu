@@ -80,6 +80,7 @@ export default function EmployeeInputBahanBakuPage() {
   const [saving, setSaving] = useState(false);
   const [expandedLog, setExpandedLog] = useState<string | null>(null);
   const [selectedKaryawanId, setSelectedKaryawanId] = useState<string>("");
+  const [shift, setShift] = useState<1 | 2>(1);
 
   // Fetch Master Bahan Baku
   const materialsQuery = useMemoFirebase(() => query(collection(db, "bahan-baku"), orderBy("nama", "asc")), [db]);
@@ -444,6 +445,7 @@ export default function EmployeeInputBahanBakuPage() {
         nomorNota: nomorNota,
         karyawanId: selectedKaryawanId,
         karyawanNama: (listKaryawan as any[])?.find((k: any) => k.id === selectedKaryawanId)?.nama || "-",
+        shift: Number(shift),
         type: "belanja",
         targetLocation: "kontainer",
         location: "kontainer",
@@ -670,18 +672,31 @@ export default function EmployeeInputBahanBakuPage() {
 
             {activeTab === "pembelian" && (
               <form onSubmit={handleSave} className="mt-6 sm:mt-8 space-y-6 sm:space-y-10">
-              {/* Header Nota: Jenis Pembelian (Beli Sendiri), Nama Karyawan & Nomor Nota */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-8">
+              {/* Header Nota: Jenis Pembelian (Beli Sendiri), Shift, Nama Karyawan & Nomor Nota */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
                 <div className="space-y-2">
                   <Label className="text-[11px] md:text-[12px] font-black uppercase tracking-widest text-slate-600">Jenis Pembelian & Tujuan Stok</Label>
                   <div className="flex bg-amber-50/70 p-1.5 rounded-2xl border border-amber-200/60 items-center justify-between px-4 h-12">
                     <span className="text-[10px] font-black uppercase tracking-wider text-amber-900 flex items-center gap-2">
                       <ShoppingCart className="h-4 w-4 text-amber-600" /> Beli Sendiri
                     </span>
-                    <span className="text-[9px] font-black uppercase px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-200">
-                      → Stok Kontainer
+                    <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-200 text-center text-[8px] font-extrabold block">
+                      → Kontainer
                     </span>
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-[11px] md:text-[12px] font-black uppercase tracking-widest text-slate-600">Pilih Shift <span className="text-rose-500">*</span></Label>
+                  <Select value={String(shift)} onValueChange={(val) => setShift(Number(val) as 1 | 2)}>
+                    <SelectTrigger className="rounded-2xl border-slate-100 h-12 sm:h-14 bg-slate-50 font-black text-slate-900 text-xs sm:text-sm">
+                      <SelectValue placeholder="Pilih shift..." />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-2xl border-none shadow-2xl">
+                      <SelectItem value="1" className="rounded-xl">Shift 1 (Pagi)</SelectItem>
+                      <SelectItem value="2" className="rounded-xl">Shift 2 (Malam)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="space-y-2">
@@ -707,7 +722,7 @@ export default function EmployeeInputBahanBakuPage() {
                      <Input 
                        value={nomorNota}
                        onChange={(e) => setNomorNota(e.target.value.toUpperCase())}
-                       className="rounded-2xl border-slate-100 h-12 sm:h-14 bg-slate-50 pl-12 font-black text-sm sm:text-base md:text-lg text-slate-900 placeholder:font-bold"
+                       className="rounded-2xl border-slate-100 h-12 sm:h-14 bg-slate-50 pl-12 font-black text-sm sm:text-base text-slate-900 placeholder:font-bold"
                        placeholder="CONTOH: INV/2024/001"
                        required
                      />
@@ -1130,9 +1145,10 @@ export default function EmployeeInputBahanBakuPage() {
                           ) : (
                             <>
                               <h4 className="text-xs font-black text-slate-900 uppercase">#{log.nomorNota}</h4>
-                              <p className="text-[9px] font-bold text-slate-400 uppercase">
-                                {log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleDateString('id-ID') : 'Baru saja'}
-                                {log.karyawanNama && ` • ${log.karyawanNama}`}
+                              <p className="text-[9px] font-bold text-slate-400 uppercase leading-relaxed flex flex-wrap gap-1">
+                                <span>{log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Baru saja'}</span>
+                                {log.shift && <span>• Shift {log.shift}</span>}
+                                {log.karyawanNama && <span>• {log.karyawanNama}</span>}
                               </p>
                             </>
                           )}

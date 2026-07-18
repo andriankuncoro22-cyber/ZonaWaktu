@@ -475,11 +475,14 @@ export default function InputBahanBakuPage() {
 
                       return (
                         <div key={index} className={cn(
-                          "relative flex flex-col lg:flex-row gap-4 items-stretch lg:items-center p-4 sm:p-6 rounded-[2rem] border transition-all animate-in fade-in slide-in-from-top-2",
+                          "relative grid grid-cols-1 lg:grid-cols-12 gap-4 items-end p-4 sm:p-6 rounded-[2rem] border transition-all animate-in fade-in slide-in-from-top-2",
                           isBeliSendiri ? "bg-amber-50/30 border-amber-200/60" : "bg-slate-50 border-slate-100"
                         )}>
                           {/* Choice of Material */}
-                          <div className="w-full lg:flex-1 space-y-2">
+                          <div className={cn(
+                            "w-full space-y-2",
+                            isBeliSendiri ? "lg:col-span-3" : "lg:col-span-5"
+                          )}>
                             <div className="flex items-center justify-between">
                               <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Pilih Bahan Baku</Label>
                               {matDetail && (
@@ -508,110 +511,81 @@ export default function InputBahanBakuPage() {
                             </Select>
                           </div>
                           
-                          {/* Baris 1: Conditional on isBeliSendiri */}
-                          {isBeliSendiri ? (
-                            <div className="grid grid-cols-[1.2fr_1fr_0.8fr] gap-2 lg:flex lg:items-center lg:gap-4 lg:w-auto">
-                              {/* Isi per Pack/Box/Sak */}
-                              <div className="w-full lg:w-36 space-y-2">
-                                <Label className="text-[9px] font-black uppercase tracking-widest text-amber-700 block truncate">
-                                  Isi / {matDetail?.satuanBesar || 'Kemasan'} <span className="text-rose-500">*</span>
-                                </Label>
-                                <div className="relative flex items-center">
-                                  <Input 
-                                    type="number" 
-                                    step="any"
-                                    value={item.qtyKecilPerUnit ?? matDetail?.qtyKecil ?? 1}
-                                    onChange={(e) => handleItemChange(index, 'qtyKecilPerUnit', Number(e.target.value))}
-                                    className="rounded-xl border-amber-300 focus:border-amber-500 h-11 sm:h-12 bg-amber-50/70 font-black text-center text-amber-900 shadow-sm pr-10 sm:pr-12 text-xs sm:text-sm"
-                                    placeholder={String(matDetail?.qtyKecil || 1)}
-                                    required={isBeliSendiri}
-                                  />
-                                  <span className="absolute right-2 sm:right-2.5 text-[8px] sm:text-[9px] font-black uppercase text-amber-800 bg-amber-200/80 px-1.5 py-0.5 rounded pointer-events-none">
-                                    {matDetail?.satuanKecil || 'Pcs'}
-                                  </span>
-                                </div>
-                              </div>
-
-                              {/* Purchase Quantity */}
-                              <div className="w-full lg:w-28 space-y-2">
-                                <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block">Jumlah</Label>
+                          {/* Isi per Pack/Box/Sak (Only Beli Sendiri) */}
+                          {isBeliSendiri && (
+                            <div className="w-full lg:col-span-2 space-y-2">
+                              <Label className="text-[9px] font-black uppercase tracking-widest text-amber-700 block truncate">
+                                Isi / {matDetail?.satuanBesar || 'Kemasan'} <span className="text-rose-500">*</span>
+                              </Label>
+                              <div className="relative flex items-center">
                                 <Input 
                                   type="number" 
                                   step="any"
-                                  value={item.qty || ""}
-                                  onChange={(e) => handleItemChange(index, 'qty', Number(e.target.value))}
-                                  className="rounded-xl border-none h-11 sm:h-12 bg-white shadow-sm font-black text-center text-xs sm:text-sm"
-                                  placeholder="0"
+                                  value={item.qtyKecilPerUnit ?? matDetail?.qtyKecil ?? 1}
+                                  onChange={(e) => handleItemChange(index, 'qtyKecilPerUnit', Number(e.target.value))}
+                                  className="rounded-xl border-amber-300 focus:border-amber-500 h-12 bg-amber-50/70 font-black text-center text-amber-900 shadow-sm pr-10 sm:pr-12 text-xs sm:text-sm"
+                                  placeholder={String(matDetail?.qtyKecil || 1)}
+                                  required={isBeliSendiri}
                                 />
-                              </div>
-
-                              {/* Unit Display */}
-                              <div className="w-full lg:w-24 space-y-2">
-                                <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block">Satuan</Label>
-                                <div className="h-11 sm:h-12 flex items-center justify-center bg-white rounded-xl shadow-sm text-xs font-black uppercase text-slate-500 border border-slate-100/50">
-                                  {matDetail?.satuanBesar || "-"}
-                                </div>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="grid grid-cols-[1.2fr_0.8fr] gap-2 lg:flex lg:items-center lg:gap-4 lg:w-auto">
-                              {/* Purchase Quantity */}
-                              <div className="w-full lg:w-28 space-y-2">
-                                <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block">Jumlah</Label>
-                                <Input 
-                                  type="number" 
-                                  step="any"
-                                  value={item.qty || ""}
-                                  onChange={(e) => handleItemChange(index, 'qty', Number(e.target.value))}
-                                  className="rounded-xl border-none h-11 sm:h-12 bg-white shadow-sm font-black text-center text-xs sm:text-sm"
-                                  placeholder="0"
-                                />
-                              </div>
-
-                              {/* Unit Display */}
-                              <div className="w-full lg:w-24 space-y-2">
-                                <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block">Satuan</Label>
-                                <div className="h-11 sm:h-12 flex items-center justify-center bg-white rounded-xl shadow-sm text-xs font-black uppercase text-slate-500 border border-slate-100/50">
-                                  {matDetail?.satuanBesar || "-"}
-                                </div>
+                                <span className="absolute right-2 sm:right-2.5 text-[8px] sm:text-[9px] font-black uppercase text-amber-800 bg-amber-200/80 px-1.5 py-0.5 rounded pointer-events-none">
+                                  {matDetail?.satuanKecil || 'Pcs'}
+                                </span>
                               </div>
                             </div>
                           )}
 
-                          {/* Baris 2: Harga, Total */}
-                          <div className="grid grid-cols-2 gap-2 lg:flex lg:items-center lg:gap-4 lg:w-auto">
-                            {/* Harga Satuan per Unit Besar */}
-                            <div className="w-full lg:w-32 space-y-2">
-                              <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 truncate block">
-                                Harga / {matDetail?.satuanBesar || 'Unit'}
-                              </Label>
-                              <Input
-                                type="text"
-                                inputMode="numeric"
-                                value={item.price === 0 ? "" : formatThousand(item.price)}
-                                onChange={(e) => handleItemChange(index, 'price', Number(e.target.value.replace(/\D/g, "")))}
-                                className="rounded-xl border-none h-11 sm:h-12 bg-white shadow-sm font-black text-center text-xs sm:text-sm"
-                                placeholder="0"
-                              />
-                            </div>
+                          {/* Purchase Quantity */}
+                          <div className="w-full lg:col-span-2 space-y-2">
+                            <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block">Jumlah</Label>
+                            <Input 
+                              type="number" 
+                              step="any"
+                              value={item.qty || ""}
+                              onChange={(e) => handleItemChange(index, 'qty', Number(e.target.value))}
+                              className="rounded-xl border-none h-12 bg-white shadow-sm font-black text-center text-xs sm:text-sm"
+                              placeholder="0"
+                            />
+                          </div>
 
-                            {/* Total Pembelian (Harga Satuan x Jumlah) */}
-                            <div className="w-full lg:w-36 space-y-2">
-                              <Label className="text-[9px] font-black uppercase tracking-widest text-emerald-700 truncate block">Total</Label>
-                              <div className="h-11 sm:h-12 flex items-center justify-center bg-emerald-50/80 rounded-xl border border-emerald-200/80 shadow-sm font-black text-emerald-900 text-xs sm:text-sm px-1.5 text-center">
-                                Rp {Number((item.qty || 0) * (item.price || 0)).toLocaleString('id-ID')}
-                              </div>
+                          {/* Unit Display */}
+                          <div className="w-full lg:col-span-1 space-y-2">
+                            <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block text-center">Satuan</Label>
+                            <div className="h-12 flex items-center justify-center bg-white rounded-xl shadow-sm text-xs font-black uppercase text-slate-500 border border-slate-100/50">
+                              {matDetail?.satuanBesar || "-"}
                             </div>
                           </div>
 
-                          {/* Action Button */}
-                          <div className="absolute top-2 right-2 lg:relative lg:top-0 lg:right-0 lg:self-end">
+                          {/* Harga Satuan per Unit Besar */}
+                          <div className="w-full lg:col-span-2 space-y-2">
+                            <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 truncate block">
+                              Harga / {matDetail?.satuanBesar || 'Unit'}
+                            </Label>
+                            <Input
+                              type="text"
+                              inputMode="numeric"
+                              value={item.price === 0 ? "" : formatThousand(item.price)}
+                              onChange={(e) => handleItemChange(index, 'price', Number(e.target.value.replace(/\D/g, "")))}
+                              className="rounded-xl border-none h-12 bg-white shadow-sm font-black text-center text-xs sm:text-sm"
+                              placeholder="0"
+                            />
+                          </div>
+
+                          {/* Total Pembelian (Harga Satuan x Jumlah) */}
+                          <div className="w-full lg:col-span-2 space-y-2">
+                            <Label className="text-[9px] font-black uppercase tracking-widest text-emerald-700 truncate block">Total</Label>
+                            <div className="h-12 flex items-center justify-center bg-emerald-50/80 rounded-xl border border-emerald-200/80 shadow-sm font-black text-emerald-900 text-xs sm:text-sm px-1.5 text-center">
+                              Rp {Number((item.qty || 0) * (item.price || 0)).toLocaleString('id-ID')}
+                            </div>
+                          </div>
+
+                          {/* Action Button (Absolute to top-right on both mobile and PC) */}
+                          <div className="absolute top-2 right-2">
                             <Button 
                               type="button" 
                               variant="ghost" 
                               size="icon" 
                               onClick={() => handleRemoveItem(index)}
-                              className="h-8 w-8 sm:h-12 sm:w-12 rounded-xl text-slate-400 hover:text-rose-600 transition-colors bg-white shadow-sm border-none shrink-0"
+                              className="h-8 w-8 rounded-xl text-slate-300 hover:text-rose-600 transition-colors bg-white shadow-sm border border-slate-100 shrink-0"
                               disabled={items.length === 1}
                             >
                               <X className="h-4 w-4" />

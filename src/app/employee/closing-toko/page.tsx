@@ -32,7 +32,8 @@ import {
   where, 
   getDocs, 
   writeBatch,
-  getDoc
+  getDoc,
+  increment
 } from "firebase/firestore";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
@@ -135,6 +136,26 @@ export default function EmployeeClosingTokoPage({
       return timeB - timeA;
     });
   }, [historyList, keuanganHistoryList]);
+
+  const groupedHistoryList = useMemo(() => {
+    const groups: { [date: string]: any[] } = {};
+    (ownerHistoryList || []).forEach((hist: any) => {
+      const date = hist.tanggal || "Tanpa Tanggal";
+      if (!groups[date]) {
+        groups[date] = [];
+      }
+      groups[date].push(hist);
+    });
+
+    return Object.entries(groups).map(([date, items]) => {
+      const maxSeconds = Math.max(...items.map((it: any) => it.createdAt?.seconds || 0));
+      return {
+        date,
+        maxSeconds,
+        items
+      };
+    }).sort((a, b) => b.maxSeconds - a.maxSeconds);
+  }, [ownerHistoryList]);
 
   const stats = useMemo(() => {
     if (!currentDayData || currentDayData.length === 0) {
@@ -454,7 +475,7 @@ export default function EmployeeClosingTokoPage({
   };
 
   const handleDeleteHistory = async (id: string) => {
-    if (!confirm("Hapus data closing ini? Menghapus closing akan mengembalikan stok bahan baku kontainer yang terpakai.")) return;
+    if (!confirm("Hapus data closing ini? Menghapus closing akan mengembalikan stok bahan baku kontainer yang terpakai, menghapus laporan operasional & belanja karyawan pada tanggal ini, serta menghapus shift report terkait.")) return;
     
     setSaving(true);
     try {
@@ -465,12 +486,13 @@ export default function EmployeeClosingTokoPage({
       }
       
       const saleData = saleDocSnap.data();
+      const targetTanggal = saleData.tanggal;
       const items = (saleData.items || []) as SaleItem[];
 
-      if (items.length > 0) {
-        const batch = writeBatch(db);
+      const batch = writeBatch(db);
 
-        // Fetch current products, recipes, and materials to compute compositions
+      // 1. Revert product sales stock consumption (from recipe)
+      if (items.length > 0) {
         const [productsSnap, recipesSnap, materialsSnap] = await Promise.all([
           getDocs(collection(db, "produk")),
           getDocs(collection(db, "resep")),
@@ -494,9 +516,7 @@ export default function EmployeeClosingTokoPage({
           materialMap[d.id] = { id: d.id, ...d.data() };
         });
 
-        // Calculate how much ingredients were consumed
         const totalAdditions: { [key: string]: number } = {};
-        const returnedDetails: string[] = [];
 
         items.forEach((item) => {
           const productId = productCodeMap[item.code];
@@ -508,7 +528,6 @@ export default function EmployeeClosingTokoPage({
           }
         });
 
-        // Revert the deduction in database
         Object.entries(totalAdditions).forEach(([matId, addition]) => {
           const material = materialMap[matId];
           if (!material) return;
@@ -519,7 +538,6 @@ export default function EmployeeClosingTokoPage({
 
           activeQty += addition;
 
-          // Convert active qty back to bulk if it exceeds conversionRate
           while (activeQty >= conversionRate) {
             bulkQty += 1;
             activeQty -= conversionRate;
@@ -530,21 +548,83 @@ export default function EmployeeClosingTokoPage({
             qtyKontainerBesar: bulkQty,
             qtyKontainerKecil: activeQty
           });
-
-          returnedDetails.push(`${material.nama}: +${addition.toFixed(1)} ${material.satuanKecil}`);
         });
-
-        batch.delete(saleDocRef);
-        await batch.commit();
-
-        toast({
-          title: "Histori Closing Dihapus",
-          description: `Stok kontainer berhasil dikembalikan:\n${returnedDetails.slice(0, 5).join(", ")}${returnedDetails.length > 5 ? "..." : ""}`,
-        });
-      } else {
-        await deleteDoc(saleDocRef);
-        toast({ title: "Histori Closing Dihapus", description: "Laporan kosong berhasil dihapus." });
       }
+
+      // 2. Cascade delete other daily documents if targetTanggal exists
+      let operasionalCount = 0;
+      let belanjaCount = 0;
+      let shiftReportCount = 0;
+
+      if (targetTanggal) {
+        // A. Delete matching operasional-kontainer documents
+        const operasionalSnap = await getDocs(
+          query(
+            collection(db, "operasional-kontainer"),
+            where("tanggal", "==", targetTanggal)
+          )
+        );
+        operasionalSnap.forEach((doc) => {
+          batch.delete(doc.ref);
+        });
+        operasionalCount = operasionalSnap.size;
+
+        // B. Fetch and revert stock for matching log_pembelian_bahan documents, then delete
+        const logsSnap = await getDocs(
+          query(
+            collection(db, "log_pembelian_bahan"),
+            where("tanggal", "==", targetTanggal)
+          )
+        );
+        logsSnap.forEach((logDoc) => {
+          const logData = logDoc.data();
+          if (logData.items) {
+            logData.items.forEach((item: any) => {
+              if (item.materialId) {
+                const materialRef = doc(db, "bahan-baku", item.materialId);
+                const bulkToRevert = Number(item.addedBulkQty || item.qty || 0);
+                const smallToRevert = Number(item.addedSmallUnits || 0);
+
+                const updateObj: any = {};
+                if (bulkToRevert > 0) {
+                  updateObj.qtyKontainerBesar = increment(-bulkToRevert);
+                }
+                if (smallToRevert > 0) {
+                  updateObj.qtyKontainerKecil = increment(-smallToRevert);
+                }
+
+                if (Object.keys(updateObj).length > 0) {
+                  batch.update(materialRef, updateObj);
+                }
+              }
+            });
+          }
+          batch.delete(logDoc.ref);
+        });
+        belanjaCount = logsSnap.size;
+
+        // C. Delete matching keuangan-kontainer documents (shift reports)
+        const keuanganSnap = await getDocs(
+          query(
+            collection(db, "keuangan-kontainer"),
+            where("tanggal", "==", targetTanggal)
+          )
+        );
+        keuanganSnap.forEach((doc) => {
+          batch.delete(doc.ref);
+        });
+        shiftReportCount = keuanganSnap.size;
+      }
+
+      // 3. Delete the penjualan document
+      batch.delete(saleDocRef);
+
+      await batch.commit();
+
+      toast({
+        title: "Histori Closing & Relasi Dihapus",
+        description: `Closing, ${shiftReportCount} shift report, ${operasionalCount} operasional, dan ${belanjaCount} rekap belanja berhasil dihapus. Stok bahan baku telah disesuaikan.`
+      });
     } catch (e: any) {
       console.error(e);
       toast({
@@ -558,11 +638,98 @@ export default function EmployeeClosingTokoPage({
   };
 
   const handleDeleteKeuanganHistory = async (id: string) => {
-    if (!confirm("Hapus histori keuangan kontainer ini?")) return;
+    if (!confirm("Hapus histori keuangan kontainer ini? (Tindakan ini juga akan menghapus laporan operasional & rekap belanja shift terkait, serta mengembalikan stok bahan baku)")) return;
     try {
-      await deleteDoc(doc(db, "keuangan-kontainer", id));
-      toast({ title: "Histori Dihapus" });
-    } catch (e) { console.error(e); }
+      const docRef = doc(db, "keuangan-kontainer", id);
+      const docSnap = await getDoc(docRef);
+      if (!docSnap.exists()) {
+        toast({ variant: "destructive", title: "Laporan tidak ditemukan" });
+        return;
+      }
+      
+      const keuanganData = docSnap.data();
+      const targetTanggal = keuanganData.tanggal;
+      const targetShift = Number(keuanganData.shift || 1);
+
+      if (!targetTanggal) {
+        await deleteDoc(docRef);
+        toast({ title: "Histori Dihapus" });
+        return;
+      }
+
+      const batch = writeBatch(db);
+
+      // 1. Fetch matching operasional-kontainer documents by date (and filter shift client-side to avoid composite index requirement)
+      const operasionalSnap = await getDocs(
+        query(
+          collection(db, "operasional-kontainer"),
+          where("tanggal", "==", targetTanggal)
+        )
+      );
+      let deletedOpsCount = 0;
+      operasionalSnap.forEach((doc) => {
+        const opData = doc.data();
+        if (Number(opData.shift || 1) === targetShift) {
+          batch.delete(doc.ref);
+          deletedOpsCount++;
+        }
+      });
+
+      // 2. Fetch matching log_pembelian_bahan documents by date (and filter shift client-side to avoid composite index requirement)
+      const logsSnap = await getDocs(
+        query(
+          collection(db, "log_pembelian_bahan"),
+          where("tanggal", "==", targetTanggal)
+        )
+      );
+
+      let deletedLogsCount = 0;
+      logsSnap.forEach((logDoc) => {
+        const logData = logDoc.data();
+        if (Number(logData.shift ?? 2) === targetShift) {
+          if (logData.items) {
+            logData.items.forEach((item: any) => {
+              if (item.materialId) {
+                const materialRef = doc(db, "bahan-baku", item.materialId);
+                const bulkToRevert = Number(item.addedBulkQty || item.qty || 0);
+                const smallToRevert = Number(item.addedSmallUnits || 0);
+
+                const updateObj: any = {};
+                if (bulkToRevert > 0) {
+                  updateObj.qtyKontainerBesar = increment(-bulkToRevert);
+                }
+                if (smallToRevert > 0) {
+                  updateObj.qtyKontainerKecil = increment(-smallToRevert);
+                }
+
+                if (Object.keys(updateObj).length > 0) {
+                  batch.update(materialRef, updateObj);
+                }
+              }
+            });
+          }
+          batch.delete(logDoc.ref);
+          deletedLogsCount++;
+        }
+      });
+
+      // 3. Delete the keuangan-kontainer document
+      batch.delete(docRef);
+
+      await batch.commit();
+
+      toast({ 
+        title: "Histori & Relasi Dihapus", 
+        description: `Laporan Keuangan, ${deletedOpsCount} operasional, dan ${deletedLogsCount} rekap belanja berhasil dihapus. Stok bahan baku telah dikembalikan.` 
+      });
+    } catch (e: any) { 
+      console.error(e);
+      toast({ 
+        variant: "destructive", 
+        title: "Gagal Menghapus", 
+        description: e.message || "Terjadi kesalahan sistem saat menghapus data." 
+      });
+    }
   };
 
   const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -862,57 +1029,70 @@ export default function EmployeeClosingTokoPage({
               <History className="h-5 w-5 text-primary" />
               <h3 className="text-[11px] md:text-sm font-black uppercase tracking-widest text-slate-900">Histori Closing & Keuangan Kontainer</h3>
             </div>
-            <div className="grid gap-3 md:gap-4">
-              {ownerHistoryList?.map((hist: any) => (
-                <Card key={hist.id} className="flex items-center justify-between rounded-2xl border-none bg-white p-4 shadow-sm transition-all hover:shadow-md md:p-6">
-                  <div className="flex items-center gap-4 md:gap-6">
-                    <CheckCircle2 className="h-5 w-5 text-slate-400 group-hover:text-primary md:h-6 md:w-6" />
-                    <div>
-                      <p className="text-[12px] font-black uppercase italic leading-tight text-slate-900 md:text-sm">{hist.tanggal}</p>
-                      <p className="mt-0.5 text-[8px] font-bold uppercase tracking-widest text-slate-400 md:text-[9px]">
-                        {hist.kind === "keuangan" ? "Keuangan Kontainer" : `${hist.items?.length || 0} Produk`}
-                      </p>
-                      {hist.kind === "keuangan" && (
-                        <div className="mt-2 space-y-1 rounded-xl bg-slate-50 p-2 text-[8px] font-black uppercase tracking-widest text-slate-500">
-                          <p>Setoran: Rp {Number(hist.expectedCashToSettle || 0).toLocaleString("id-ID")}</p>
-                          <p>Di pegang: Rp {Number(hist.cashOnHand || 0).toLocaleString("id-ID")}</p>
-                          <p>Selisih: Rp {Number(hist.difference || 0).toLocaleString("id-ID")}</p>
-                        </div>
-                      )}
-                    </div>
+            <div className="grid gap-4 md:gap-6">
+              {groupedHistoryList?.map((group: any) => (
+                <Card key={group.date} className="rounded-[1.5rem] border-none bg-white p-4 shadow-sm md:p-6 space-y-4">
+                  <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
+                    <CalendarIcon className="h-4.5 w-4.5 text-primary shrink-0" />
+                    <h4 className="text-xs md:text-sm font-black uppercase italic text-slate-900 leading-none">
+                      {group.date}
+                    </h4>
                   </div>
-                  <div className="flex items-center gap-3 md:gap-4">
-                    <div className="hidden text-right xs:block">
-                      {hist.kind === "keuangan" ? (
-                        <>
-                          <p className="text-[12px] font-black tabular-nums text-primary md:text-sm">Rp {Number(hist.expectedCashToSettle || 0).toLocaleString("id-ID")}</p>
-                          <span className="text-[7px] font-black uppercase text-slate-300 md:text-[8px]">Setoran</span>
-                        </>
-                      ) : (
-                        <>
-                          <p className="text-[12px] font-black tabular-nums text-primary md:text-sm">Rp {hist.total?.toLocaleString("id-ID")}</p>
-                          <span className="text-[7px] font-black uppercase text-slate-300 md:text-[8px]">Total</span>
-                          {isOwnerView && hist.keuntunganTotal != null && (
-                            <p className="mt-1 text-[10px] font-black text-emerald-600 tabular-nums">Untung Rp {Number(hist.keuntunganTotal).toLocaleString("id-ID")}</p>
+                  <div className="divide-y divide-slate-100">
+                    {group.items.map((hist: any) => (
+                      <div key={hist.id} className="flex items-center justify-between py-4 first:pt-0 last:pb-0">
+                        <div className="flex items-start gap-4">
+                          <CheckCircle2 className="h-5 w-5 text-slate-400 mt-0.5 shrink-0" />
+                          <div>
+                            <p className="text-[10px] md:text-xs font-black uppercase tracking-wider text-slate-800 leading-tight">
+                              {hist.kind === "keuangan"
+                                ? (hist.shift === 1 ? "Laporan Shift 1 (Pagi)" : hist.shift === 2 ? "Laporan Shift 2 (Malam)" : "Keuangan Kontainer")
+                                : `Hasil Upload Penjualan (${hist.items?.length || 0} Produk)`}
+                            </p>
+                            {hist.kind === "keuangan" && (
+                              <div className="mt-2 space-y-1 rounded-xl bg-slate-50 p-2 text-[8px] font-black uppercase tracking-widest text-slate-500">
+                                <p>Setoran: Rp {Number(hist.expectedCashToSettle || 0).toLocaleString("id-ID")}</p>
+                                <p>Di pegang: Rp {Number(hist.cashOnHand || 0).toLocaleString("id-ID")}</p>
+                                <p>Selisih: Rp {Number(hist.difference || 0).toLocaleString("id-ID")}</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 md:gap-4 shrink-0">
+                          <div className="text-right">
+                            {hist.kind === "keuangan" ? (
+                              <>
+                                <p className="text-xs md:text-sm font-black tabular-nums text-primary">Rp {Number(hist.expectedCashToSettle || 0).toLocaleString("id-ID")}</p>
+                                <span className="text-[7px] md:text-[8px] font-black uppercase text-slate-300">Setoran</span>
+                              </>
+                            ) : (
+                              <>
+                                <p className="text-xs md:text-sm font-black tabular-nums text-primary">Rp {hist.total?.toLocaleString("id-ID")}</p>
+                                <span className="text-[7px] md:text-[8px] font-black uppercase text-slate-300">Total</span>
+                                {isOwnerView && hist.keuntunganTotal != null && (
+                                  <p className="mt-1 text-[9px] md:text-[10px] font-black text-emerald-600 tabular-nums">Untung Rp {Number(hist.keuntunganTotal).toLocaleString("id-ID")}</p>
+                                )}
+                              </>
+                            )}
+                          </div>
+                          {isOwnerView && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => hist.kind === "keuangan" ? handleDeleteKeuanganHistory(hist.id) : handleDeleteHistory(hist.id)}
+                              className="h-9 w-9 rounded-xl text-slate-300 hover:text-rose-600 transition-colors"
+                              title="Hapus"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           )}
-                        </>
-                      )}
-                    </div>
-                    {isOwnerView && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => hist.kind === "keuangan" ? handleDeleteKeuanganHistory(hist.id) : handleDeleteHistory(hist.id)}
-                        className="h-9 w-9 rounded-xl text-slate-300 hover:text-rose-600 md:h-10 md:w-10"
-                        title={hist.kind === "keuangan" ? "Hapus histori keuangan kontainer" : "Hapus histori closing"}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    )}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </Card>
               ))}
-              {(!ownerHistoryList || ownerHistoryList.length === 0) && (
+              {(!groupedHistoryList || groupedHistoryList.length === 0) && (
                 <div className="py-16 text-center text-[10px] font-black uppercase tracking-widest italic opacity-30 md:py-20">
                   Belum ada riwayat closing
                 </div>

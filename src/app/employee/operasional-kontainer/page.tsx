@@ -21,11 +21,19 @@ import {
   query, 
   where, 
   doc, 
-  deleteDoc 
+  deleteDoc,
+  orderBy
 } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from "@/components/ui/select";
 
 const formatThousand = (val: number | string) => {
   if (val === null || val === undefined || val === '') return '';
@@ -40,7 +48,13 @@ export default function EmployeeOperasionalKontainerPage() {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [expenseName, setExpenseName] = useState("");
   const [amount, setAmount] = useState("");
+  const [shift, setShift] = useState<1 | 2>(1);
+  const [selectedKaryawanId, setSelectedKaryawanId] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Fetch Karyawan
+  const karyawanQuery = useMemoFirebase(() => query(collection(db, "karyawan"), orderBy("nama", "asc")), [db]);
+  const { data: listKaryawan } = useCollection(karyawanQuery);
 
   // Query pengeluaran hari terpilih
   const selectedDateQuery = useMemoFirebase(() => 
@@ -70,6 +84,15 @@ export default function EmployeeOperasionalKontainerPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedKaryawanId) {
+      toast({
+        variant: "destructive",
+        title: "Karyawan Belum Dipilih",
+        description: "Silakan pilih nama karyawan yang melakukan pengeluaran.",
+      });
+      return;
+    }
+
     if (!expenseName || !amount || Number(amount) <= 0) {
       toast({
         variant: "destructive",
@@ -79,12 +102,17 @@ export default function EmployeeOperasionalKontainerPage() {
       return;
     }
 
+    const karyawanNama = listKaryawan?.find((k: any) => k.id === selectedKaryawanId)?.nama || "-";
+
     setSaving(true);
     try {
       await addDoc(collection(db, "operasional-kontainer"), {
         pembayaran: expenseName,
         nominal: Number(amount),
         tanggal: selectedDate,
+        shift: Number(shift),
+        karyawanId: selectedKaryawanId,
+        karyawanNama: karyawanNama,
         createdAt: serverTimestamp(),
       });
 
@@ -155,6 +183,40 @@ export default function EmployeeOperasionalKontainerPage() {
                 <h3 className="text-lg font-black uppercase italic text-slate-900">
                   Input Pengeluaran Baru
                 </h3>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-b border-slate-100 pb-6">
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-black uppercase text-slate-500 tracking-wider">
+                    Pilih Shift <span className="text-rose-500">*</span>
+                  </Label>
+                  <Select value={String(shift)} onValueChange={(val) => setShift(Number(val) as 1 | 2)}>
+                    <SelectTrigger className="rounded-xl border-none h-12 bg-slate-50 font-black text-slate-900 text-xs sm:text-sm">
+                      <SelectValue placeholder="Pilih Shift..." />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-2xl border-none shadow-2xl">
+                      <SelectItem value="1" className="rounded-xl">Shift 1 (Pagi)</SelectItem>
+                      <SelectItem value="2" className="rounded-xl">Shift 2 (Malam)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-[10px] font-black uppercase text-slate-500 tracking-wider">
+                    Nama Karyawan <span className="text-rose-500">*</span>
+                  </Label>
+                  <Select value={selectedKaryawanId} onValueChange={setSelectedKaryawanId} required>
+                    <SelectTrigger className="rounded-xl border-none h-12 bg-slate-50 font-black text-slate-900 text-xs sm:text-sm">
+                      <SelectValue placeholder="Pilih Karyawan..." />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-2xl border-none shadow-2xl">
+                      {listKaryawan?.map((k: any) => (
+                        <SelectItem key={k.id} value={k.id} className="rounded-xl">
+                          {k.nama}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -230,10 +292,12 @@ export default function EmployeeOperasionalKontainerPage() {
                 <Card key={log.id} className="rounded-3xl p-5 bg-white border-none shadow-sm overflow-hidden group hover:shadow-md transition-all">
                   <div className="flex items-start justify-between">
                     <div className="space-y-2 flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">
                           {log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : 'Baru saja'}
+                          {log.shift && ` • Shift ${log.shift}`}
+                          {log.karyawanNama && ` • ${log.karyawanNama}`}
                         </p>
                       </div>
                       <div>
