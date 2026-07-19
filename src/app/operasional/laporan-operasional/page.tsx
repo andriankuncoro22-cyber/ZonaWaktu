@@ -5,10 +5,12 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useFirestore } from "@/firebase";
 import { collection, query, where, getDocs } from "firebase/firestore";
-import { Loader2, FileSpreadsheet, FileDown, CalendarDays } from "lucide-react";
+import { Loader2, FileSpreadsheet, FileDown, CalendarDays, Trash2 } from "lucide-react";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
 interface Row {
   id: string;
@@ -21,11 +23,38 @@ interface Row {
 
 export default function LaporanOperasionalPage() {
   const db = useFirestore();
+  const { toast } = useToast();
   const today = new Date().toISOString().split("T")[0];
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<Row[] | null>(null);
+
+  const handleDelete = async (id: string, sumber: "Karyawan" | "Owner") => {
+    if (!confirm(`Hapus catatan pengeluaran ini? Pengeluaran ini akan otomatis terhapus dari perhitungan Laba Rugi.`)) return;
+
+    try {
+      const { deleteDoc, doc } = await import("firebase/firestore");
+      const collectionName = sumber === "Karyawan" ? "operasional-kontainer" : "operasional-toko";
+      await deleteDoc(doc(db, collectionName, id));
+
+      toast({
+        title: "Berhasil Dihapus",
+        description: `Catatan pengeluaran ${sumber} berhasil dihapus.`,
+      });
+
+      if (rows) {
+        setRows(rows.filter(r => r.id !== id));
+      }
+    } catch (error) {
+      console.error("Gagal menghapus pengeluaran:", error);
+      toast({
+        variant: "destructive",
+        title: "Gagal Menghapus",
+        description: "Terjadi kesalahan sistem saat menghapus catatan pengeluaran.",
+      });
+    }
+  };
 
   async function fetchReport() {
     setLoading(true);
@@ -179,7 +208,48 @@ export default function LaporanOperasionalPage() {
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Total pengeluaran periode ini</p>
                 <p className="text-lg font-black text-primary">Rp {rows.reduce((sum, row) => sum + row.nominal, 0).toLocaleString("id-ID")}</p>
               </div>
-              <div className="overflow-x-auto custom-scrollbar">
+              {/* Mobile View: Cards */}
+              <div className="space-y-3 md:hidden">
+                {rows.map((r) => (
+                  <Card key={r.id} className="border border-slate-100 rounded-2xl p-4 space-y-3 shadow-none bg-slate-50/30">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{r.tanggal}</span>
+                      <span className={cn(
+                        "text-[9px] font-black uppercase px-2 py-0.5 rounded",
+                        r.sumber === "Owner" ? "bg-blue-50 text-blue-700 border border-blue-150" : "bg-emerald-50 text-emerald-700 border border-emerald-150"
+                      )}>
+                        {r.sumber}
+                      </span>
+                    </div>
+
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-tight">Keterangan / Pembayaran</p>
+                        <p className="text-sm font-black text-slate-800 leading-tight">{r.pembayaran}</p>
+                      </div>
+                      
+                      <div className="text-right shrink-0">
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-tight">Nominal</p>
+                        <p className="text-sm font-black text-primary">Rp {r.nominal.toLocaleString("id-ID")}</p>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100/60 flex justify-end">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(r.id, r.sumber)}
+                        className="h-8 text-[10px] font-black uppercase text-rose-600 hover:bg-rose-50 gap-1.5 rounded-lg px-3"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Hapus Catatan
+                      </Button>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+
+              {/* Desktop View: Table */}
+              <div className="hidden md:block overflow-x-auto custom-scrollbar">
                 <table className="w-full text-left min-w-[640px]">
                   <thead>
                     <tr className="bg-slate-50/80">
@@ -187,6 +257,7 @@ export default function LaporanOperasionalPage() {
                       <th className="px-4 py-3 text-[9px] font-black uppercase text-slate-500">Sumber</th>
                       <th className="px-4 py-3 text-[9px] font-black uppercase text-slate-500">Pembayaran</th>
                       <th className="px-4 py-3 text-[9px] font-black uppercase text-slate-500 text-right">Nominal</th>
+                      <th className="px-4 py-3 text-[9px] font-black uppercase text-slate-500 text-center w-20">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
@@ -196,6 +267,16 @@ export default function LaporanOperasionalPage() {
                         <td className="px-4 py-4 text-sm font-black text-slate-700">{r.sumber}</td>
                         <td className="px-4 py-4 text-sm text-slate-700">{r.pembayaran}</td>
                         <td className="px-4 py-4 text-right font-black text-primary">Rp {r.nominal.toLocaleString("id-ID")}</td>
+                        <td className="px-4 py-4 text-center">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDelete(r.id, r.sumber)}
+                            className="h-8 w-8 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

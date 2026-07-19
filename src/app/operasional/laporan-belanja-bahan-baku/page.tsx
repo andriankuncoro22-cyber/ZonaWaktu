@@ -27,7 +27,7 @@ export default function LaporanBelanjaBahanBakuPage() {
     if (!logs) return 0;
     return logs.reduce((sum: number, log: any) => {
       const itemsTotal = (log.items ?? []).reduce((inner: number, it: any) => {
-        const price = it.purchasePrice ?? 0;
+        const price = it.price ?? it.purchasePrice ?? 0;
         const qty = it.qty ?? 0;
         return inner + price * qty;
       }, 0);
@@ -96,27 +96,46 @@ export default function LaporanBelanjaBahanBakuPage() {
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm font-medium text-slate-800">
-                  <div className="col-span-2 font-black">Bahan</div>
-                  <div className="text-center">Qty</div>
-                  <div className="text-right">Harga (Rp)</div>
+                <div className="hidden sm:grid grid-cols-12 gap-2 text-xs font-black uppercase tracking-wider text-slate-400 pb-2 border-b border-slate-100 mt-2">
+                  <div className="col-span-5">Bahan</div>
+                  <div className="col-span-2 text-center">Qty</div>
+                  <div className="col-span-2 text-right">Harga Satuan</div>
+                  <div className="col-span-3 text-right">Total</div>
                 </div>
-                {log.items?.map((item: any, idx: number) => (
-                  <div
-                    key={idx}
-                    className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center py-2 border-b border-slate-100 text-sm"
-                  >
-                    <div className="col-span-2 font-black text-slate-700">
-                      {item.materialName}
+                {log.items?.map((item: any, idx: number) => {
+                  const price = item.price ?? item.purchasePrice ?? 0;
+                  const qty = item.qty ?? 0;
+                  const total = price * qty;
+                  return (
+                    <div
+                      key={idx}
+                      className="flex flex-col sm:grid sm:grid-cols-12 gap-1.5 sm:gap-2 py-3 border-b border-slate-50 text-xs font-bold"
+                    >
+                      <div className="sm:col-span-5 text-slate-900 font-black truncate flex justify-between sm:block">
+                        <span>{item.materialName}</span>
+                        <span className="sm:hidden text-[9px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                          {qty} {item.unit || item.satuan || ""}
+                        </span>
+                      </div>
+                      
+                      <div className="hidden sm:block sm:col-span-2 text-center text-slate-700">
+                        {qty} <span className="text-[10px] text-slate-400 font-semibold">{item.unit || item.satuan || ""}</span>
+                      </div>
+                      
+                      <div className="flex sm:grid sm:col-span-2 justify-between sm:justify-end text-slate-600 sm:text-right">
+                        <span className="sm:hidden text-slate-400 font-semibold">Harga Satuan:</span>
+                        <span>Rp {price.toLocaleString("id-ID")}</span>
+                      </div>
+                      
+                      <div className="flex sm:grid sm:col-span-3 justify-between sm:justify-end text-slate-900 font-black sm:text-right">
+                        <span className="sm:hidden text-slate-400 font-semibold">Total Harga:</span>
+                        <span>Rp {total.toLocaleString("id-ID")}</span>
+                      </div>
                     </div>
-                    <div className="text-center">{item.qty}</div>
-                    <div className="text-right font-black">
-                      {item.purchasePrice?.toLocaleString("id-ID") ?? "-"}
-                    </div>
-                  </div>
-                ))}
-                <div className="mt-4 text-right font-black text-primary">
-                  Subtotal: Rp {log.items?.reduce((s: number, it: any) => s + (it.purchasePrice ?? 0) * (it.qty ?? 0), 0).toLocaleString("id-ID")}
+                  );
+                })}
+                <div className="mt-4 text-right font-black text-primary text-sm">
+                  Subtotal: Rp {log.items?.reduce((s: number, it: any) => s + (it.price ?? it.purchasePrice ?? 0) * (it.qty ?? 0), 0).toLocaleString("id-ID")}
                 </div>
               </Card>
             ))}
