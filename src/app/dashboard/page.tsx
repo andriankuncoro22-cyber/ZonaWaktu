@@ -52,9 +52,10 @@ export default function DashboardPage() {
     nama?: string;
     qtyBesar?: number;
     satuanBesar?: string;
-    qtyKontainerBesar?: unknown;
-    qtyKontainerKecil?: unknown;
-    qtyKecil?: unknown;
+    satuanKecil?: string;
+    qtyKontainerBesar?: number;
+    qtyKontainerKecil?: number;
+    qtyKecil?: number;
     qtyMinGudang?: number;
     qtyMin?: number;
     qtyMinKontainer?: number;
