@@ -357,21 +357,27 @@ export default function LaporanPemakaianBahanBakuPage() {
 
             {/* Summary badges */}
             {hariRows && hariRows.length > 0 && (
-              <div className="px-6 md:px-8 pt-6 flex flex-wrap items-center gap-3">
-                <span className="bg-primary/5 text-primary border border-primary/10 rounded-2xl px-4 py-2 text-[10px] font-black uppercase tracking-widest">
-                  {hariRows.length} Jenis Bahan
-                </span>
-                <span className="bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded-2xl px-4 py-2 text-[10px] font-black uppercase tracking-widest">
-                  Total Harga: Rp {hariRows.reduce((sum, r) => sum + r.totalHarga, 0).toLocaleString("id-ID")}
-                </span>
-                <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">
+              <div className="px-6 md:px-8 pt-6 grid grid-cols-2 md:flex md:flex-wrap items-center gap-3 w-full">
+                <div className="bg-primary/5 text-primary border border-primary/10 rounded-2xl p-4 md:px-4 md:py-2 text-center md:text-left flex flex-col md:block">
+                  <span className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-wider block md:hidden">Jenis Bahan</span>
+                  <span className="text-xs md:text-[10px] font-black uppercase tracking-widest">
+                    {hariRows.length} Jenis
+                  </span>
+                </div>
+                <div className="bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded-2xl p-4 md:px-4 md:py-2 text-center md:text-left flex flex-col md:block">
+                  <span className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-wider block md:hidden">Total Biaya</span>
+                  <span className="text-xs md:text-[10px] font-black uppercase tracking-widest">
+                    Rp {hariRows.reduce((sum, r) => sum + r.totalHarga, 0).toLocaleString("id-ID")}
+                  </span>
+                </div>
+                <div className="col-span-2 text-center md:text-left text-[9px] md:text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1 md:mt-0">
                   Periode: {new Date(hariDate + "T00:00:00").toLocaleDateString("id-ID", {
                     weekday: "long",
                     day: "numeric",
                     month: "long",
                     year: "numeric",
                   })}
-                </span>
+                </div>
               </div>
             )}
 
@@ -435,16 +441,22 @@ export default function LaporanPemakaianBahanBakuPage() {
 
             {/* Summary badges */}
             {bulanRows && bulanRows.length > 0 && (
-              <div className="px-6 md:px-8 pt-6 flex flex-wrap items-center gap-3">
-                <span className="bg-primary/5 text-primary border border-primary/10 rounded-2xl px-4 py-2 text-[10px] font-black uppercase tracking-widest">
-                  {bulanRows.length} Jenis Bahan
-                </span>
-                <span className="bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded-2xl px-4 py-2 text-[10px] font-black uppercase tracking-widest">
-                  Total Harga: Rp {bulanRows.reduce((sum, r) => sum + r.totalHarga, 0).toLocaleString("id-ID")}
-                </span>
-                <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">
+              <div className="px-6 md:px-8 pt-6 grid grid-cols-2 md:flex md:flex-wrap items-center gap-3 w-full">
+                <div className="bg-primary/5 text-primary border border-primary/10 rounded-2xl p-4 md:px-4 md:py-2 text-center md:text-left flex flex-col md:block">
+                  <span className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-wider block md:hidden">Jenis Bahan</span>
+                  <span className="text-xs md:text-[10px] font-black uppercase tracking-widest">
+                    {bulanRows.length} Jenis
+                  </span>
+                </div>
+                <div className="bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded-2xl p-4 md:px-4 md:py-2 text-center md:text-left flex flex-col md:block">
+                  <span className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-wider block md:hidden">Total Biaya</span>
+                  <span className="text-xs md:text-[10px] font-black uppercase tracking-widest">
+                    Rp {bulanRows.reduce((sum, r) => sum + r.totalHarga, 0).toLocaleString("id-ID")}
+                  </span>
+                </div>
+                <div className="col-span-2 text-center md:text-left text-[9px] md:text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1 md:mt-0">
                   Periode: {monthLabel(bulanYM)}
-                </span>
+                </div>
               </div>
             )}
 
@@ -483,64 +495,109 @@ function ReportTable({ rows, loading }: { rows: BahanRow[] | null; loading: bool
   const grandTotal = rows.reduce((sum, r) => sum + r.totalHarga, 0);
 
   return (
-    <div className="overflow-x-auto custom-scrollbar">
-      <table className="w-full text-left min-w-[600px]">
-        <thead>
-          <tr className="bg-slate-50/80">
-            <th className="px-6 md:px-8 py-4 text-[9px] md:text-[10px] font-black uppercase text-slate-500 tracking-widest">
-              Code
-            </th>
-            <th className="px-4 md:px-6 py-4 text-[9px] md:text-[10px] font-black uppercase text-slate-500 tracking-widest">
-              Nama Bahan
-            </th>
-            <th className="px-4 md:px-6 py-4 text-[9px] md:text-[10px] font-black uppercase text-slate-500 tracking-widest text-right">
-              Qty Pemakaian
-            </th>
-            <th className="px-6 md:px-8 py-4 text-[9px] md:text-[10px] font-black uppercase text-slate-500 tracking-widest text-center">
-              Satuan Kecil
-            </th>
-            <th className="px-6 md:px-8 py-4 text-[9px] md:text-[10px] font-black uppercase text-emerald-800 tracking-widest text-right">
-              Total Harga Bahan Baku
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-50">
-          {rows.map((row, i) => (
-            <tr
-              key={row.code + i}
-              className="hover:bg-slate-50/60 transition-colors duration-150"
-            >
-              <td className="px-6 md:px-8 py-4 text-[10px] font-black text-slate-500 tracking-wider">
-                {row.code}
+    <>
+      {/* Desktop Table View */}
+      <div className="overflow-x-auto custom-scrollbar hidden md:block">
+        <table className="w-full text-left min-w-[600px]">
+          <thead>
+            <tr className="bg-slate-50/80">
+              <th className="px-6 md:px-8 py-4 text-[9px] md:text-[10px] font-black uppercase text-slate-500 tracking-widest">
+                Code
+              </th>
+              <th className="px-4 md:px-6 py-4 text-[9px] md:text-[10px] font-black uppercase text-slate-500 tracking-widest">
+                Nama Bahan
+              </th>
+              <th className="px-4 md:px-6 py-4 text-[9px] md:text-[10px] font-black uppercase text-slate-500 tracking-widest text-right">
+                Qty Pemakaian
+              </th>
+              <th className="px-6 md:px-8 py-4 text-[9px] md:text-[10px] font-black uppercase text-slate-500 tracking-widest text-center">
+                Satuan Kecil
+              </th>
+              <th className="px-6 md:px-8 py-4 text-[9px] md:text-[10px] font-black uppercase text-emerald-800 tracking-widest text-right">
+                Total Harga Bahan Baku
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {rows.map((row, i) => (
+              <tr
+                key={row.code + i}
+                className="hover:bg-slate-50/60 transition-colors duration-150"
+              >
+                <td className="px-6 md:px-8 py-4 text-[10px] font-black text-slate-500 tracking-wider">
+                  {row.code}
+                </td>
+                <td className="px-4 md:px-6 py-4 text-sm font-black text-slate-900 uppercase italic">
+                  {row.nama}
+                </td>
+                <td className="px-4 md:px-6 py-4 text-right font-black text-primary tabular-nums italic text-lg md:text-xl">
+                  {row.qty % 1 === 0
+                    ? row.qty.toLocaleString("id-ID")
+                    : row.qty.toLocaleString("id-ID", { maximumFractionDigits: 2 })}
+                </td>
+                <td className="px-6 md:px-8 py-4 text-center text-[9px] md:text-[10px] font-black uppercase text-primary tracking-widest">
+                  {row.satuanKecil}
+                </td>
+                <td className="px-6 md:px-8 py-4 text-right font-black text-emerald-700 tabular-nums italic text-base md:text-lg">
+                  Rp {row.totalHarga.toLocaleString("id-ID")}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="bg-slate-100/80 font-black">
+              <td colSpan={4} className="px-6 md:px-8 py-4 text-right text-xs uppercase tracking-widest text-slate-700">
+                Total Keseluruhan Harga Bahan Baku:
               </td>
-              <td className="px-4 md:px-6 py-4 text-sm font-black text-slate-900 uppercase italic">
-                {row.nama}
-              </td>
-              <td className="px-4 md:px-6 py-4 text-right font-black text-primary tabular-nums italic text-lg md:text-xl">
-                {row.qty % 1 === 0
-                  ? row.qty.toLocaleString("id-ID")
-                  : row.qty.toLocaleString("id-ID", { maximumFractionDigits: 2 })}
-              </td>
-              <td className="px-6 md:px-8 py-4 text-center text-[9px] md:text-[10px] font-black uppercase text-primary tracking-widest">
-                {row.satuanKecil}
-              </td>
-              <td className="px-6 md:px-8 py-4 text-right font-black text-emerald-700 tabular-nums italic text-base md:text-lg">
-                Rp {row.totalHarga.toLocaleString("id-ID")}
+              <td className="px-6 md:px-8 py-4 text-right text-lg md:text-xl text-emerald-800 tabular-nums italic">
+                Rp {grandTotal.toLocaleString("id-ID")}
               </td>
             </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="bg-slate-100/80 font-black">
-            <td colSpan={4} className="px-6 md:px-8 py-4 text-right text-xs uppercase tracking-widest text-slate-700">
-              Total Keseluruhan Harga Bahan Baku:
-            </td>
-            <td className="px-6 md:px-8 py-4 text-right text-lg md:text-xl text-emerald-800 tabular-nums italic">
-              Rp {grandTotal.toLocaleString("id-ID")}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
+          </tfoot>
+        </table>
+      </div>
+
+      {/* Mobile List Cards View */}
+      <div className="md:hidden p-4 space-y-4 bg-slate-50/30">
+        {rows.map((row, i) => (
+          <Card key={row.code + i} className="rounded-[1.5rem] bg-white border border-slate-100 p-4 shadow-sm hover:shadow-md transition-shadow relative">
+            <div className="flex justify-between items-start gap-2 mb-3">
+              <div className="space-y-1">
+                <span className="inline-flex px-2 py-0.5 rounded bg-primary/5 border border-primary/10 text-[8px] font-bold text-primary">
+                  {row.code}
+                </span>
+                <h4 className="text-xs font-black text-slate-900 uppercase italic">
+                  {row.nama}
+                </h4>
+              </div>
+              <div className="text-right">
+                <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">Pemakaian</span>
+                <span className="text-sm font-black text-slate-800 tabular-nums">
+                  {row.qty % 1 === 0
+                    ? row.qty.toLocaleString("id-ID")
+                    : row.qty.toLocaleString("id-ID", { maximumFractionDigits: 2 })}
+                  <span className="text-[10px] text-slate-400 font-bold uppercase ml-1">{row.satuanKecil || "Unit"}</span>
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100/60 flex justify-between items-center text-[10px]">
+              <span className="text-slate-400 font-bold">Total Harga</span>
+              <span className="font-black text-emerald-700 tabular-nums text-sm">
+                Rp {row.totalHarga.toLocaleString("id-ID")}
+              </span>
+            </div>
+          </Card>
+        ))}
+
+        {/* Grand Total Footer for Mobile */}
+        <div className="bg-slate-900 text-white rounded-[1.5rem] p-4 flex justify-between items-center shadow-md">
+          <span className="text-[10px] font-black uppercase tracking-wider text-slate-300">Total Harga Pemakaian:</span>
+          <span className="text-lg font-black text-emerald-400 tabular-nums">
+            Rp {grandTotal.toLocaleString("id-ID")}
+          </span>
+        </div>
+      </div>
+    </>
   );
 }

@@ -247,6 +247,79 @@ export default function DashboardPage() {
     return days;
   }, [penjualanData]);
 
+  const dailyFinancialChartData = useMemo(() => {
+    if (!penjualanData || !produkData || !resepData || !bahanBakuData) return [];
+
+    const productCodeMap: Record<string, string> = {};
+    (produkData as any[])?.forEach((product) => {
+      if (product.code) productCodeMap[product.code] = product.id;
+    });
+
+    const recipeMap: Record<string, any[]> = {};
+    (resepData as any[])?.forEach((recipe) => {
+      if (recipe.produkId) recipeMap[recipe.produkId] = recipe.komposisi || [];
+    });
+
+    const materialMap: Record<string, any> = {};
+    (bahanBakuData as any[])?.forEach((material) => {
+      materialMap[material.id] = material;
+    });
+
+    const days = [];
+    const date = new Date();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(date.getDate() - i);
+      const dayStr = d.toISOString().split('T')[0];
+      const dayName = d.toLocaleDateString('id-ID', { weekday: 'short' });
+
+      // Daily Sales
+      const sales = penjualanData
+        ?.filter((p: any) => p.tanggal === dayStr)
+        .reduce((sum: number, p: any) => sum + (p.total || 0), 0) || 0;
+
+      // Daily Operasional
+      const operasionalToko = operasionalTokoData
+        ?.filter((op: any) => op.tanggal === dayStr)
+        .reduce((sum: number, op: any) => sum + (Number(op.nominal) || Number(op.total) || 0), 0) || 0;
+
+      const operasionalKontainer = operasionalKontainerData
+        ?.filter((op: any) => op.tanggal === dayStr)
+        .reduce((sum: number, op: any) => sum + (Number(op.nominal) || 0), 0) || 0;
+
+      const operasional = operasionalToko + operasionalKontainer;
+
+      // Daily HPP
+      let hpp = 0;
+      const daySales = (penjualanData as any[])?.filter((p) => p.tanggal === dayStr) || [];
+      daySales.forEach((closing) => {
+        closing.items?.forEach((item: any) => {
+          const qty = Number(item.total || 0);
+          const productId = productCodeMap[item.code];
+          const recipe = recipeMap[productId] || [];
+          recipe.forEach((ingredient) => {
+            const material = materialMap[ingredient?.bahanBakuId];
+            hpp += calculateRecipeIngredientCost(ingredient, material, qty);
+          });
+        });
+      });
+
+      // Daily Profit (Laba Bersih) = Sales - Operasional - HPP
+      const profit = Math.max(0, sales - operasional - hpp);
+      const beban = hpp + operasional;
+
+      days.push({
+        name: dayName,
+        sales,
+        hpp,
+        operasional,
+        profit,
+        beban,
+      });
+    }
+    return days;
+  }, [penjualanData, produkData, resepData, bahanBakuData, operasionalTokoData, operasionalKontainerData]);
+
   // Pemakaian Bahan Baku (Dukungan Hari Ini & Per Bulan)
   const usageDataFiltered = useMemo(() => {
     const agg: { [id: string]: number } = {};
@@ -330,7 +403,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats Bento Box */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
         {[
           { 
             label: "Penjualan Bulan Ini", 
@@ -354,21 +427,23 @@ export default function DashboardPage() {
             color: "bg-emerald-50 text-emerald-600" 
           },
           { 
-            label: "Bahan Perlu Restock", 
-            value: `${stats.lowStockCount} Item`, 
+            label: "Restock Kontainer", 
+            value: `${stats.lowKontainerCount} Item`, 
             change: "Warning", 
             icon: AlertTriangle, 
-            color: stats.lowStockCount > 0 ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600" 
+            color: stats.lowKontainerCount > 0 ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600" 
           },
         ].map((stat, i) => (
-          <Card key={i} className="border-none shadow-sm rounded-3xl md:rounded-[2.5rem] p-6 md:p-8 bg-white overflow-hidden relative group hover:shadow-xl transition-all duration-500">
-            <div className={cn("h-12 w-12 md:h-14 md:w-14 rounded-xl md:rounded-2xl flex items-center justify-center mb-4 md:mb-6 transition-transform group-hover:scale-110 group-hover:rotate-3", stat.color)}>
-              <stat.icon className="h-6 w-6 md:h-7 md:w-7" />
+          <Card key={i} className="border-none shadow-sm rounded-2xl md:rounded-[2.5rem] p-4 md:p-8 bg-white overflow-hidden relative group hover:shadow-xl transition-all duration-500 flex flex-col justify-between">
+            <div>
+              <div className={cn("h-10 w-10 md:h-14 md:w-14 rounded-xl md:rounded-2xl flex items-center justify-center mb-3 md:mb-6 transition-transform group-hover:scale-110 group-hover:rotate-3", stat.color)}>
+                <stat.icon className="h-5 w-5 md:h-7 md:w-7" />
+              </div>
+              <p className="text-[8px] md:text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] mb-1">{stat.label}</p>
             </div>
-            <p className="text-[9px] md:text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] mb-1">{stat.label}</p>
-            <div className="flex items-end justify-between">
-              <h3 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight truncate max-w-[85%]">{stat.value}</h3>
-              <span className={cn("text-[8px] md:text-[9px] font-black px-2 py-1 rounded-lg shrink-0", 
+            <div className="flex flex-col gap-1.5 md:flex-row md:items-end md:justify-between mt-auto">
+              <h3 className="text-xs sm:text-lg md:text-2xl font-black text-slate-900 tracking-tight truncate max-w-full">{stat.value}</h3>
+              <span className={cn("text-[7px] md:text-[9px] font-black px-1.5 py-0.5 md:py-1 rounded-md shrink-0 w-fit", 
                 stat.color.includes("emerald") || stat.change === 'Sehat' ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-500")}>
                 {stat.change}
               </span>
@@ -481,6 +556,106 @@ export default function DashboardPage() {
                 <span className="text-slate-900 font-black">{item.value} Pcs</span>
               </div>
             ))}
+          </div>
+        </Card>
+      </div>
+
+      {/* Financial Analytics Grid (Laba Rugi & HPP Chart) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
+        {/* Card Laba Rugi */}
+        <Card className="border-none shadow-sm rounded-[2rem] bg-white p-6 md:p-8">
+          <div>
+            <h3 className="text-base md:text-lg font-black text-slate-900 flex items-center gap-3 uppercase italic">
+              <TrendingUp className="h-5 w-5 text-emerald-600" />
+              Perbandingan Laba & Beban
+            </h3>
+            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-1">Laba Bersih vs Beban (HPP + Operasional) 7 Hari Terakhir</p>
+          </div>
+          
+          <div className="h-[250px] md:h-[300px] w-full mt-6">
+            {mounted ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={dailyFinancialChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis 
+                    dataKey="name" 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fill: '#64748b', fontSize: 10, fontWeight: 700 }} 
+                  />
+                  <YAxis 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tickFormatter={(tick) => `Rp ${(tick / 1000).toLocaleString('id-ID')}k`}
+                    tick={{ fill: '#64748b', fontSize: 10, fontWeight: 700 }} 
+                  />
+                  <Tooltip 
+                    contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.1)' }}
+                    formatter={(value, name) => [
+                      `Rp ${Number(value).toLocaleString('id-ID')}`, 
+                      name === 'profit' ? 'Laba Bersih' : 'Beban (HPP + Ops)'
+                    ]}
+                  />
+                  <Bar dataKey="profit" name="profit" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="beban" name="beban" fill="#f43f5e" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="w-full h-full bg-slate-50 rounded-2xl animate-pulse" />
+            )}
+          </div>
+        </Card>
+
+        {/* Card HPP */}
+        <Card className="border-none shadow-sm rounded-[2rem] bg-white p-6 md:p-8">
+          <div>
+            <h3 className="text-base md:text-lg font-black text-slate-900 flex items-center gap-3 uppercase italic">
+              <Package className="h-5 w-5 text-indigo-600" />
+              Tren HPP Bahan Baku
+            </h3>
+            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-1">Nilai HPP (Cost of Goods Sold) 7 Hari Terakhir</p>
+          </div>
+          
+          <div className="h-[250px] md:h-[300px] w-full mt-6">
+            {mounted ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={dailyFinancialChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorHpp" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2}/>
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis 
+                    dataKey="name" 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tick={{ fill: '#64748b', fontSize: 10, fontWeight: 700 }} 
+                  />
+                  <YAxis 
+                    axisLine={false} 
+                    tickLine={false} 
+                    tickFormatter={(tick) => `Rp ${(tick / 1000).toLocaleString('id-ID')}k`}
+                    tick={{ fill: '#64748b', fontSize: 10, fontWeight: 700 }} 
+                  />
+                  <Tooltip 
+                    contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.1)' }}
+                    formatter={(value) => [`Rp ${Number(value).toLocaleString('id-ID')}`, 'HPP']}
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="hpp" 
+                    stroke="#6366f1" 
+                    strokeWidth={3} 
+                    fillOpacity={1} 
+                    fill="url(#colorHpp)" 
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="w-full h-full bg-slate-50 rounded-2xl animate-pulse" />
+            )}
           </div>
         </Card>
       </div>
@@ -624,24 +799,24 @@ export default function DashboardPage() {
         <Card className="border-none shadow-sm rounded-[2rem] bg-white p-6 md:p-8 flex flex-col justify-between">
           <div>
             <h4 className="text-sm font-black uppercase tracking-widest text-slate-900 italic mb-1">Peringatan Restock</h4>
-            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Bahan Baku Gudang di Bawah Batas Minimum</p>
+            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Bahan Baku Kontainer di Bawah Batas Minimum</p>
           </div>
 
           <div className="space-y-4 my-6 flex-1 overflow-y-auto">
-            {stats.lowStockItems.length > 0 ? stats.lowStockItems.slice(0, 4).map((item) => (
+            {stats.lowKontainerItems.length > 0 ? stats.lowKontainerItems.slice(0, 4).map((item) => (
               <div key={item.id} className="flex items-center justify-between">
-                <div className="flex items-center gap-2 truncate max-w-[70%]">
+                <div className="flex items-center gap-2 truncate max-w-[60%]">
                   <div className="h-2 w-2 rounded-full bg-rose-500 shrink-0" />
                   <p className="text-[11px] font-black text-slate-700 uppercase italic truncate">{item.nama}</p>
                 </div>
-                <span className="text-xs font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-lg shrink-0">
-                  {item.qtyBesar} {item.satuanBesar} sisa
+                <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-lg shrink-0">
+                  {item.qtyKontainerBesar || 0} {item.satuanBesar} / {item.qtyKontainerKecil || 0} {item.satuanKecil} sisa
                 </span>
               </div>
             )) : (
               <div className="py-10 text-center opacity-30 flex flex-col items-center gap-2">
                 <Package className="h-8 w-8 text-slate-400" />
-                <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600">Seluruh Stok Gudang Aman</p>
+                <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600">Seluruh Stok Kontainer Aman</p>
               </div>
             )}
           </div>

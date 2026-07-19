@@ -250,20 +250,7 @@ export default function MasterBahanBakuPage() {
     }
   };
 
-  const handleDeleteAll = async () => {
-    if (confirm("PERINGATAN: Hapus SELURUH data bahan baku? Tindakan ini tidak dapat dibatalkan.")) {
-      try {
-        const snapshot = await getDocs(collection(db, "bahan-baku"));
-        const batch = writeBatch(db);
-        snapshot.docs.forEach((d) => {
-          batch.delete(d.ref);
-        });
-        await batch.commit();
-      } catch (err) {
-        console.error("Error deleting all:", err);
-      }
-    }
-  };
+
 
   const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -346,15 +333,6 @@ export default function MasterBahanBakuPage() {
               PDF
             </Button>
           </div>
-          
-          <Button 
-            variant="destructive"
-            onClick={handleDeleteAll}
-            className="rounded-2xl px-6 font-bold h-12 uppercase tracking-widest text-[10px] gap-2 shadow-sm border-none bg-rose-50 text-rose-600 hover:bg-rose-100"
-          >
-            <Trash className="h-4 w-4" />
-            Hapus Semua
-          </Button>
 
           <Dialog open={isDialogOpen} onOpenChange={(open) => {
             setIsDialogOpen(open);

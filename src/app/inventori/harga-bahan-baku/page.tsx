@@ -136,7 +136,7 @@ export default function HargaBahanBakuPage() {
               className="rounded-2xl" 
             />
           </div>
-          <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
+          <div className="space-y-2 max-h-[140px] md:max-h-[600px] overflow-y-auto pr-1">
             {filteredMaterials.map((material: any) => {
               const conversion = Number(material.qtyKecil || 1);
               const pBesar = Number(material.currentPrice ?? material.avgPrice ?? 0);
@@ -148,7 +148,7 @@ export default function HargaBahanBakuPage() {
                   key={material.id} 
                   onClick={() => handleSelect(material)} 
                   className={cn(
-                    "w-full text-left rounded-2xl border p-3.5 transition-all space-y-2",
+                    "w-full text-left rounded-xl md:rounded-2xl border p-2.5 md:p-3.5 transition-all space-y-1 md:space-y-2",
                     selectedMaterial?.id === material.id ? "border-primary bg-primary/5 shadow-sm" : "border-slate-100 bg-white hover:bg-slate-50/50"
                   )}
                 >
@@ -157,7 +157,7 @@ export default function HargaBahanBakuPage() {
                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider shrink-0">{material.code || "-"}</span>
                   </div>
 
-                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100/60">
+                  <div className="hidden md:flex items-center justify-between gap-2 pt-1 border-t border-slate-100/60">
                     <span className={cn(
                       "inline-flex items-center px-2 py-0.5 rounded text-[8px] font-extrabold uppercase tracking-tight",
                       isBeliSendiri 

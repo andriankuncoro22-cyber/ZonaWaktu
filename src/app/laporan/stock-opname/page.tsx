@@ -555,7 +555,8 @@ export default function LaporanStockOpnamePage() {
                       )}
                     </div>
 
-                    <div className="overflow-x-auto">
+                    {/* Desktop Table View */}
+                    <div className="overflow-x-auto hidden md:block">
                       <table className="min-w-full text-left">
                         <thead className="bg-white/80">
                           <tr>
@@ -595,6 +596,45 @@ export default function LaporanStockOpnamePage() {
                           ))}
                         </tbody>
                       </table>
+                    </div>
+
+                    {/* Mobile List Cards View */}
+                    <div className="md:hidden space-y-3">
+                      {entry.items.map((item) => (
+                        <div key={`${entry.id}-${item.id}`} className="rounded-xl bg-white border border-slate-100 p-3.5 shadow-sm space-y-2 relative">
+                          <div className="flex justify-between items-start gap-2">
+                            <div className="space-y-1">
+                              <span className="inline-flex px-2 py-0.5 rounded bg-primary/5 border border-primary/10 text-[8px] font-bold text-primary">
+                                {item.code}
+                              </span>
+                              <h4 className="text-xs font-black text-slate-900 uppercase italic">
+                                {item.nama}
+                              </h4>
+                            </div>
+                            <div className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full ${item.diffBulk + item.diffAktif >= 0 ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"}`}>
+                              {item.diffBulk + item.diffAktif >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
+                              <span>{formatCombinedDifference(item)}</span>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100/60 text-[9px] leading-tight">
+                            <div className="bg-slate-50 p-2 rounded-lg flex flex-col justify-between">
+                              <span className="text-slate-400 font-bold uppercase tracking-wider block mb-1">Sebelum</span>
+                              <div className="text-slate-700 font-black">
+                                <div>Bulk: {formatNumber(item.beforeBulk)} {item.unitBulk || ""}</div>
+                                <div>Aktif: {formatNumber(item.beforeAktif)} {item.unitAktif || ""}</div>
+                              </div>
+                            </div>
+                            <div className="bg-slate-50 p-2 rounded-lg flex flex-col justify-between">
+                              <span className="text-slate-400 font-bold uppercase tracking-wider block mb-1">Sesudah</span>
+                              <div className="text-slate-700 font-black">
+                                <div>Bulk: {formatNumber(item.afterBulk)} {item.unitBulk || ""}</div>
+                                <div>Aktif: {formatNumber(item.afterAktif)} {item.unitAktif || ""}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ))}
@@ -654,7 +694,8 @@ export default function LaporanStockOpnamePage() {
                         )}
                       </div>
 
-                      <div className="overflow-x-auto">
+                      {/* Desktop Table View */}
+                      <div className="overflow-x-auto hidden md:block">
                         <table className="min-w-full text-left bg-white rounded-xl border border-slate-50">
                           <thead className="bg-slate-50">
                             <tr>
@@ -686,6 +727,39 @@ export default function LaporanStockOpnamePage() {
                             ))}
                           </tbody>
                         </table>
+                      </div>
+
+                      {/* Mobile List Cards View */}
+                      <div className="md:hidden space-y-3">
+                        {entry.items.map((item) => (
+                          <div key={`${entry.id}-${item.id}`} className="rounded-xl bg-white border border-slate-100 p-3.5 shadow-sm space-y-2 relative">
+                            <div className="flex justify-between items-start gap-2">
+                              <div className="space-y-1">
+                                <span className="inline-flex px-2 py-0.5 rounded bg-primary/5 border border-primary/10 text-[8px] font-bold text-primary">
+                                  {item.code}
+                                </span>
+                                <h4 className="text-xs font-black text-slate-900 uppercase italic">
+                                  {item.nama}
+                                </h4>
+                              </div>
+                              <div className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full ${item.diffQtyBesar >= 0 ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"}`}>
+                                {item.diffQtyBesar >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
+                                <span>{item.diffQtyBesar >= 0 ? `+${item.diffQtyBesar}` : item.diffQtyBesar} {item.unitBesar || ""}</span>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100/60 text-[10px]">
+                              <div className="bg-slate-50 p-2 rounded-lg flex justify-between items-center">
+                                <span className="text-slate-400 font-bold">Sebelum</span>
+                                <span className="font-black text-slate-700 tabular-nums">{formatNumber(item.beforeQtyBesar)} {item.unitBesar || ""}</span>
+                              </div>
+                              <div className="bg-slate-50 p-2 rounded-lg flex justify-between items-center">
+                                <span className="text-slate-400 font-bold">Sesudah</span>
+                                <span className="font-black text-slate-700 tabular-nums">{formatNumber(item.afterQtyBesar)} {item.unitBesar || ""}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ))}

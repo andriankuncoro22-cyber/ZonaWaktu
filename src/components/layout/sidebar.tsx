@@ -19,7 +19,8 @@ import {
   Home,
   ClipboardList,
   Store,
-  AlertOctagon
+  AlertOctagon,
+  GitMerge
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -52,6 +53,7 @@ const menuGroups = [
       { name: "Stok Bahan Baku", icon: Boxes, href: "/stok/bahan-baku" },
       { name: "Stock Oknam", icon: ClipboardList, href: "/inventori/stock-opname" },
       { name: "Katalog Produk", icon: Soup, href: "/master/produk" },
+      { name: "Alokasi Bahan Baku", icon: GitMerge, href: "/inventori/alokasi-bahan-baku" },
       { name: "Resep Produk", icon: ClipboardCheck, href: "/master/resep" },
       { name: "Master Bahan Baku", icon: Database, href: "/master/bahan-baku" },
     ]
@@ -78,7 +80,11 @@ const adminMenuGroups = [
   }
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  onItemClick?: () => void;
+}
+
+export function Sidebar({ onItemClick }: SidebarProps) {
   const pathname = usePathname();
   const [role, setRole] = useState<string | null>(null);
 
@@ -106,6 +112,7 @@ export function Sidebar() {
                     <Link
                       key={item.name}
                       href={item.href}
+                      onClick={onItemClick}
                       className={cn(
                         "group flex items-center justify-between rounded-2xl px-5 py-3.5 text-xs font-black transition-all duration-300 uppercase tracking-wider",
                         isActive 
@@ -131,7 +138,13 @@ export function Sidebar() {
       </div>
 
       <div className="px-6 mt-auto">
-        <Link href="/" onClick={() => localStorage.removeItem("user_role")}>
+        <Link 
+          href="/" 
+          onClick={() => {
+            localStorage.removeItem("user_role");
+            onItemClick?.();
+          }}
+        >
           <Button 
             variant="ghost" 
             className="w-full justify-start gap-4 rounded-2xl h-14 text-slate-400 hover:text-primary hover:bg-primary/5 font-black uppercase tracking-widest text-[9px] transition-all"

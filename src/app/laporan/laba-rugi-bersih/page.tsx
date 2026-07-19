@@ -119,29 +119,29 @@ export default function LabaRugiBersihPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card className="rounded-[2rem] border-none shadow-sm bg-white p-6">
-          <div className="bg-emerald-50 w-12 h-12 rounded-2xl flex items-center justify-center mb-4"><Wallet className="h-6 w-6 text-emerald-600" /></div>
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Total Penjualan</p>
-          <h3 className="text-2xl font-black text-slate-900">Rp {totals.penjualan.toLocaleString("id-ID")}</h3>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+        <Card className="rounded-[1.5rem] md:rounded-[2rem] border-none shadow-sm bg-white p-4 md:p-6 hover:shadow-xl transition-all duration-500 border border-slate-50">
+          <div className="bg-emerald-50 w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl flex items-center justify-center mb-3 md:mb-4 shrink-0"><Wallet className="h-5 w-5 md:h-6 md:w-6 text-emerald-600" /></div>
+          <p className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.1em] md:tracking-[0.2em] text-slate-400 mb-1 truncate">Total Penjualan</p>
+          <h3 className="text-sm sm:text-xl md:text-2xl font-black text-slate-900 truncate">Rp {totals.penjualan.toLocaleString("id-ID")}</h3>
         </Card>
 
-        <Card className="rounded-[2rem] border-none shadow-sm bg-white p-6">
-          <div className="bg-amber-50 w-12 h-12 rounded-2xl flex items-center justify-center mb-4"><TrendingDown className="h-6 w-6 text-amber-600" /></div>
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Total Operasional</p>
-          <h3 className="text-2xl font-black text-amber-700">Rp {totals.operasional.toLocaleString("id-ID")}</h3>
+        <Card className="rounded-[1.5rem] md:rounded-[2rem] border-none shadow-sm bg-white p-4 md:p-6 hover:shadow-xl transition-all duration-500 border border-slate-50">
+          <div className="bg-amber-50 w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl flex items-center justify-center mb-3 md:mb-4 shrink-0"><TrendingDown className="h-5 w-5 md:h-6 md:w-6 text-amber-600" /></div>
+          <p className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.1em] md:tracking-[0.2em] text-slate-400 mb-1 truncate">Total Operasional</p>
+          <h3 className="text-sm sm:text-xl md:text-2xl font-black text-amber-700 truncate">Rp {totals.operasional.toLocaleString("id-ID")}</h3>
         </Card>
 
-        <Card className="rounded-[2rem] border-none shadow-sm bg-white p-6">
-          <div className="bg-slate-100 w-12 h-12 rounded-2xl flex items-center justify-center mb-4"><Package className="h-6 w-6 text-slate-700" /></div>
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Total Pembelian Bahan</p>
-          <h3 className="text-2xl font-black text-slate-800">Rp {totals.pembelian.toLocaleString("id-ID")}</h3>
+        <Card className="rounded-[1.5rem] md:rounded-[2rem] border-none shadow-sm bg-white p-4 md:p-6 hover:shadow-xl transition-all duration-500 border border-slate-50">
+          <div className="bg-slate-100 w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl flex items-center justify-center mb-3 md:mb-4 shrink-0"><Package className="h-5 w-5 md:h-6 md:w-6 text-slate-700" /></div>
+          <p className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.1em] md:tracking-[0.2em] text-slate-400 mb-1 truncate">Total Pembelian Bahan</p>
+          <h3 className="text-sm sm:text-xl md:text-2xl font-black text-slate-800 truncate">Rp {totals.pembelian.toLocaleString("id-ID")}</h3>
         </Card>
 
-        <Card className="rounded-[2rem] border-none shadow-sm bg-slate-900 p-6 text-white">
-          <div className="bg-white/10 w-12 h-12 rounded-2xl flex items-center justify-center mb-4"><Sparkles className="h-6 w-6 text-white" /></div>
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Laba Bersih</p>
-          <h3 className="text-2xl font-black">Rp {totals.labaBersih.toLocaleString("id-ID")}</h3>
+        <Card className="rounded-[1.5rem] md:rounded-[2rem] border-none shadow-sm bg-slate-900 p-4 md:p-6 hover:shadow-xl transition-all duration-500 text-white">
+          <div className="bg-white/10 w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl flex items-center justify-center mb-3 md:mb-4 shrink-0"><Sparkles className="h-6 w-6 text-white" /></div>
+          <p className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.1em] md:tracking-[0.2em] text-slate-400 mb-1 truncate">Laba Bersih</p>
+          <h3 className="text-sm sm:text-xl md:text-2xl font-black truncate">Rp {totals.labaBersih.toLocaleString("id-ID")}</h3>
         </Card>
       </div>
     </div>

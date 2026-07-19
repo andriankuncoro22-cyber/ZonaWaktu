@@ -58,12 +58,25 @@ export default function DashboardPage() {
     const lowStockItems = bahanBakuData
       ?.filter(b => (b.qtyBesar || 0) <= (Number(b.qtyMinGudang ?? b.qtyMin ?? 5))) || [];
 
+    const getMinStockKontainer = (item: any) => Number(item.qtyMinKontainer ?? item.qtyMin ?? 5);
+    const getKontainerTotal = (item: any) => {
+      const qtyBulk = Number(item.qtyKontainerBesar || 0);
+      const qtyAktif = Number(item.qtyKontainerKecil || 0);
+      const konversi = Number(item.qtyKecil || 1);
+      return qtyBulk + (qtyAktif / (konversi || 1));
+    };
+
+    const lowKontainerItems = bahanBakuData
+      ?.filter(b => getKontainerTotal(b) <= getMinStockKontainer(b)) || [];
+
     return {
       totalSalesMonth,
       ordersToday,
       totalMaterials: bahanBakuData?.length || 0,
       lowStockCount: lowStockItems.length,
-      lowStockItems
+      lowStockItems,
+      lowKontainerCount: lowKontainerItems.length,
+      lowKontainerItems
     };
   }, [penjualanData, bahanBakuData]);
 
@@ -101,7 +114,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats Bento Box */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6">
         {[
           { 
             label: "Penjualan Bulan Ini", 
@@ -125,21 +138,23 @@ export default function DashboardPage() {
             color: "bg-slate-50 text-slate-700" 
           },
           { 
-            label: "Perlu Restock", 
-            value: stats.lowStockCount.toString(), 
+            label: "Restock Kontainer", 
+            value: stats.lowKontainerCount.toString(), 
             change: "Warning", 
             icon: AlertTriangle, 
-            color: stats.lowStockCount > 0 ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600" 
+            color: stats.lowKontainerCount > 0 ? "bg-rose-50 text-rose-600" : "bg-emerald-50 text-emerald-600" 
           },
         ].map((stat, i) => (
-          <Card key={i} className="border-none shadow-sm rounded-3xl md:rounded-[2.5rem] p-6 md:p-8 bg-white overflow-hidden relative group hover:shadow-xl transition-all duration-500">
-            <div className={cn("h-12 w-12 md:h-14 md:w-14 rounded-xl md:rounded-2xl flex items-center justify-center mb-4 md:mb-6 transition-transform group-hover:scale-110 group-hover:rotate-3", stat.color)}>
-              <stat.icon className="h-6 w-6 md:h-7 md:w-7" />
+          <Card key={i} className="border-none shadow-sm rounded-2xl md:rounded-[2.5rem] p-4 md:p-8 bg-white overflow-hidden relative group hover:shadow-xl transition-all duration-500 flex flex-col justify-between">
+            <div>
+              <div className={cn("h-10 w-10 md:h-14 md:w-14 rounded-xl md:rounded-2xl flex items-center justify-center mb-3 md:mb-6 transition-transform group-hover:scale-110 group-hover:rotate-3", stat.color)}>
+                <stat.icon className="h-5 w-5 md:h-7 md:w-7" />
+              </div>
+              <p className="text-[8px] md:text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] mb-1">{stat.label}</p>
             </div>
-            <p className="text-[9px] md:text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] mb-1">{stat.label}</p>
-            <div className="flex items-end justify-between">
-              <h3 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight">{stat.value}</h3>
-              <span className={cn("text-[8px] md:text-[9px] font-black px-2 py-1 rounded-lg", 
+            <div className="flex flex-col gap-1.5 md:flex-row md:items-end md:justify-between mt-auto">
+              <h3 className="text-sm sm:text-lg md:text-2xl font-black text-slate-900 tracking-tight truncate max-w-full">{stat.value}</h3>
+              <span className={cn("text-[7px] md:text-[9px] font-black px-1.5 py-0.5 md:py-1 rounded-md shrink-0 w-fit", 
                 stat.color.includes("emerald") ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-500")}>
                 {stat.change}
               </span>
@@ -201,13 +216,13 @@ export default function DashboardPage() {
 
         <Card className="lg:col-span-4 border-none shadow-sm rounded-3xl md:rounded-[3rem] bg-white p-6 md:p-10">
           <div className="flex items-center justify-between mb-6 md:mb-8">
-            <h3 className="text-lg md:text-xl font-black text-slate-900 uppercase italic">Restock Bahan</h3>
+            <h3 className="text-lg md:text-xl font-black text-slate-900 uppercase italic">Restock Kontainer</h3>
             <div className="h-8 w-8 rounded-full bg-slate-50 flex items-center justify-center cursor-pointer hover:bg-slate-100">
               <AlertTriangle className="h-4 w-4 text-rose-500" />
             </div>
           </div>
           <div className="space-y-4 md:space-y-6">
-            {stats.lowStockItems.length > 0 ? stats.lowStockItems.slice(0, 5).map((item) => (
+            {stats.lowKontainerItems.length > 0 ? stats.lowKontainerItems.slice(0, 5).map((item) => (
               <div key={item.id} className="flex items-start gap-3 md:gap-4 group cursor-pointer">
                 <div className="h-10 w-10 md:h-12 md:w-12 rounded-xl md:rounded-2xl bg-rose-50 flex items-center justify-center shrink-0 border border-rose-100">
                   <Package className="h-5 w-5 text-rose-500" />
@@ -218,21 +233,23 @@ export default function DashboardPage() {
                     <span className="text-[8px] md:text-[9px] text-rose-600 font-black ml-2 uppercase">Kritis</span>
                   </div>
                   <div className="flex items-center gap-2 mt-1">
-                    <p className="text-[8px] md:text-[9px] text-slate-500 font-bold uppercase tracking-tighter">Sisa Stok: {item.qtyBesar} {item.satuanBesar}</p>
+                    <p className="text-[8px] md:text-[9px] text-slate-500 font-bold uppercase tracking-tighter">
+                      Sisa: {item.qtyKontainerBesar || 0} {item.satuanBesar} / {item.qtyKontainerKecil || 0} {item.satuanKecil}
+                    </p>
                   </div>
                 </div>
               </div>
             )) : (
               <div className="py-16 md:py-20 text-center opacity-30 flex flex-col items-center gap-4">
                 <Package className="h-10 w-10 md:h-12 md:w-12" />
-                <p className="text-[9px] md:text-[10px] font-black uppercase tracking-widest">Stok Aman</p>
+                <p className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-emerald-600">Stok Kontainer Aman</p>
               </div>
             )}
           </div>
-          {stats.lowStockItems.length > 0 && (
+          {stats.lowKontainerItems.length > 0 && (
             <Link href="/stok/bahan-baku">
               <Button variant="ghost" className="w-full mt-8 md:mt-10 text-[9px] md:text-[10px] font-black text-primary hover:bg-primary/5 rounded-2xl md:rounded-[1.5rem] h-12 md:h-14 uppercase tracking-[0.2em] border-2 border-primary/5 gap-2">
-                Cek Gudang <ArrowRight className="h-3 w-3" />
+                Cek Logistik <ArrowRight className="h-3 w-3" />
               </Button>
             </Link>
           )}

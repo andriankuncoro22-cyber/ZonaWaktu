@@ -364,43 +364,44 @@ export default function LaporanStockLossPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-3 gap-2 md:gap-6">
-        <Card className="p-3 md:p-6 bg-gradient-to-br from-blue-50 to-blue-100/30 border-none shadow-sm rounded-2xl md:rounded-3xl relative overflow-hidden">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-6">
+        <Card className="p-4 md:p-6 bg-gradient-to-br from-blue-50 to-blue-100/30 border-none shadow-sm rounded-2xl md:rounded-3xl relative overflow-hidden">
           <div className="space-y-2 md:space-y-3">
             <div className="inline-flex p-1.5 md:p-2.5 rounded-xl bg-blue-500/10 text-blue-700">
               <TrendingUp className="h-3.5 w-3.5 md:h-5 md:w-5" />
             </div>
             <div>
-              <p className="text-[7px] md:text-[10px] font-black uppercase tracking-widest text-slate-500">Resep Terpakai</p>
-              <h3 className="text-xs sm:text-lg md:text-2xl font-black text-blue-900 mt-0.5 tabular-nums">
+              <p className="text-[8px] md:text-[10px] font-black uppercase tracking-widest text-slate-500">Resep Terpakai</p>
+              <h3 className="text-sm sm:text-lg md:text-2xl font-black text-blue-900 mt-0.5 tabular-nums">
                 {formatNumber(totalResepUsageAll)}
               </h3>
             </div>
           </div>
         </Card>
 
-        <Card className="p-3 md:p-6 bg-gradient-to-br from-indigo-50 to-indigo-100/30 border-none shadow-sm rounded-2xl md:rounded-3xl relative overflow-hidden">
+        <Card className="p-4 md:p-6 bg-gradient-to-br from-indigo-50 to-indigo-100/30 border-none shadow-sm rounded-2xl md:rounded-3xl relative overflow-hidden">
           <div className="space-y-2 md:space-y-3">
             <div className="inline-flex p-1.5 md:p-2.5 rounded-xl bg-indigo-500/10 text-indigo-700">
               <Package className="h-3.5 w-3.5 md:h-5 md:w-5" />
             </div>
             <div>
-              <p className="text-[7px] md:text-[10px] font-black uppercase tracking-widest text-slate-500">Pemakaian Fisik</p>
-              <h3 className="text-xs sm:text-lg md:text-2xl font-black text-indigo-900 mt-0.5 tabular-nums">
+              <p className="text-[8px] md:text-[10px] font-black uppercase tracking-widest text-slate-500">Pemakaian Fisik</p>
+              <h3 className="text-sm sm:text-lg md:text-2xl font-black text-indigo-900 mt-0.5 tabular-nums">
                 {formatNumber(totalFisikUsageAll)}
               </h3>
             </div>
           </div>
         </Card>
 
-        <Card className="p-3 md:p-6 bg-gradient-to-br from-rose-50 to-rose-100/30 border-none shadow-sm rounded-2xl md:rounded-3xl relative overflow-hidden">
+        <Card className="p-4 md:p-6 bg-gradient-to-br from-rose-50 to-rose-100/30 border-none shadow-sm rounded-2xl md:rounded-3xl relative overflow-hidden col-span-2 sm:col-span-1">
           <div className="space-y-2 md:space-y-3">
             <div className="inline-flex p-1.5 md:p-2.5 rounded-xl bg-rose-500/10 text-rose-700">
               <AlertTriangle className="h-3.5 w-3.5 md:h-5 md:w-5" />
             </div>
             <div>
-              <p className="text-[7px] md:text-[10px] font-black uppercase tracking-widest text-slate-500">Stok Loss (Rupiah)</p>
-              <h3 className="text-xs sm:text-lg md:text-2xl font-black text-rose-900 mt-0.5 tabular-nums">
+              <p className="text-[8px] md:text-[10px] font-black uppercase tracking-widest text-slate-500">Stok Loss (Rupiah)</p>
+              <h3 className="text-sm sm:text-lg md:text-2xl font-black text-rose-900 mt-0.5 tabular-nums">
                 Rp {formatNumber(totalStockLossRupiah)}
               </h3>
             </div>
@@ -423,68 +424,132 @@ export default function LaporanStockLossPage() {
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : reportRows.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs min-w-[900px]">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-100">
-                    <th className="px-5 py-3.5 font-black uppercase text-slate-500">Kode</th>
-                    <th className="px-4 py-3.5 font-black uppercase text-slate-500">Nama Bahan</th>
-                    <th className="px-4 py-3.5 font-black uppercase text-slate-500 text-center">Pemakaian Resep (Excel)</th>
-                    <th className="px-4 py-3.5 font-black uppercase text-slate-500 text-center">Opname Kemarin</th>
-                    <th className="px-4 py-3.5 font-black uppercase text-slate-500 text-center">Opname Hari Ini</th>
-                    <th className="px-4 py-3.5 font-black uppercase text-slate-500 text-center">Belanja Bahan</th>
-                    <th className="px-4 py-3.5 font-black uppercase text-slate-500 text-center">Mutasi Pengambilan</th>
-                    <th className="px-4 py-3.5 font-black uppercase text-slate-500 text-center">Pemakaian Fisik</th>
-                    <th className="px-4 py-3.5 font-black uppercase text-slate-500 text-center">Selisih Loss (Hilang)</th>
-                    <th className="px-5 py-3.5 font-black uppercase text-slate-500 text-right">Kalibrasi Nominal</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {reportRows.map((row) => (
-                    <tr key={row.id} className="hover:bg-slate-50/50">
-                      <td className="px-5 py-4 font-bold text-slate-900">{row.code}</td>
-                      <td className="px-4 py-4 font-black uppercase italic text-slate-800">{row.nama}</td>
-                      <td className="px-4 py-4 text-center font-bold text-blue-600 tabular-nums">
-                        {formatNumber(row.resepUsage)} <span className="text-[10px] text-slate-400 font-semibold">{row.satuanKecil}</span>
-                      </td>
-                      <td className="px-4 py-4 text-center font-bold text-slate-700 tabular-nums">
-                        {formatNumber(row.prevStockKecil)} <span className="text-[10px] text-slate-400 font-semibold">{row.satuanKecil}</span>
-                      </td>
-                      <td className="px-4 py-4 text-center font-bold text-slate-700 tabular-nums">
-                        {formatNumber(row.currStockKecil)} <span className="text-[10px] text-slate-400 font-semibold">{row.satuanKecil}</span>
-                      </td>
-                      <td className="px-4 py-4 text-center font-bold text-slate-600 tabular-nums">
-                        {formatNumber(row.belanjaKecil)} <span className="text-[10px] text-slate-400 font-semibold">{row.satuanKecil}</span>
-                      </td>
-                      <td className="px-4 py-4 text-center font-bold text-amber-600 tabular-nums">
-                        {formatNumber(row.pengambilanKecil)} <span className="text-[10px] text-slate-400 font-semibold">{row.satuanKecil}</span>
-                      </td>
-                      <td className="px-4 py-4 text-center font-black text-indigo-900 tabular-nums">
-                        {formatNumber(row.pemakaianFisik)} <span className="text-[10px] text-slate-400 font-semibold">{row.satuanKecil}</span>
-                      </td>
-                      <td className="px-4 py-4 text-center font-black tabular-nums">
-                        {row.stockLoss === 0 ? (
-                          <span className="text-emerald-600">0</span>
-                        ) : row.stockLoss > 0 ? (
-                          <span className="text-rose-600">+{formatNumber(row.stockLoss)} {row.satuanKecil}</span>
-                        ) : (
-                          <span className="text-emerald-600">{formatNumber(row.stockLoss)} {row.satuanKecil}</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-4 text-right font-black tabular-nums text-xs">
-                        {row.calibrationNominal === 0 ? (
-                          <span className="text-emerald-600">Rp 0</span>
-                        ) : row.calibrationNominal > 0 ? (
-                          <span className="text-rose-600">+Rp {formatNumber(Math.round(row.calibrationNominal))}</span>
-                        ) : (
-                          <span className="text-emerald-600">-Rp {formatNumber(Math.round(Math.abs(row.calibrationNominal)))}</span>
-                        )}
-                      </td>
+            <>
+              {/* Desktop Table View */}
+              <div className="overflow-x-auto hidden md:block">
+                <table className="w-full text-left text-xs min-w-[900px]">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-100">
+                      <th className="px-5 py-3.5 font-black uppercase text-slate-500">Kode</th>
+                      <th className="px-4 py-3.5 font-black uppercase text-slate-500">Nama Bahan</th>
+                      <th className="px-4 py-3.5 font-black uppercase text-slate-500 text-center">Pemakaian Resep (Excel)</th>
+                      <th className="px-4 py-3.5 font-black uppercase text-slate-500 text-center">Opname Kemarin</th>
+                      <th className="px-4 py-3.5 font-black uppercase text-slate-500 text-center">Opname Hari Ini</th>
+                      <th className="px-4 py-3.5 font-black uppercase text-slate-500 text-center">Belanja Bahan</th>
+                      <th className="px-4 py-3.5 font-black uppercase text-slate-500 text-center">Mutasi Pengambilan</th>
+                      <th className="px-4 py-3.5 font-black uppercase text-slate-500 text-center">Pemakaian Fisik</th>
+                      <th className="px-4 py-3.5 font-black uppercase text-slate-500 text-center">Selisih Loss (Hilang)</th>
+                      <th className="px-5 py-3.5 font-black uppercase text-slate-500 text-right">Kalibrasi Nominal</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {reportRows.map((row) => (
+                      <tr key={row.id} className="hover:bg-slate-50/50">
+                        <td className="px-5 py-4 font-bold text-slate-900">{row.code}</td>
+                        <td className="px-4 py-4 font-black uppercase italic text-slate-800">{row.nama}</td>
+                        <td className="px-4 py-4 text-center font-bold text-blue-600 tabular-nums">
+                          {formatNumber(row.resepUsage)} <span className="text-[10px] text-slate-400 font-semibold">{row.satuanKecil}</span>
+                        </td>
+                        <td className="px-4 py-4 text-center font-bold text-slate-700 tabular-nums">
+                          {formatNumber(row.prevStockKecil)} <span className="text-[10px] text-slate-400 font-semibold">{row.satuanKecil}</span>
+                        </td>
+                        <td className="px-4 py-4 text-center font-bold text-slate-700 tabular-nums">
+                          {formatNumber(row.currStockKecil)} <span className="text-[10px] text-slate-400 font-semibold">{row.satuanKecil}</span>
+                        </td>
+                        <td className="px-4 py-4 text-center font-bold text-slate-600 tabular-nums">
+                          {formatNumber(row.belanjaKecil)} <span className="text-[10px] text-slate-400 font-semibold">{row.satuanKecil}</span>
+                        </td>
+                        <td className="px-4 py-4 text-center font-bold text-amber-600 tabular-nums">
+                          {formatNumber(row.pengambilanKecil)} <span className="text-[10px] text-slate-400 font-semibold">{row.satuanKecil}</span>
+                        </td>
+                        <td className="px-4 py-4 text-center font-black text-indigo-900 tabular-nums">
+                          {formatNumber(row.pemakaianFisik)} <span className="text-[10px] text-slate-400 font-semibold">{row.satuanKecil}</span>
+                        </td>
+                        <td className="px-4 py-4 text-center font-black tabular-nums">
+                          {row.stockLoss === 0 ? (
+                            <span className="text-emerald-600">0</span>
+                          ) : row.stockLoss > 0 ? (
+                            <span className="text-rose-600">+{formatNumber(row.stockLoss)} {row.satuanKecil}</span>
+                          ) : (
+                            <span className="text-emerald-600">{formatNumber(row.stockLoss)} {row.satuanKecil}</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-4 text-right font-black tabular-nums text-xs">
+                          {row.calibrationNominal === 0 ? (
+                            <span className="text-emerald-600">Rp 0</span>
+                          ) : row.calibrationNominal > 0 ? (
+                            <span className="text-rose-600">+Rp {formatNumber(Math.round(row.calibrationNominal))}</span>
+                          ) : (
+                            <span className="text-emerald-600">-Rp {formatNumber(Math.round(Math.abs(row.calibrationNominal)))}</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile List Cards View */}
+              <div className="md:hidden space-y-4 p-4 bg-slate-50/30">
+                {reportRows.map((row) => (
+                  <Card key={row.id} className="rounded-[1.5rem] bg-white border border-slate-100 p-4 shadow-sm hover:shadow-md transition-shadow relative">
+                    <div className="flex justify-between items-start gap-2 mb-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex px-2 py-0.5 rounded bg-primary/5 border border-primary/10 text-[8px] font-bold text-primary">
+                            {row.code}
+                          </span>
+                        </div>
+                        <h4 className="text-xs font-black text-slate-900 uppercase italic">
+                          {row.nama}
+                        </h4>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">Stock Loss</span>
+                        <span className={`text-sm font-black tabular-nums ${row.stockLoss > 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                          {row.stockLoss === 0 ? "0" : row.stockLoss > 0 ? `+${formatNumber(row.stockLoss)}` : formatNumber(row.stockLoss)}
+                          <span className="text-[10px] text-slate-400 font-bold uppercase ml-1">{row.satuanKecil}</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-3 border-t border-slate-100/60 text-[10px] leading-tight mb-2">
+                      <div className="bg-slate-50 p-2 rounded-lg flex justify-between items-center">
+                        <span className="text-slate-400 font-bold">Resep (Excel)</span>
+                        <span className="font-black text-blue-600 tabular-nums">{formatNumber(row.resepUsage)} {row.satuanKecil}</span>
+                      </div>
+                      <div className="bg-slate-50 p-2 rounded-lg flex justify-between items-center">
+                        <span className="text-slate-400 font-bold">Fisik Terpakai</span>
+                        <span className="font-black text-indigo-900 tabular-nums">{formatNumber(row.pemakaianFisik)} {row.satuanKecil}</span>
+                      </div>
+                      <div className="bg-slate-50 p-2 rounded-lg flex justify-between items-center">
+                        <span className="text-slate-400 font-bold">Opname Kemarin</span>
+                        <span className="font-black text-slate-700 tabular-nums">{formatNumber(row.prevStockKecil)} {row.satuanKecil}</span>
+                      </div>
+                      <div className="bg-slate-50 p-2 rounded-lg flex justify-between items-center">
+                        <span className="text-slate-400 font-bold">Opname Hari Ini</span>
+                        <span className="font-black text-slate-700 tabular-nums">{formatNumber(row.currStockKecil)} {row.satuanKecil}</span>
+                      </div>
+                      <div className="bg-slate-50 p-2 rounded-lg flex justify-between items-center">
+                        <span className="text-slate-400 font-bold">Belanja</span>
+                        <span className="font-black text-slate-700 tabular-nums">{formatNumber(row.belanjaKecil)} {row.satuanKecil}</span>
+                      </div>
+                      <div className="bg-slate-50 p-2 rounded-lg flex justify-between items-center">
+                        <span className="text-slate-400 font-bold">Ambil Gudang</span>
+                        <span className="font-black text-amber-600 tabular-nums">{formatNumber(row.pengambilanKecil)} {row.satuanKecil}</span>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100/60 flex justify-between items-center text-[10px]">
+                      <span className="text-slate-400 font-bold">Kalibrasi Nominal</span>
+                      <span className={`font-black tabular-nums text-xs ${row.calibrationNominal > 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                        {row.calibrationNominal === 0 ? "Rp 0" : row.calibrationNominal > 0 ? `+Rp ${formatNumber(Math.round(row.calibrationNominal))}` : `-Rp ${formatNumber(Math.round(Math.abs(row.calibrationNominal)))}`}
+                      </span>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </>
           ) : (
             <div className="py-20 text-center font-bold uppercase text-slate-400 text-xs tracking-widest">
               Tidak ada data stock loss untuk tanggal ini

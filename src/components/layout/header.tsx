@@ -1,5 +1,6 @@
 "use client";
 
+import React, { useState } from "react";
 import { Search, Bell, Coffee, ChevronDown, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -13,20 +14,21 @@ export function Header() {
   const db = useFirestore();
   const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
   const { data: settings } = useDoc(settingsRef);
+  const [isOpen, setIsOpen] = useState(false);
 
   return (
     <header className="h-20 md:h-24 bg-transparent flex items-center justify-between px-4 md:px-8 z-40">
       <div className="flex items-center gap-4 md:gap-8">
         {/* MOBILE HAMBURGER MENU */}
         <div className="lg:hidden">
-          <Sheet>
+          <Sheet open={isOpen} onOpenChange={setIsOpen}>
             <SheetTrigger asChild>
               <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl bg-white shadow-sm">
                 <Menu className="h-5 w-5 text-slate-600" />
               </Button>
             </SheetTrigger>
             <SheetContent side="left" className="p-0 border-none w-72">
-              <Sidebar />
+              <Sidebar onItemClick={() => setIsOpen(false)} />
             </SheetContent>
           </Sheet>
         </div>

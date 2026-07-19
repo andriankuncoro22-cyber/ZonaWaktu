@@ -17,8 +17,10 @@ import {
   FileText,
   AlertCircle,
   Building2,
-  Store
+  Store,
+  FileSpreadsheet
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,6 +82,130 @@ export default function InputBahanBakuPage() {
   // Fetch Histori Input Bahan
   const historyQuery = useMemoFirebase(() => query(collection(db, "log_pembelian_bahan"), orderBy("createdAt", "desc"), limit(10)), [db]);
   const { data: history } = useCollection(historyQuery);
+
+  const downloadExcelTemplate = (location: "gudang" | "kontainer", pType: "supplier" | "belanja") => {
+    if (!materials || materials.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Gagal Mengunduh",
+        description: "Data master bahan baku belum termuat.",
+      });
+      return;
+    }
+
+    const filteredMaterials = (materials as any[]).filter(m => {
+      const isBeliSendiri = m.metodePembelian === "Beli Sendiri";
+      return pType === "belanja" ? isBeliSendiri : !isBeliSendiri;
+    });
+
+    if (filteredMaterials.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Template Kosong",
+        description: `Tidak ada bahan baku master dengan metode: ${pType === "belanja" ? "Beli Sendiri" : "Supliyer"}.`,
+      });
+      return;
+    }
+
+    const templateRows = filteredMaterials.map((m: any) => ({
+      "KODE BAHAN": m.code || "",
+      "NAMA BAHAN": m.nama || "",
+      "SATUAN BESAR": m.satuanBesar || "",
+      "JUMLAH (SATUAN BESAR)": 0,
+      "ISI SATUAN KECIL PER UNIT": Number(m.qtyKecil || 1),
+      "HARGA BELI PER SATUAN BESAR": 0,
+      "SATUAN KECIL": m.satuanKecil || "",
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(templateRows);
+    const wb = XLSX.utils.book_new();
+    const sheetName = `${location === "gudang" ? "Gudang" : "Kontainer"} - ${pType === "belanja" ? "Beli Sendiri" : "Supliyer"}`;
+    XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 30));
+    XLSX.writeFile(wb, `Template_Input_${location === "gudang" ? "Gudang" : "Kontainer"}_${pType === "belanja" ? "BeliSendiri" : "Supliyer"}.xlsx`);
+  };
+
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = new Uint8Array(event.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: "array" });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        
+        const rawRows = XLSX.utils.sheet_to_json<any>(worksheet);
+        if (!rawRows || rawRows.length === 0) {
+          toast({
+            variant: "destructive",
+            title: "Excel Kosong",
+            description: "Format Excel tidak dikenali atau tidak memiliki baris data.",
+          });
+          return;
+        }
+
+        const fileNameLower = file.name.toLowerCase();
+        const sheetNameLower = (firstSheetName || "").toLowerCase();
+
+        const isGudang = fileNameLower.includes("gudang") || sheetNameLower.includes("gudang");
+        const detectedLocation = isGudang ? "gudang" : "kontainer";
+
+        const isBeliSendiri = fileNameLower.includes("beli") || fileNameLower.includes("belanja") || sheetNameLower.includes("beli") || sheetNameLower.includes("belanja");
+        const detectedPurchaseType = isBeliSendiri ? "belanja" : "supplier";
+
+        const parsedItems: InputItem[] = [];
+        rawRows.forEach((row: any) => {
+          const code = String(row["KODE BAHAN"] || "").trim().toUpperCase();
+          const qty = Number(row["JUMLAH (SATUAN BESAR)"] || 0);
+          const price = Number(row["HARGA BELI PER SATUAN BESAR"] || 0);
+          const qtyKecilPerUnit = Number(row["ISI SATUAN KECIL PER UNIT"] || 1);
+
+          if (!code || qty <= 0) return;
+
+          const mat = (materials as any[])?.find(m => String(m.code || "").trim().toUpperCase() === code);
+          if (mat) {
+            parsedItems.push({
+              materialId: mat.id,
+              qty,
+              qtyKecilPerUnit,
+              price
+            });
+          }
+        });
+
+        if (parsedItems.length === 0) {
+          toast({
+            variant: "destructive",
+            title: "Tidak Ada Item Valid",
+            description: "Tidak ditemukan baris bahan baku dengan Jumlah (Satuan Besar) > 0 yang cocok dengan master data.",
+          });
+          return;
+        }
+
+        setItems(parsedItems);
+        setTargetLocation(detectedLocation);
+        setPurchaseType(detectedPurchaseType);
+
+        toast({
+          title: "Excel Berhasil Diimpor",
+          description: `Berhasil memuat ${parsedItems.length} item (${detectedPurchaseType === "belanja" ? "Beli Sendiri" : "Supliyer"}) untuk ${detectedLocation === "gudang" ? "Gudang Utama" : "Kontainer"}. Silakan periksa nomor nota dan simpan.`,
+        });
+
+      } catch (err) {
+        console.error("Gagal membaca file Excel:", err);
+        toast({
+          variant: "destructive",
+          title: "Gagal Mengimpor Excel",
+          description: "Terjadi kesalahan saat membaca struktur file Excel Anda.",
+        });
+      }
+    };
+    reader.onloadend = () => {};
+    reader.readAsArrayBuffer(file);
+    e.target.value = "";
+  };
 
   const handleAddItem = () => {
     setItems([...items, { materialId: "", qty: 0, qtyKecilPerUnit: 1, price: 0 }]);
@@ -360,6 +486,69 @@ export default function InputBahanBakuPage() {
             Penerimaan Barang ke Gudang / Kontainer • Terpisah Stok Kecil Gudang & Kontainer
           </p>
         </div>
+        <div className="flex flex-wrap gap-3">
+          {/* Download Template Buttons */}
+          <div className="flex bg-slate-50 p-1.5 rounded-xl border border-slate-100 items-center flex-wrap gap-1.5">
+            <span className="text-[8px] font-black uppercase tracking-wider px-2 text-slate-400">Unduh Format:</span>
+            
+            <div className="flex items-center bg-white rounded-lg border border-slate-150 p-0.5 shadow-sm">
+              <span className="text-[7px] font-black text-slate-500 uppercase px-1.5">Supliyer</span>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => downloadExcelTemplate("kontainer", "supplier")}
+                className="h-6 rounded bg-slate-50 hover:bg-slate-100 text-[8px] font-bold uppercase tracking-wider px-2"
+              >
+                Kontainer
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => downloadExcelTemplate("gudang", "supplier")}
+                className="h-6 rounded bg-slate-50 hover:bg-slate-100 text-[8px] font-bold uppercase tracking-wider px-2 ml-0.5"
+              >
+                Gudang
+              </Button>
+            </div>
+
+            <div className="flex items-center bg-white rounded-lg border border-slate-150 p-0.5 shadow-sm">
+              <span className="text-[7px] font-black text-amber-600 uppercase px-1.5">Beli Sendiri</span>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => downloadExcelTemplate("kontainer", "belanja")}
+                className="h-6 rounded bg-slate-50 hover:bg-slate-100 text-[8px] font-bold uppercase tracking-wider px-2"
+              >
+                Kontainer
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => downloadExcelTemplate("gudang", "belanja")}
+                className="h-6 rounded bg-slate-50 hover:bg-slate-100 text-[8px] font-bold uppercase tracking-wider px-2 ml-0.5"
+              >
+                Gudang
+              </Button>
+            </div>
+          </div>
+
+          {/* Import Button */}
+          <div className="relative">
+            <input
+              type="file"
+              accept=".xlsx, .xls"
+              onChange={handleImportExcel}
+              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 rounded-xl border-slate-200 bg-white px-4 text-[9px] font-black uppercase tracking-widest gap-2 shadow-sm"
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" /> Impor Excel (Suntik)
+            </Button>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -475,13 +664,13 @@ export default function InputBahanBakuPage() {
 
                       return (
                         <div key={index} className={cn(
-                          "relative grid grid-cols-1 lg:grid-cols-12 gap-4 items-end p-4 sm:p-6 rounded-[2rem] border transition-all animate-in fade-in slide-in-from-top-2",
+                          "relative grid grid-cols-2 lg:grid-cols-12 gap-4 items-end p-4 sm:p-6 rounded-[2rem] border transition-all animate-in fade-in slide-in-from-top-2",
                           isBeliSendiri ? "bg-amber-50/30 border-amber-200/60" : "bg-slate-50 border-slate-100"
                         )}>
                           {/* Choice of Material */}
                           <div className={cn(
-                            "w-full space-y-2",
-                            isBeliSendiri ? "lg:col-span-3" : "lg:col-span-5"
+                            "w-full space-y-2 pr-6 lg:pr-0",
+                            isBeliSendiri ? "col-span-1 lg:col-span-3" : "col-span-2 lg:col-span-5"
                           )}>
                             <div className="flex items-center justify-between">
                               <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400">Pilih Bahan Baku</Label>
@@ -513,7 +702,7 @@ export default function InputBahanBakuPage() {
                           
                           {/* Isi per Pack/Box/Sak (Only Beli Sendiri) */}
                           {isBeliSendiri && (
-                            <div className="w-full lg:col-span-2 space-y-2">
+                            <div className="col-span-1 lg:col-span-2 w-full space-y-2">
                               <Label className="text-[9px] font-black uppercase tracking-widest text-amber-700 block truncate">
                                 Isi / {matDetail?.satuanBesar || 'Kemasan'} <span className="text-rose-500">*</span>
                               </Label>
@@ -526,6 +715,7 @@ export default function InputBahanBakuPage() {
                                   className="rounded-xl border-amber-300 focus:border-amber-500 h-12 bg-amber-50/70 font-black text-center text-amber-900 shadow-sm pr-10 sm:pr-12 text-xs sm:text-sm"
                                   placeholder={String(matDetail?.qtyKecil || 1)}
                                   required={isBeliSendiri}
+                                  disabled={!item.materialId}
                                 />
                                 <span className="absolute right-2 sm:right-2.5 text-[8px] sm:text-[9px] font-black uppercase text-amber-800 bg-amber-200/80 px-1.5 py-0.5 rounded pointer-events-none">
                                   {matDetail?.satuanKecil || 'Pcs'}
@@ -535,7 +725,7 @@ export default function InputBahanBakuPage() {
                           )}
 
                           {/* Purchase Quantity */}
-                          <div className="w-full lg:col-span-2 space-y-2">
+                          <div className="col-span-1 lg:col-span-2 w-full space-y-2">
                             <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block">Jumlah</Label>
                             <Input 
                               type="number" 
@@ -544,11 +734,12 @@ export default function InputBahanBakuPage() {
                               onChange={(e) => handleItemChange(index, 'qty', Number(e.target.value))}
                               className="rounded-xl border-none h-12 bg-white shadow-sm font-black text-center text-xs sm:text-sm"
                               placeholder="0"
+                              disabled={!item.materialId}
                             />
                           </div>
 
                           {/* Unit Display */}
-                          <div className="w-full lg:col-span-1 space-y-2">
+                          <div className="col-span-1 lg:col-span-1 w-full space-y-2">
                             <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 block text-center">Satuan</Label>
                             <div className="h-12 flex items-center justify-center bg-white rounded-xl shadow-sm text-xs font-black uppercase text-slate-500 border border-slate-100/50">
                               {matDetail?.satuanBesar || "-"}
@@ -556,7 +747,7 @@ export default function InputBahanBakuPage() {
                           </div>
 
                           {/* Harga Satuan per Unit Besar */}
-                          <div className="w-full lg:col-span-2 space-y-2">
+                          <div className="col-span-1 lg:col-span-2 w-full space-y-2">
                             <Label className="text-[9px] font-black uppercase tracking-widest text-slate-400 truncate block">
                               Harga / {matDetail?.satuanBesar || 'Unit'}
                             </Label>
@@ -567,11 +758,12 @@ export default function InputBahanBakuPage() {
                               onChange={(e) => handleItemChange(index, 'price', Number(e.target.value.replace(/\D/g, "")))}
                               className="rounded-xl border-none h-12 bg-white shadow-sm font-black text-center text-xs sm:text-sm"
                               placeholder="0"
+                              disabled={!item.materialId}
                             />
                           </div>
 
                           {/* Total Pembelian (Harga Satuan x Jumlah) */}
-                          <div className="w-full lg:col-span-2 space-y-2">
+                          <div className="col-span-1 lg:col-span-2 w-full space-y-2">
                             <Label className="text-[9px] font-black uppercase tracking-widest text-emerald-700 truncate block">Total</Label>
                             <div className="h-12 flex items-center justify-center bg-emerald-50/80 rounded-xl border border-emerald-200/80 shadow-sm font-black text-emerald-900 text-xs sm:text-sm px-1.5 text-center">
                               Rp {Number((item.qty || 0) * (item.price || 0)).toLocaleString('id-ID')}

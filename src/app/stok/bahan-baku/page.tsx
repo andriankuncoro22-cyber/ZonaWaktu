@@ -405,13 +405,13 @@ export default function StokBahanBakuPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="gudang" className="w-full">
+      <Tabs defaultValue="kontainer" className="w-full">
         <TabsList className="bg-white p-1.5 md:p-2 rounded-2xl md:rounded-[2rem] shadow-sm border border-slate-100 h-14 md:h-16 w-full max-w-md grid grid-cols-2 gap-2 mb-6 md:mb-8 mx-auto md:mx-0">
-          <TabsTrigger value="gudang" className="rounded-xl md:rounded-2xl font-black uppercase text-[9px] md:text-[10px] tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all">
-            Gudang Utama
-          </TabsTrigger>
           <TabsTrigger value="kontainer" className="rounded-xl md:rounded-2xl font-black uppercase text-[9px] md:text-[10px] tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all">
             Area Kontainer
+          </TabsTrigger>
+          <TabsTrigger value="gudang" className="rounded-xl md:rounded-2xl font-black uppercase text-[9px] md:text-[10px] tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all">
+            Gudang Utama
           </TabsTrigger>
         </TabsList>
 

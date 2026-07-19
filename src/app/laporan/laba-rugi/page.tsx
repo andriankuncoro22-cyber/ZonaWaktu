@@ -320,44 +320,44 @@ export default function LabaRugiPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card className="rounded-[2.5rem] border-none shadow-sm bg-white p-8 group hover:shadow-xl transition-all duration-500 border border-slate-50">
-          <div className="bg-emerald-50 w-14 h-14 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-            <Wallet className="h-7 w-7 text-emerald-600" />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+        <Card className="rounded-[1.5rem] md:rounded-[2.5rem] border-none shadow-sm bg-white p-4 md:p-8 group hover:shadow-xl transition-all duration-500 border border-slate-50">
+          <div className="bg-emerald-50 w-10 h-10 md:w-14 md:h-14 rounded-xl md:rounded-2xl flex items-center justify-center mb-3 md:mb-6 group-hover:scale-110 transition-transform shrink-0">
+            <Wallet className="h-5 w-5 md:h-7 md:w-7 text-emerald-600" />
           </div>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Total Pendapatan</p>
-          <h3 className="text-3xl font-black text-slate-900 italic tracking-tighter">
+          <p className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-[0.1em] md:tracking-[0.2em] mb-1 truncate">Total Pendapatan</p>
+          <h3 className="text-sm sm:text-2xl md:text-3xl font-black text-slate-900 italic tracking-tighter truncate">
             {loading ? "..." : `Rp ${totals.pendapatan.toLocaleString('id-ID')}`}
           </h3>
         </Card>
 
-        <Card className="rounded-[2.5rem] border-none shadow-sm bg-white p-8 group hover:shadow-xl transition-all duration-500 border border-slate-50">
-          <div className="bg-amber-50 w-14 h-14 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-            <TrendingUp className="h-7 w-7 text-amber-600" />
+        <Card className="rounded-[1.5rem] md:rounded-[2.5rem] border-none shadow-sm bg-white p-4 md:p-8 group hover:shadow-xl transition-all duration-500 border border-slate-50">
+          <div className="bg-amber-50 w-10 h-10 md:w-14 md:h-14 rounded-xl md:rounded-2xl flex items-center justify-center mb-3 md:mb-6 group-hover:scale-110 transition-transform shrink-0">
+            <TrendingUp className="h-5 w-5 md:h-7 md:w-7 text-amber-600" />
           </div>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Total HPP</p>
-          <h3 className="text-3xl font-black text-amber-700 italic tracking-tighter">
+          <p className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-[0.1em] md:tracking-[0.2em] mb-1 truncate">Total HPP</p>
+          <h3 className="text-sm sm:text-2xl md:text-3xl font-black text-amber-700 italic tracking-tighter truncate">
             {loading ? "..." : `Rp ${totals.hpp.toLocaleString('id-ID')}`}
           </h3>
         </Card>
 
-        <Card className="rounded-[2.5rem] border-none shadow-sm bg-white p-8 group hover:shadow-xl transition-all duration-500 border border-slate-50">
-          <div className="bg-primary/5 w-14 h-14 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-            <TrendingUp className="h-7 w-7 text-primary" />
+        <Card className="rounded-[1.5rem] md:rounded-[2.5rem] border-none shadow-sm bg-white p-4 md:p-8 group hover:shadow-xl transition-all duration-500 border border-slate-50">
+          <div className="bg-primary/5 w-10 h-10 md:w-14 md:h-14 rounded-xl md:rounded-2xl flex items-center justify-center mb-3 md:mb-6 group-hover:scale-110 transition-transform shrink-0">
+            <TrendingUp className="h-5 w-5 md:h-7 md:w-7 text-primary" />
           </div>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Laba Kotor</p>
-          <h3 className="text-3xl font-black text-primary italic tracking-tighter">
+          <p className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-[0.1em] md:tracking-[0.2em] mb-1 truncate">Laba Kotor</p>
+          <h3 className="text-sm sm:text-2xl md:text-3xl font-black text-primary italic tracking-tighter truncate">
             {loading ? "..." : `Rp ${totals.keuntungan.toLocaleString('id-ID')}`}
           </h3>
         </Card>
 
-        <Card className="rounded-[2.5rem] border-none shadow-sm bg-slate-900 p-8 group hover:shadow-xl transition-all duration-500 text-white">
-          <div className="bg-white/10 w-14 h-14 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-            <ShoppingBag className="h-7 w-7 text-white" />
+        <Card className="rounded-[1.5rem] md:rounded-[2.5rem] border-none shadow-sm bg-slate-900 p-4 md:p-8 group hover:shadow-xl transition-all duration-500 text-white">
+          <div className="bg-white/10 w-10 h-10 md:w-14 md:h-14 rounded-xl md:rounded-2xl flex items-center justify-center mb-3 md:mb-6 group-hover:scale-110 transition-transform shrink-0">
+            <ShoppingBag className="h-5 w-5 md:h-7 md:w-7 text-white" />
           </div>
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Produk Terjual</p>
-          <h3 className="text-3xl font-black italic tracking-tighter">
-            {loading ? "..." : totals.qty} <span className="text-xs opacity-50 font-bold uppercase tracking-widest">Item</span>
+          <p className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-[0.1em] md:tracking-[0.2em] mb-1 truncate">Produk Terjual</p>
+          <h3 className="text-sm sm:text-2xl md:text-3xl font-black italic tracking-tighter truncate">
+            {loading ? "..." : totals.qty} <span className="text-[10px] opacity-50 font-bold uppercase tracking-widest">Item</span>
           </h3>
         </Card>
       </div>
@@ -383,7 +383,8 @@ export default function LabaRugiPage() {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* Desktop Table View */}
+        <div className="overflow-x-auto hidden md:block">
           <table className="w-full text-left">
             <thead>
               <tr className="bg-slate-50/50">
@@ -439,6 +440,69 @@ export default function LabaRugiPage() {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile List Cards View */}
+        <div className="md:hidden">
+          {loading ? (
+            <div className="py-20 text-center">
+              <div className="flex flex-col items-center gap-4">
+                <div className="h-8 w-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Menyusun Laporan...</p>
+              </div>
+            </div>
+          ) : productSummary.length > 0 ? (
+            <div className="p-4 space-y-4 bg-slate-50/30">
+              {productSummary.map((item: any) => (
+                <Card key={item.code} className="rounded-[1.5rem] bg-white border border-slate-100 p-4 shadow-sm hover:shadow-md transition-shadow relative">
+                  <div className="flex justify-between items-start gap-2 mb-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex px-2 py-0.5 rounded bg-primary/5 border border-primary/10 text-[8px] font-bold text-primary">
+                          {item.code}
+                        </span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider bg-slate-100 text-slate-500">
+                          {item.kategori}
+                        </span>
+                      </div>
+                      <h4 className="text-xs font-black text-slate-900 uppercase italic">
+                        {item.name}
+                      </h4>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block">Terjual</span>
+                      <span className="text-sm font-black text-slate-800 tabular-nums">
+                        {item.total} <span className="text-[10px] text-slate-400 font-bold uppercase">Pcs</span>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-100/60 text-center">
+                    <div>
+                      <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider block">Pendapatan</span>
+                      <span className="text-[10px] font-black text-slate-900 tabular-nums">Rp {item.pendapatan.toLocaleString('id-ID')}</span>
+                    </div>
+                    <div>
+                      <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider block">Keuntungan</span>
+                      <span className="text-[10px] font-black text-emerald-600 tabular-nums">Rp {item.keuntungan.toLocaleString('id-ID')}</span>
+                    </div>
+                    <div>
+                      <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider block">Margin</span>
+                      <span className="text-[10px] font-black text-slate-700 tabular-nums">{item.margin.toFixed(1)}%</span>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <div className="py-32 text-center">
+              <div className="flex flex-col items-center gap-4 opacity-30">
+                <ShoppingBag className="h-16 w-16" />
+                <p className="text-xs font-black uppercase tracking-[0.3em]">Tidak ada transaksi</p>
+                <p className="text-[9px] font-bold uppercase text-slate-400">Silakan pilih tanggal dan klik Tampilkan Data</p>
+              </div>
+            </div>
+          )}
         </div>
       </Card>
     </div>

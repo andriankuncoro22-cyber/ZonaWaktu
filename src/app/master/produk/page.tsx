@@ -493,8 +493,19 @@ export default function ProdukPage() {
                       {item.kategori || "General"}
                     </span>
                     {/* Prices */}
-                    <div className="text-[8px] sm:text-[9px] font-bold text-slate-800 tabular-nums italic">
-                      Rp {formatNumber(item.hargaJual).toLocaleString('id-ID')}
+                    <div className="space-y-0.5 pt-0.5">
+                      <div className="flex justify-between items-center text-[7px] sm:text-[8px] text-slate-500 font-bold">
+                        <span>JUAL:</span>
+                        <span className="text-[8px] sm:text-[9px] font-black text-slate-900 tabular-nums">
+                          Rp {formatNumber(item.hargaJual).toLocaleString('id-ID')}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-[7px] sm:text-[8px] text-slate-500 font-bold">
+                        <span>DASAR:</span>
+                        <span className="text-[8px] sm:text-[9px] font-black text-slate-600 tabular-nums">
+                          Rp {formatNumber(item.hargaDasar).toLocaleString('id-ID')}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </Card>
