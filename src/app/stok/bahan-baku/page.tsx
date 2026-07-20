@@ -59,6 +59,20 @@ interface BahanBaku {
   [key: string]: unknown;
 }
 
+const adjustNegativeSmallStock = (qtyBulk: number, qtyKecilVal: number, konversi: number) => {
+  if (qtyKecilVal < 0 && qtyBulk > 0) {
+    const totalKecilEquivalent = (qtyBulk * konversi) + qtyKecilVal;
+    if (totalKecilEquivalent >= 0) {
+      const adjustedBulk = Math.floor(totalKecilEquivalent / konversi);
+      const adjustedKecil = Math.round((totalKecilEquivalent - (adjustedBulk * konversi)) * 100) / 100;
+      return { bulk: adjustedBulk, kecil: adjustedKecil };
+    } else {
+      return { bulk: 0, kecil: Math.round(totalKecilEquivalent * 100) / 100 };
+    }
+  }
+  return { bulk: qtyBulk, kecil: qtyKecilVal };
+};
+
 export default function StokBahanBakuPage() {
   const db = useFirestore();
   const { toast } = useToast();
@@ -235,18 +249,30 @@ export default function StokBahanBakuPage() {
   };
 
   const handleExportExcel = () => {
-    const wsData = filteredMaterials.map(item => ({
-      "Kode": item.code,
-      "Nama Bahan": item.nama,
-      "Stok Gudang (Besar)": Math.floor(Number(item.qtyBesar || 0)),
-      "Satuan Besar": item.satuanBesar,
-      "Stok Gudang (Kecil)": Math.round(Number(item.qtyGudangKecil || 0)),
-      "Satuan Kecil": item.satuanKecil,
-      "Min Stok Gudang": getMinStockGudang(item),
-      "Qty Bulk Kontainer": Math.floor(Number(item.qtyKontainerBesar || 0)),
-      "Qty Aktif Kontainer": Math.round(Number(item.qtyKontainerKecil || 0)),
-      "Min Stok Kontainer": getMinStockKontainer(item),
-    }));
+    const wsData = filteredMaterials.map(item => {
+      const adjustedGudang = adjustNegativeSmallStock(
+        Number(item.qtyBesar || 0),
+        Number(item.qtyGudangKecil || 0),
+        Number(item.qtyKecil || 1)
+      );
+      const adjustedKontainer = adjustNegativeSmallStock(
+        Number(item.qtyKontainerBesar || 0),
+        Number(item.qtyKontainerKecil || 0),
+        Number(item.qtyKecil || 1)
+      );
+      return {
+        "Kode": item.code,
+        "Nama Bahan": item.nama,
+        "Stok Gudang (Besar)": adjustedGudang.bulk,
+        "Satuan Besar": item.satuanBesar,
+        "Stok Gudang (Kecil)": adjustedGudang.kecil,
+        "Satuan Kecil": item.satuanKecil,
+        "Min Stok Gudang": getMinStockGudang(item),
+        "Qty Bulk Kontainer": adjustedKontainer.bulk,
+        "Qty Aktif Kontainer": adjustedKontainer.kecil,
+        "Min Stok Kontainer": getMinStockKontainer(item),
+      };
+    });
 
     const ws = XLSX.utils.json_to_sheet(wsData);
     const wb = XLSX.utils.book_new();
@@ -286,16 +312,28 @@ export default function StokBahanBakuPage() {
     docPDF.setTextColor(0);
     docPDF.text("LAPORAN MONITORING STOK", 105, 40, { align: 'center' });
     
-    const tableData = filteredMaterials.map(item => [
-      item.code,
-      item.nama,
-      Math.floor(Number(item.qtyBesar || 0)),
-      item.satuanBesar,
-      Math.round(Number(item.qtyGudangKecil || 0)),
-      item.satuanKecil,
-      Math.floor(Number(item.qtyKontainerBesar || 0)),
-      Math.round(Number(item.qtyKontainerKecil || 0)),
-    ]);
+    const tableData = filteredMaterials.map(item => {
+      const adjustedGudang = adjustNegativeSmallStock(
+        Number(item.qtyBesar || 0),
+        Number(item.qtyGudangKecil || 0),
+        Number(item.qtyKecil || 1)
+      );
+      const adjustedKontainer = adjustNegativeSmallStock(
+        Number(item.qtyKontainerBesar || 0),
+        Number(item.qtyKontainerKecil || 0),
+        Number(item.qtyKecil || 1)
+      );
+      return [
+        item.code,
+        item.nama,
+        adjustedGudang.bulk,
+        item.satuanBesar,
+        adjustedGudang.kecil,
+        item.satuanKecil,
+        adjustedKontainer.bulk,
+        adjustedKontainer.kecil,
+      ];
+    });
 
     autoTable(docPDF, {
       head: [["KODE", "NAMA BAHAN", "GUDANG (B)", "SAT B", "GUDANG (K)", "SAT K", "BULK KONTAINER", "AKTIF KONTAINER"]],
@@ -449,26 +487,32 @@ export default function StokBahanBakuPage() {
                 <tbody className="divide-y divide-slate-50">
                   {loading ? (
                     <tr><td colSpan={8} className="py-20 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></td></tr>
-                  ) : filteredMaterials?.map((item) => (
-                    <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-6 md:px-8 py-4 md:py-6 text-[10px] font-black text-slate-900">{item.code}</td>
-                      <td className="px-4 md:px-6 py-4 md:py-6 text-xs md:text-sm font-black text-slate-900 uppercase italic">{item.nama}</td>
-                      
-                      {/* Stok Gudang Satuan Besar */}
-                      <td className="px-4 md:px-6 py-4 md:py-6 text-right font-black text-primary tabular-nums italic text-xl md:text-2xl">
-                        {Math.floor(Number(item.qtyBesar || 0))}
-                      </td>
-                      <td className="px-4 md:px-6 py-4 md:py-6 text-center text-[9px] md:text-[10px] font-black uppercase text-primary tracking-widest">
-                        {item.satuanBesar}
-                      </td>
+                  ) : filteredMaterials?.map((item) => {
+                    const adjustedGudang = adjustNegativeSmallStock(
+                      Number(item.qtyBesar || 0),
+                      Number(item.qtyGudangKecil || 0),
+                      Number(item.qtyKecil || 1)
+                    );
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-6 md:px-8 py-4 md:py-6 text-[10px] font-black text-slate-900">{item.code}</td>
+                        <td className="px-4 md:px-6 py-4 md:py-6 text-xs md:text-sm font-black text-slate-900 uppercase italic">{item.nama}</td>
+                        
+                        {/* Stok Gudang Satuan Besar */}
+                        <td className="px-4 md:px-6 py-4 md:py-6 text-right font-black text-primary tabular-nums italic text-xl md:text-2xl">
+                          {adjustedGudang.bulk}
+                        </td>
+                        <td className="px-4 md:px-6 py-4 md:py-6 text-center text-[9px] md:text-[10px] font-black uppercase text-primary tracking-widest">
+                          {item.satuanBesar}
+                        </td>
 
-                      {/* Stok Gudang Satuan Kecil (Hasil sisa belanja Beli Sendiri) */}
-                      <td className="px-4 md:px-6 py-4 md:py-6 text-right font-black text-amber-600 tabular-nums italic text-xl md:text-2xl">
-                        {Math.round(Number(item.qtyGudangKecil || 0)).toLocaleString('id-ID')}
-                      </td>
-                      <td className="px-4 md:px-6 py-4 md:py-6 text-center text-[9px] md:text-[10px] font-black uppercase text-amber-600 tracking-widest">
-                        {item.satuanKecil}
-                      </td>
+                        {/* Stok Gudang Satuan Kecil (Hasil sisa belanja Beli Sendiri) */}
+                        <td className="px-4 md:px-6 py-4 md:py-6 text-right font-black text-amber-600 tabular-nums italic text-xl md:text-2xl">
+                          {adjustedGudang.kecil.toLocaleString('id-ID')}
+                        </td>
+                        <td className="px-4 md:px-6 py-4 md:py-6 text-center text-[9px] md:text-[10px] font-black uppercase text-amber-600 tracking-widest">
+                          {item.satuanKecil}
+                        </td>
 
                       {/* Estimasi Kritis Gudang */}
                       {(() => {
@@ -489,7 +533,8 @@ export default function StokBahanBakuPage() {
                          </Button>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
 
@@ -503,6 +548,11 @@ export default function StokBahanBakuPage() {
                   const minStock = getMinStockGudang(item);
                   const totalGudang = getGudangTotal(item);
                   const status = getStatusLabel(totalGudang, minStock);
+                  const adjustedGudang = adjustNegativeSmallStock(
+                    Number(item.qtyBesar || 0),
+                    Number(item.qtyGudangKecil || 0),
+                    Number(item.qtyKecil || 1)
+                  );
 
                   return (
                     <Card key={item.id} className="relative rounded-2xl bg-white border border-slate-100 p-3 sm:p-4 flex flex-col justify-between space-y-3 shadow-sm overflow-hidden min-h-[145px]">
@@ -529,7 +579,7 @@ export default function StokBahanBakuPage() {
                         <div className="flex items-center justify-between text-[9px] sm:text-[10px] leading-none">
                           <span className="text-slate-400 font-bold">Besar</span>
                           <span className="font-black text-primary italic">
-                            {Math.floor(Number(item.qtyBesar || 0))} <span className="text-[7px] sm:text-[8px] font-bold text-slate-400 uppercase tracking-widest">{item.satuanBesar}</span>
+                            {adjustedGudang.bulk} <span className="text-[7px] sm:text-[8px] font-bold text-slate-400 uppercase tracking-widest">{item.satuanBesar}</span>
                           </span>
                         </div>
 
@@ -537,7 +587,7 @@ export default function StokBahanBakuPage() {
                         <div className="flex items-center justify-between text-[9px] sm:text-[10px] leading-none">
                           <span className="text-slate-400 font-bold">Kecil</span>
                           <span className="font-black text-amber-600 italic">
-                            {Math.round(Number(item.qtyGudangKecil || 0)).toLocaleString('id-ID')} <span className="text-[7px] sm:text-[8px] font-bold text-amber-500 uppercase tracking-widest">{item.satuanKecil}</span>
+                            {adjustedGudang.kecil.toLocaleString('id-ID')} <span className="text-[7px] sm:text-[8px] font-bold text-amber-500 uppercase tracking-widest">{item.satuanKecil}</span>
                           </span>
                         </div>
                       </div>
@@ -571,16 +621,22 @@ export default function StokBahanBakuPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {filteredMaterials?.map((item) => (
-                    <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-6 md:px-10 py-4 md:py-6 text-[10px] font-black text-slate-900">{item.code}</td>
-                      <td className="px-4 md:px-8 py-4 md:py-6 text-xs md:text-sm font-black text-slate-900 uppercase italic">{item.nama}</td>
-                      <td className="px-4 md:px-8 py-4 md:py-6 text-right font-black text-indigo-600 tabular-nums italic text-xl md:text-2xl">{Math.floor(Number(item.qtyKontainerBesar || 0))}</td>
-                      <td className="px-4 md:px-8 py-4 md:py-6 text-center text-[8px] md:text-[9px] font-black uppercase text-indigo-400">{item.satuanBesar}</td>
-                      <td className="px-4 md:px-8 py-4 md:py-6 text-right font-black text-emerald-600 tabular-nums italic text-xl md:text-2xl">
-                        {Math.round(item.qtyKontainerKecil || 0).toLocaleString('id-ID')}
-                      </td>
-                      <td className="px-6 md:px-10 py-4 md:py-6 text-center text-[8px] md:text-[9px] font-black uppercase text-emerald-400">{item.satuanKecil}</td>
+                  {filteredMaterials?.map((item) => {
+                    const adjustedKontainer = adjustNegativeSmallStock(
+                      Number(item.qtyKontainerBesar || 0),
+                      Number(item.qtyKontainerKecil || 0),
+                      Number(item.qtyKecil || 1)
+                    );
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-6 md:px-10 py-4 md:py-6 text-[10px] font-black text-slate-900">{item.code}</td>
+                        <td className="px-4 md:px-8 py-4 md:py-6 text-xs md:text-sm font-black text-slate-900 uppercase italic">{item.nama}</td>
+                        <td className="px-4 md:px-8 py-4 md:py-6 text-right font-black text-indigo-600 tabular-nums italic text-xl md:text-2xl">{adjustedKontainer.bulk}</td>
+                        <td className="px-4 md:px-8 py-4 md:py-6 text-center text-[8px] md:text-[9px] font-black uppercase text-indigo-400">{item.satuanBesar}</td>
+                        <td className="px-4 md:px-8 py-4 md:py-6 text-right font-black text-emerald-600 tabular-nums italic text-xl md:text-2xl">
+                          {adjustedKontainer.kecil.toLocaleString('id-ID')}
+                        </td>
+                        <td className="px-6 md:px-10 py-4 md:py-6 text-center text-[8px] md:text-[9px] font-black uppercase text-emerald-400">{item.satuanKecil}</td>
                       {(() => {
                         const minStock = getMinStockKontainer(item);
                         const totals = getKontainerTotal(item);
@@ -599,7 +655,8 @@ export default function StokBahanBakuPage() {
                          </Button>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
 
@@ -613,6 +670,11 @@ export default function StokBahanBakuPage() {
                   const minStock = getMinStockKontainer(item);
                   const totals = getKontainerTotal(item);
                   const status = getStatusLabel(totals, minStock);
+                  const adjustedKontainer = adjustNegativeSmallStock(
+                    Number(item.qtyKontainerBesar || 0),
+                    Number(item.qtyKontainerKecil || 0),
+                    Number(item.qtyKecil || 1)
+                  );
 
                   return (
                     <Card key={item.id} className="relative rounded-2xl bg-white border border-slate-100 p-3 sm:p-4 flex flex-col justify-between space-y-3 shadow-sm overflow-hidden min-h-[145px]">
@@ -639,7 +701,7 @@ export default function StokBahanBakuPage() {
                         <div className="flex items-center justify-between text-[9px] sm:text-[10px] leading-none">
                           <span className="text-slate-400 font-bold">Bulk</span>
                           <span className="font-black text-indigo-600 italic">
-                            {Math.floor(Number(item.qtyKontainerBesar || 0))} <span className="text-[7px] sm:text-[8px] font-bold text-indigo-400 uppercase tracking-widest">{item.satuanBesar}</span>
+                            {adjustedKontainer.bulk} <span className="text-[7px] sm:text-[8px] font-bold text-indigo-400 uppercase tracking-widest">{item.satuanBesar}</span>
                           </span>
                         </div>
 
@@ -647,7 +709,7 @@ export default function StokBahanBakuPage() {
                         <div className="flex items-center justify-between text-[9px] sm:text-[10px] leading-none">
                           <span className="text-slate-400 font-bold">Aktif</span>
                           <span className="font-black text-emerald-600 italic">
-                            {Math.round(item.qtyKontainerKecil || 0).toLocaleString('id-ID')} <span className="text-[7px] sm:text-[8px] font-bold text-emerald-500 uppercase tracking-widest">{item.satuanKecil}</span>
+                            {adjustedKontainer.kecil.toLocaleString('id-ID')} <span className="text-[7px] sm:text-[8px] font-bold text-emerald-500 uppercase tracking-widest">{item.satuanKecil}</span>
                           </span>
                         </div>
                       </div>
