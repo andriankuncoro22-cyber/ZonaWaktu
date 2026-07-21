@@ -116,7 +116,8 @@ export default function EmployeeKeuanganKontainerPage() {
         if (!createdAt) return false;
         const matchesDate = createdAt.toISOString().split("T")[0] === selectedDate;
         const matchesShift = shift === 2 ? true : (log.shift ?? 2) === 1;
-        return matchesDate && matchesShift;
+        const isKaryawanInput = !!log.karyawanId;
+        return matchesDate && matchesShift && isKaryawanInput;
       })
       .reduce((sum: number, log: any) => sum + getPurchaseSubtotal(log), 0);
   }, [purchaseLogs, selectedDate, shift]);
@@ -313,7 +314,8 @@ export default function EmployeeKeuanganKontainerPage() {
             const createdAt = log.createdAt?.toDate ? log.createdAt.toDate() : null;
             const matchesDate = createdAt && createdAt.toISOString().split("T")[0] === selectedDate;
             const matchesShift = shift === 2 ? true : (log.shift ?? 2) === 1;
-            return matchesDate && matchesShift;
+            const isKaryawanInput = !!log.karyawanId;
+            return matchesDate && matchesShift && isKaryawanInput;
           })
           .map((log: any) => ({
             id: log.id,
@@ -725,13 +727,15 @@ export default function EmployeeKeuanganKontainerPage() {
                     if (!createdAt) return false;
                     const matchesDate = createdAt.toISOString().split("T")[0] === selectedDate;
                     const matchesShift = shift === 2 ? true : (log.shift ?? 2) === 1;
-                    return matchesDate && matchesShift;
+                    const isKaryawanInput = !!log.karyawanId;
+                    return matchesDate && matchesShift && isKaryawanInput;
                   }).length > 0 ? purchaseLogs.filter((log: any) => {
                     const createdAt = log.createdAt?.toDate ? log.createdAt.toDate() : null;
                     if (!createdAt) return false;
                     const matchesDate = createdAt.toISOString().split("T")[0] === selectedDate;
                     const matchesShift = shift === 2 ? true : (log.shift ?? 2) === 1;
-                    return matchesDate && matchesShift;
+                    const isKaryawanInput = !!log.karyawanId;
+                    return matchesDate && matchesShift && isKaryawanInput;
                   }).map((log: any) => (
                     <div key={log.id} className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
                       <div className="flex items-center justify-between gap-3">
