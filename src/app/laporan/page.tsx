@@ -13,7 +13,8 @@ import {
   ClipboardList, 
   CheckCircle2,
   Layers,
-  AlertTriangle
+  AlertTriangle,
+  PackageX
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -27,6 +28,7 @@ import LaporanPemindahanBarangPage from "@/app/operasional/laporan-pemindahan-ba
 import LaporanStockOpnamePage from "@/app/laporan/stock-opname/page";
 import LaporanClosingTokoPage from "@/app/laporan/closing-toko/page";
 import LaporanStockLossPage from "@/app/laporan/stock-loss/page";
+import LaporanBahanRusakPage from "@/app/laporan/laporan-bahan-rusak/page";
 
 function ReportHubContent() {
   const searchParams = useSearchParams();
@@ -59,6 +61,7 @@ function ReportHubContent() {
     { id: "stock-opname", name: "8. Stock Opnam", icon: ClipboardList },
     { id: "closing-toko", name: "9. Closing Toko", icon: CheckCircle2 },
     { id: "stock-loss", name: "10. Stock Loss Harian", icon: AlertTriangle },
+    { id: "bahan-rusak", name: "11. Laporan Bahan Rusak", icon: PackageX },
   ];
 
   return (
@@ -134,6 +137,10 @@ function ReportHubContent() {
 
           <TabsContent value="stock-loss" className="m-0">
             <LaporanStockLossPage />
+          </TabsContent>
+
+          <TabsContent value="bahan-rusak" className="m-0">
+            <LaporanBahanRusakPage />
           </TabsContent>
         </div>
       </Tabs>

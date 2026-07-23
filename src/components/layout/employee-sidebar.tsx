@@ -10,7 +10,8 @@ import {
   ClipboardList,
   Layers,
   Wallet,
-  Gift
+  Gift,
+  AlertTriangle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -33,6 +34,7 @@ const menuGroups = [
     title: "Inventori",
     items: [
       { name: "Input Bahan Baku", icon: Truck, href: "/employee/input-bahan-baku" },
+      { name: "Input Bahan Rusak", icon: AlertTriangle, href: "/employee/input-bahan-rusak" },
       { name: "Opnam Harian", icon: Layers, href: "/employee/opnam-harian" },
     ]
   }

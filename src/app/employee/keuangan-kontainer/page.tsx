@@ -108,11 +108,17 @@ export default function EmployeeKeuanganKontainerPage() {
     return closingLogs[0];
   }, [closingLogs]);
 
-  const operationalTotal = useMemo(() => {
-    return (operationalLogs || [])
-      .filter((item: any) => shift === 2 ? true : (item.shift ?? 2) === 1)
-      .reduce((sum: number, item: any) => sum + Number(item.nominal || 0), 0);
+  const pureOperationalLogs = useMemo(() => {
+    return (operationalLogs || []).filter((item: any) => {
+      const matchesShift = shift === 2 ? true : (item.shift ?? 2) === 1;
+      const isNotFree = item.type !== "input-free" && !item.inputFreeId;
+      return matchesShift && isNotFree;
+    });
   }, [operationalLogs, shift]);
+
+  const pureOperationalTotal = useMemo(() => {
+    return pureOperationalLogs.reduce((sum: number, item: any) => sum + Number(item.nominal || 0), 0);
+  }, [pureOperationalLogs]);
 
   const freeTotal = useMemo(() => {
     return (freeLogs || [])
@@ -147,12 +153,12 @@ export default function EmployeeKeuanganKontainerPage() {
       const totalShift1ModalAwal = shift1Log?.modalAwal || 0;
       const totalShift1ModalTambahan = shift1Log?.modalTambahan || 0;
       const shift1Difference = shift1Log?.difference || 0;
-      return cashFromSales - operationalTotal - purchaseTotal - freeTotal + totalShift1ModalAwal + totalShift1ModalTambahan + Number(modalTambahan || 0) + shift1Difference;
+      return cashFromSales - pureOperationalTotal - purchaseTotal - freeTotal + totalShift1ModalAwal + totalShift1ModalTambahan + Number(modalTambahan || 0) + shift1Difference;
     } else {
       const cashFromSales = Number(manualCashSales || 0);
-      return cashFromSales - operationalTotal - purchaseTotal - freeTotal + Number(modalAwal || 0) + Number(modalTambahan || 0);
+      return cashFromSales - pureOperationalTotal - purchaseTotal - freeTotal + Number(modalAwal || 0) + Number(modalTambahan || 0);
     }
-  }, [shift, dailyClosing, operationalTotal, purchaseTotal, freeTotal, manualCashSales, modalAwal, modalTambahan, shift1Log]);
+  }, [shift, dailyClosing, pureOperationalTotal, purchaseTotal, freeTotal, manualCashSales, modalAwal, modalTambahan, shift1Log]);
 
   const difference = useMemo(() => {
     const actual = Number(cashOnHand || 0);
@@ -202,7 +208,7 @@ export default function EmployeeKeuanganKontainerPage() {
         },
         { 
           label: "Operasional kontainer (S1 + S2)", 
-          value: operationalTotal, 
+          value: pureOperationalTotal, 
           bgClass: "bg-rose-50/50 border-rose-100", 
           labelClass: "text-rose-500", 
           valueClass: "text-rose-600" 
@@ -290,7 +296,7 @@ export default function EmployeeKeuanganKontainerPage() {
         },
         { 
           label: "Operasional kontainer", 
-          value: operationalTotal, 
+          value: pureOperationalTotal, 
           bgClass: "bg-rose-50/50 border-rose-100", 
           labelClass: "text-rose-500", 
           valueClass: "text-rose-600" 
@@ -318,16 +324,25 @@ export default function EmployeeKeuanganKontainerPage() {
         },
       ];
     }
-  }, [shift, dailyClosing, operationalTotal, purchaseTotal, freeTotal, manualTotalSales, manualQrisSales, manualCashSales, modalAwal, modalTambahan, currentExpectedCashToSettle, shift1Log]);
+  }, [shift, dailyClosing, pureOperationalTotal, purchaseTotal, freeTotal, manualTotalSales, manualQrisSales, manualCashSales, modalAwal, modalTambahan, currentExpectedCashToSettle, shift1Log]);
 
   const handleSave = async () => {
+    if (cashOnHand.trim() === "") {
+      toast({
+        variant: "destructive",
+        title: "Nominal Kas Wajib Diisi",
+        description: "Silakan masukkan Nominal Kas (Uang Fisik di Pegang Kasir / Cash on Hand) terlebih dahulu sebelum menyimpan.",
+      });
+      return;
+    }
+
     setSaving(true);
     try {
       const dataToSave: any = {
         tanggal: selectedDate,
         shift: shift,
         createdAt: serverTimestamp(),
-        operationalTotal,
+        operationalTotal: pureOperationalTotal,
         purchaseTotal,
         freeTotal,
         expectedCashToSettle: currentExpectedCashToSettle,
@@ -344,15 +359,13 @@ export default function EmployeeKeuanganKontainerPage() {
             totalNominal: Number(log.totalNominal || 0),
             notes: log.notes || "-",
           })),
-        operationalDetails: (operationalLogs || [])
-          .filter((log: any) => shift === 2 ? true : (log.shift ?? 2) === 1)
-          .map((log: any) => ({
-            id: log.id,
-            pembayaran: log.pembayaran,
-            nominal: Number(log.nominal || 0),
-            shift: Number(log.shift ?? 2),
-            karyawanNama: log.karyawanNama || "-",
-          })),
+        operationalDetails: pureOperationalLogs.map((log: any) => ({
+          id: log.id,
+          pembayaran: log.pembayaran,
+          nominal: Number(log.nominal || 0),
+          shift: Number(log.shift ?? 2),
+          karyawanNama: log.karyawanNama || "-",
+        })),
         purchaseDetails: (purchaseLogs || [])
           .filter((log: any) => {
             const createdAt = log.createdAt?.toDate ? log.createdAt.toDate() : null;
@@ -701,7 +714,10 @@ export default function EmployeeKeuanganKontainerPage() {
 
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-200">Uang Fisik Kasir (Cash on Hand)</Label>
+                      <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-200 flex items-center justify-between">
+                        <span>Uang Fisik Kasir (Cash on Hand)</span>
+                        <span className="text-[8px] font-black text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">*WAJIB DIISI</span>
+                      </Label>
                       <Input
                         type="text"
                         inputMode="numeric"
@@ -778,22 +794,20 @@ export default function EmployeeKeuanganKontainerPage() {
                 <h3 className="text-lg font-black uppercase italic text-slate-900">Rincian Operasional</h3>
               </div>
               <div className="mt-4 space-y-3">
-                {operationalLogs && operationalLogs.filter((log: any) => shift === 2 ? true : (log.shift ?? 2) === 1).length > 0 ? (
-                  operationalLogs
-                    .filter((log: any) => shift === 2 ? true : (log.shift ?? 2) === 1)
-                    .map((log: any) => (
-                      <div key={log.id} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50/60 px-4 py-3">
-                        <div>
-                          <p className="text-sm font-black text-slate-900">{log.pembayaran}</p>
-                          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 leading-relaxed flex flex-wrap gap-1">
-                            <span>{log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "-"}</span>
-                            {log.shift && <span>• Shift {log.shift}</span>}
-                            {log.karyawanNama && <span>• {log.karyawanNama}</span>}
-                          </p>
-                        </div>
-                        <p className="text-sm font-black text-rose-600">{formatCurrency(log.nominal || 0)}</p>
+                {pureOperationalLogs.length > 0 ? (
+                  pureOperationalLogs.map((log: any) => (
+                    <div key={log.id} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50/60 px-4 py-3">
+                      <div>
+                        <p className="text-sm font-black text-slate-900">{log.pembayaran}</p>
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 leading-relaxed flex flex-wrap gap-1">
+                          <span>{log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "-"}</span>
+                          {log.shift && <span>• Shift {log.shift}</span>}
+                          {log.karyawanNama && <span>• {log.karyawanNama}</span>}
+                        </p>
                       </div>
-                    ))
+                      <p className="text-sm font-black text-rose-600">{formatCurrency(log.nominal || 0)}</p>
+                    </div>
+                  ))
                 ) : (
                   <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
                     Belum ada operasional kontainer hari ini.

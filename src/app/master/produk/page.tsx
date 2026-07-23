@@ -240,12 +240,12 @@ export default function ProdukPage() {
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-10">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-        <div className="space-y-1">
-          <h1 className="text-4xl font-black tracking-tight text-slate-900 uppercase italic">Katalog Produk</h1>
-          <p className="text-[11px] text-slate-600 font-bold uppercase tracking-[0.2em]">
-            Manajemen Inventori & Penetapan Harga • Zona Waktu
-          </p>
-        </div>
+    <div className="space-y-1">
+      <h1 className="text-4xl font-black tracking-tight text-slate-900 uppercase italic">Katalog Produk</h1>
+      <p className="text-[11px] text-slate-600 font-bold uppercase tracking-[0.2em]">
+        Manajemen Katalog Produk & Penetapan Harga Dasar (Murni Katalog / Standalone) • Zona Waktu
+      </p>
+    </div>
         <div className="flex gap-3 flex-wrap items-center">
           <input 
             type="file" 
@@ -314,11 +314,17 @@ export default function ProdukPage() {
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">Harga Dasar</Label>
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600 flex items-center justify-between">
+                      <span>Harga Dasar</span>
+                      <span className="text-[8px] font-bold text-slate-400 normal-case">(Murni Katalog)</span>
+                    </Label>
                     <div className="relative">
                       <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">Rp</span>
                       <Input name="hargaDasar" type="number" defaultValue={editingItem?.hargaDasar} className="rounded-xl border-slate-200 pl-10 h-11 font-medium" required />
                     </div>
+                    <p className="text-[8px] font-bold text-slate-400 leading-tight">
+                      *Murni berdiri sendiri sesuai katalog (bukan perhitungan sistem/bahan baku).
+                    </p>
                   </div>
                 </div>
 
