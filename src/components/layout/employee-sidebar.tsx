@@ -9,7 +9,8 @@ import {
   Home,
   ClipboardList,
   Layers,
-  Wallet
+  Wallet,
+  Gift
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -24,6 +25,7 @@ const menuGroups = [
     title: "Operasional",
     items: [
       { name: "Operasional Kontainer", icon: ClipboardList, href: "/employee/operasional-kontainer" },
+      { name: "Input Free", icon: Gift, href: "/employee/input-free" },
       { name: "Keuangan Kontainer", icon: Wallet, href: "/employee/keuangan-kontainer" },
     ]
   },

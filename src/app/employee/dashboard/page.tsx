@@ -9,7 +9,8 @@ import {
   Package,
   ShoppingCart,
   AlertTriangle,
-  ArrowRight
+  ArrowRight,
+  Gift
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -106,11 +107,18 @@ export default function DashboardPage() {
           <h1 className="text-3xl md:text-4xl font-black tracking-tighter text-slate-900 uppercase italic leading-none">Dashboard</h1>
           <p className="text-[10px] md:text-xs text-slate-600 font-black uppercase tracking-[0.2em] mt-1">Welcome back to Zona Waktu System</p>
         </div>
-        <Link href="/penjualan/kasir" className="w-full md:w-auto">
-          <Button className="w-full md:w-auto rounded-xl md:rounded-2xl bg-primary hover:bg-primary/90 px-8 font-black shadow-xl shadow-primary/20 h-12 uppercase tracking-widest text-[10px]">
-            Input Closing Harian
-          </Button>
-        </Link>
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <Link href="/employee/input-free" className="flex-1 md:flex-none">
+            <Button variant="outline" className="w-full md:w-auto rounded-xl md:rounded-2xl border-pink-200 bg-pink-50 text-pink-700 hover:bg-pink-100 px-6 font-black h-12 uppercase tracking-widest text-[10px] gap-2">
+              <Gift className="h-4 w-4 text-pink-600" /> Input Free
+            </Button>
+          </Link>
+          <Link href="/penjualan/kasir" className="flex-1 md:flex-none">
+            <Button className="w-full md:w-auto rounded-xl md:rounded-2xl bg-primary hover:bg-primary/90 px-8 font-black shadow-xl shadow-primary/20 h-12 uppercase tracking-widest text-[10px]">
+              Input Closing Harian
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* Stats Bento Box */}

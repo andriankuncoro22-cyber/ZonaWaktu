@@ -148,6 +148,15 @@ export default function AlokasiBahanBakuPage() {
     return conversionRate > 0 ? unitPrice / conversionRate : 0;
   };
 
+  const formatUnitName = (unit?: string) => {
+    if (!unit) return "pcs";
+    const u = unit.trim().toLowerCase();
+    if (u === "gram" || u === "g" || u === "gr") return "gr";
+    if (u === "milliliter" || u === "ml" || u === "mili") return "ml";
+    if (u === "piece" || u === "pcs" || u === "pc") return "pcs";
+    return unit;
+  };
+
   // Build the allocation mapping
   const allocationMap = useMemo(() => {
     if (!materials || !recipes || !products) return {};
@@ -160,12 +169,16 @@ export default function AlokasiBahanBakuPage() {
         productName: string;
         productCategory: string;
         amount: number;
+        unitName: string;
+        unitPrice: number;
         cost: number;
       }[];
       pelengkapRecipes: {
         recipeId: string;
         namaPelengkap: string;
         amount: number;
+        unitName: string;
+        unitPrice: number;
         cost: number;
       }[];
       totalUses: number;
@@ -191,7 +204,10 @@ export default function AlokasiBahanBakuPage() {
           (recipe.komposisi || []).forEach((comp: any) => {
             if (comp.bahanBakuId && map[comp.bahanBakuId]) {
               const mat = (materials as BahanBaku[]).find((m) => m.id === comp.bahanBakuId);
-              const cost = getPricePerSmallUnit(mat) * Number(comp.jumlah || 0);
+              const pricePerSmallUnit = getPricePerSmallUnit(mat);
+              const amount = Number(comp.jumlah || 0);
+              const unitName = formatUnitName(comp.satuan || mat?.satuanKecil || mat?.satuanKalibrasi || "pcs");
+              const cost = pricePerSmallUnit * amount;
 
               if (!map[comp.bahanBakuId].productRecipes.some(r => r.recipeId === recipe.id)) {
                 map[comp.bahanBakuId].productRecipes.push({
@@ -200,7 +216,9 @@ export default function AlokasiBahanBakuPage() {
                   productCode: prod.code || "-",
                   productName: prod.nama || "-",
                   productCategory: prod.kategori || "Coffee Series",
-                  amount: comp.jumlah,
+                  amount: amount,
+                  unitName: unitName,
+                  unitPrice: pricePerSmallUnit,
                   cost: Math.round(cost),
                 });
                 map[comp.bahanBakuId].totalUses++;
@@ -212,13 +230,18 @@ export default function AlokasiBahanBakuPage() {
         (recipe.komposisi || []).forEach((comp: any) => {
           if (comp.bahanBakuId && map[comp.bahanBakuId]) {
             const mat = (materials as BahanBaku[]).find((m) => m.id === comp.bahanBakuId);
-            const cost = getPricePerSmallUnit(mat) * Number(comp.jumlah || 0);
+            const pricePerSmallUnit = getPricePerSmallUnit(mat);
+            const amount = Number(comp.jumlah || 0);
+            const unitName = formatUnitName(comp.satuan || mat?.satuanKecil || mat?.satuanKalibrasi || "pcs");
+            const cost = pricePerSmallUnit * amount;
 
             if (!map[comp.bahanBakuId].pelengkapRecipes.some(r => r.recipeId === recipe.id)) {
               map[comp.bahanBakuId].pelengkapRecipes.push({
                 recipeId: recipe.id,
                 namaPelengkap: recipe.namaPelengkap,
-                amount: comp.jumlah,
+                amount: amount,
+                unitName: unitName,
+                unitPrice: pricePerSmallUnit,
                 cost: Math.round(cost),
               });
               map[comp.bahanBakuId].totalUses++;
@@ -501,21 +524,27 @@ export default function AlokasiBahanBakuPage() {
                                 <span 
                                   key={r.recipeId} 
                                   className={cn(
-                                    "inline-flex items-center px-2.5 py-1 rounded-xl text-[9px] font-black border shadow-sm uppercase tracking-wider animate-in fade-in",
+                                    "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[9px] font-black border shadow-sm uppercase tracking-wider animate-in fade-in",
                                     getCategoryPillStyles(r.productCategory)
                                   )}
-                                  title={`${r.productCode} - ${r.productName} (${r.productCategory})`}
+                                  title={`${r.productCode} - ${r.productName} (${r.productCategory}): ${r.amount} ${r.unitName} @ Rp ${r.cost.toLocaleString("id-ID")}`}
                                 >
-                                  {r.productName} ({r.productCategory})
+                                  <span>{r.productName}</span>
+                                  <span className="font-bold text-[8px] bg-black/5 px-1.5 py-0.5 rounded-md text-slate-800 border border-black/5">
+                                    {r.amount} {r.unitName} • Rp {r.cost.toLocaleString("id-ID")}
+                                  </span>
                                 </span>
                               ))}
                               {pelengkapRecipesFiltered.map((r) => (
                                 <span 
                                   key={r.recipeId} 
-                                  className="inline-flex items-center px-2.5 py-1 rounded-xl text-[9px] font-black bg-slate-100 text-slate-800 border border-slate-200 shadow-sm uppercase tracking-wider"
-                                  title={`Pelengkap: ${r.namaPelengkap}`}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[9px] font-black bg-slate-100 text-slate-800 border border-slate-200 shadow-sm uppercase tracking-wider"
+                                  title={`Pelengkap: ${r.namaPelengkap}: ${r.amount} ${r.unitName} @ Rp ${r.cost.toLocaleString("id-ID")}`}
                                 >
-                                  {r.namaPelengkap} <span className="text-[8px] opacity-60 ml-1">(Pelengkap)</span>
+                                  <span>{r.namaPelengkap}</span>
+                                  <span className="font-bold text-[8px] bg-slate-200 px-1.5 py-0.5 rounded-md text-slate-800 border border-slate-300">
+                                    {r.amount} {r.unitName} • Rp {r.cost.toLocaleString("id-ID")}
+                                  </span>
                                 </span>
                               ))}
                             </>
@@ -529,7 +558,7 @@ export default function AlokasiBahanBakuPage() {
                     {/* Bottom Action Footer */}
                     <div className="px-6 py-4 bg-slate-50/50 border-t border-slate-100 flex justify-between items-center mt-auto">
                       <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">
-                        Biaya / Unit: Rp {getPricePerSmallUnit(mat).toLocaleString("id-ID", { maximumFractionDigits: 1 })}
+                        Biaya / Unit: Rp {getPricePerSmallUnit(mat).toLocaleString("id-ID", { maximumFractionDigits: 1 })} / {formatUnitName(mat.satuanKecil || mat.satuanKalibrasi)}
                       </span>
                       <Button
                         variant="ghost"
@@ -581,11 +610,11 @@ export default function AlokasiBahanBakuPage() {
                 </div>
                 <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-4">
                   <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Satuan Kecil / Resep</span>
-                  <span className="text-sm font-black text-slate-800 uppercase block mt-1">{selectedMaterial.satuanKecil || "-"}</span>
+                  <span className="text-sm font-black text-slate-800 uppercase block mt-1">{formatUnitName(selectedMaterial.satuanKecil || selectedMaterial.satuanKalibrasi)}</span>
                 </div>
                 <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-4">
                   <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Rasio Konversi Satuan</span>
-                  <span className="text-sm font-black text-slate-800 uppercase block mt-1">1 = {selectedMaterial.qtyKecil || 1} {selectedMaterial.satuanKecil}</span>
+                  <span className="text-sm font-black text-slate-800 uppercase block mt-1">1 = {selectedMaterial.qtyKecil || 1} {formatUnitName(selectedMaterial.satuanKecil || selectedMaterial.satuanKalibrasi)}</span>
                 </div>
               </div>
 
@@ -598,9 +627,9 @@ export default function AlokasiBahanBakuPage() {
                   </span>
                 </div>
                 <div className="bg-slate-50/50 border border-slate-100 rounded-2xl p-4">
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Harga Estimasi per {selectedMaterial.satuanKecil || "Unit"}</span>
+                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Harga Estimasi per {formatUnitName(selectedMaterial.satuanKecil || selectedMaterial.satuanKalibrasi)}</span>
                   <span className="text-sm font-black text-slate-800 block mt-1">
-                    Rp {getPricePerSmallUnit(selectedMaterial).toLocaleString("id-ID", { maximumFractionDigits: 2 })}
+                    Rp {getPricePerSmallUnit(selectedMaterial).toLocaleString("id-ID", { maximumFractionDigits: 2 })} / {formatUnitName(selectedMaterial.satuanKecil || selectedMaterial.satuanKalibrasi)}
                   </span>
                 </div>
               </div>
@@ -635,8 +664,8 @@ export default function AlokasiBahanBakuPage() {
                           <tr className="border-b border-slate-100 bg-slate-50/50">
                             <th className="p-4 text-[9px] font-black uppercase tracking-wider text-slate-700">Nama Resep / Produk</th>
                             <th className="p-4 text-[9px] font-black uppercase tracking-wider text-slate-700">Kategori / Tipe</th>
-                            <th className="p-4 text-[9px] font-black uppercase tracking-wider text-slate-700 text-right">Jumlah / Qty</th>
-                            <th className="p-4 text-[9px] font-black uppercase tracking-wider text-slate-700 text-right">Kontribusi HPP</th>
+                            <th className="p-4 text-[9px] font-black uppercase tracking-wider text-slate-700 text-right">Takaran Resep</th>
+                            <th className="p-4 text-[9px] font-black uppercase tracking-wider text-slate-700 text-right">Harga & HPP Resep</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
@@ -657,10 +686,13 @@ export default function AlokasiBahanBakuPage() {
                                 </span>
                               </td>
                               <td className="p-4 text-right">
-                                <span className="text-xs font-black text-slate-800">{r.amount} <span className="text-[10px] font-bold text-slate-500 uppercase">{selectedMaterial.satuanKecil}</span></span>
+                                <span className="text-xs font-black text-slate-800">{r.amount} <span className="text-[10px] font-bold text-slate-500 uppercase">{r.unitName}</span></span>
                               </td>
                               <td className="p-4 text-right">
-                                <span className="text-xs font-black text-emerald-700">Rp {r.cost.toLocaleString("id-ID")}</span>
+                                <div className="flex flex-col items-end">
+                                  <span className="text-xs font-black text-emerald-700">Rp {r.cost.toLocaleString("id-ID")}</span>
+                                  <span className="text-[9px] font-bold text-slate-400">@ Rp {r.unitPrice.toLocaleString("id-ID", { maximumFractionDigits: 1 })}/{r.unitName}</span>
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -679,10 +711,13 @@ export default function AlokasiBahanBakuPage() {
                                 </span>
                               </td>
                               <td className="p-4 text-right">
-                                <span className="text-xs font-black text-slate-800">{r.amount} <span className="text-[10px] font-bold text-slate-500 uppercase">{selectedMaterial.satuanKecil}</span></span>
+                                <span className="text-xs font-black text-slate-800">{r.amount} <span className="text-[10px] font-bold text-slate-500 uppercase">{r.unitName}</span></span>
                               </td>
                               <td className="p-4 text-right">
-                                <span className="text-xs font-black text-emerald-700">Rp {r.cost.toLocaleString("id-ID")}</span>
+                                <div className="flex flex-col items-end">
+                                  <span className="text-xs font-black text-emerald-700">Rp {r.cost.toLocaleString("id-ID")}</span>
+                                  <span className="text-[9px] font-bold text-slate-400">@ Rp {r.unitPrice.toLocaleString("id-ID", { maximumFractionDigits: 1 })}/{r.unitName}</span>
+                                </div>
                               </td>
                             </tr>
                           ))}

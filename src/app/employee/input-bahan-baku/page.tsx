@@ -143,7 +143,27 @@ export default function EmployeeInputBahanBakuPage() {
           title: "Histori Pembelian",
           icon: ShoppingCart,
           accent: "bg-amber-50 text-amber-600",
-          logs: filteredHistory.filter((log: any) => log.type === "belanja" || log.type === "supplier"),
+          logs: filteredHistory.filter((log: any) => {
+            const isPembelian = log.type === "belanja" || log.type === "supplier";
+            const isKaryawan = !!log.karyawanId;
+            
+            const todayUTC = new Date().toISOString().split("T")[0];
+            const dLocal = new Date();
+            const todayLocal = `${dLocal.getFullYear()}-${String(dLocal.getMonth() + 1).padStart(2, '0')}-${String(dLocal.getDate()).padStart(2, '0')}`;
+            
+            const createdAtDateUTC = log.createdAt?.toDate ? log.createdAt.toDate().toISOString().split("T")[0] : null;
+            const createdAtDateLocal = log.createdAt?.toDate ? (() => {
+              const d = log.createdAt.toDate();
+              return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            })() : null;
+            
+            const logDateUTC = log.tanggal || createdAtDateUTC;
+            const logDateLocal = log.tanggal || createdAtDateLocal;
+            
+            const isToday = (logDateUTC === todayUTC) || (logDateLocal === todayLocal);
+            
+            return isPembelian && isKaryawan && isToday;
+          }),
         };
     }
   }, [activeTab, history, pemakaianHistory]);

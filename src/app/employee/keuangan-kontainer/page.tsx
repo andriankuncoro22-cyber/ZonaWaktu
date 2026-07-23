@@ -10,6 +10,7 @@ import {
   Loader2,
   Wallet,
   AlertCircle,
+  Gift
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -33,9 +34,9 @@ const formatThousand = (val: number | string) => {
 export default function EmployeeKeuanganKontainerPage() {
   const db = useFirestore();
   const { toast } = useToast();
+  const [shift, setShift] = useState<1 | 2>(1);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
-  const [shift, setShift] = useState<1 | 2>(2);
-  const [manualCashSales, setManualCashSales] = useState("");
+  const [manualTotalSales, setManualTotalSales] = useState("");
   const [manualQrisSales, setManualQrisSales] = useState("");
   const [modalAwal, setModalAwal] = useState("");
   const [modalTambahan, setModalTambahan] = useState("");
@@ -43,10 +44,16 @@ export default function EmployeeKeuanganKontainerPage() {
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const manualCashSales = useMemo(() => {
+    const total = Number(manualTotalSales || 0);
+    const qris = Number(manualQrisSales || 0);
+    return Math.max(0, total - qris);
+  }, [manualTotalSales, manualQrisSales]);
+
   const resetFormFields = () => {
     setCashOnHand("");
     setNote("");
-    setManualCashSales("");
+    setManualTotalSales("");
     setManualQrisSales("");
     setModalAwal("");
     setModalTambahan("");
@@ -69,6 +76,12 @@ export default function EmployeeKeuanganKontainerPage() {
     [db]
   );
   const { data: purchaseLogs } = useCollection(purchaseQuery);
+
+  const freeQuery = useMemoFirebase(
+    () => query(collection(db, "input-free"), where("tanggal", "==", selectedDate)),
+    [db, selectedDate]
+  );
+  const { data: freeLogs } = useCollection(freeQuery);
 
   const keuanganQuery = useMemoFirebase(
     () => query(collection(db, "keuangan-kontainer"), where("tanggal", "==", selectedDate)),
@@ -101,6 +114,12 @@ export default function EmployeeKeuanganKontainerPage() {
       .reduce((sum: number, item: any) => sum + Number(item.nominal || 0), 0);
   }, [operationalLogs, shift]);
 
+  const freeTotal = useMemo(() => {
+    return (freeLogs || [])
+      .filter((item: any) => shift === 2 ? true : (item.shift ?? 2) === 1)
+      .reduce((sum: number, item: any) => sum + Number(item.totalNominal || 0), 0);
+  }, [freeLogs, shift]);
+
   const getPurchaseSubtotal = (log: any) => {
     return (log.items || []).reduce((sum: number, item: any) => {
       const qty = Number(item.qty || 0);
@@ -128,12 +147,12 @@ export default function EmployeeKeuanganKontainerPage() {
       const totalShift1ModalAwal = shift1Log?.modalAwal || 0;
       const totalShift1ModalTambahan = shift1Log?.modalTambahan || 0;
       const shift1Difference = shift1Log?.difference || 0;
-      return cashFromSales - operationalTotal - purchaseTotal + totalShift1ModalAwal + totalShift1ModalTambahan + Number(modalTambahan || 0) + shift1Difference;
+      return cashFromSales - operationalTotal - purchaseTotal - freeTotal + totalShift1ModalAwal + totalShift1ModalTambahan + Number(modalTambahan || 0) + shift1Difference;
     } else {
       const cashFromSales = Number(manualCashSales || 0);
-      return cashFromSales - operationalTotal - purchaseTotal + Number(modalAwal || 0) + Number(modalTambahan || 0);
+      return cashFromSales - operationalTotal - purchaseTotal - freeTotal + Number(modalAwal || 0) + Number(modalTambahan || 0);
     }
-  }, [shift, dailyClosing, operationalTotal, purchaseTotal, manualCashSales, modalAwal, modalTambahan, shift1Log]);
+  }, [shift, dailyClosing, operationalTotal, purchaseTotal, freeTotal, manualCashSales, modalAwal, modalTambahan, shift1Log]);
 
   const difference = useMemo(() => {
     const actual = Number(cashOnHand || 0);
@@ -196,6 +215,13 @@ export default function EmployeeKeuanganKontainerPage() {
           valueClass: "text-red-600" 
         },
         { 
+          label: "Total Input Free (S1 + S2)", 
+          value: freeTotal, 
+          bgClass: "bg-pink-50/50 border-pink-100", 
+          labelClass: "text-pink-600", 
+          valueClass: "text-pink-900" 
+        },
+        { 
           label: "Selisih Shift 1", 
           value: shift1Difference, 
           bgClass: shift1Difference === 0 
@@ -223,9 +249,9 @@ export default function EmployeeKeuanganKontainerPage() {
         },
       ];
     } else {
-      const manualCashSalesVal = Number(manualCashSales || 0);
+      const manualCashSalesVal = manualCashSales;
       const manualQrisSalesVal = Number(manualQrisSales || 0);
-      const manualTotalSalesVal = manualCashSalesVal + manualQrisSalesVal;
+      const manualTotalSalesVal = Number(manualTotalSales || 0);
       return [
         { 
           label: "Total penjualan (Input)", 
@@ -242,7 +268,7 @@ export default function EmployeeKeuanganKontainerPage() {
           valueClass: "text-purple-900" 
         },
         { 
-          label: "Cash (Input)", 
+          label: "Cash (Otomatis: Total - QRIS)", 
           value: manualCashSalesVal, 
           bgClass: "bg-sky-50/50 border-sky-100", 
           labelClass: "text-sky-500", 
@@ -277,6 +303,13 @@ export default function EmployeeKeuanganKontainerPage() {
           valueClass: "text-red-600" 
         },
         { 
+          label: "Total Input Free", 
+          value: freeTotal, 
+          bgClass: "bg-pink-50/50 border-pink-100", 
+          labelClass: "text-pink-600", 
+          valueClass: "text-pink-900" 
+        },
+        { 
           label: "Cash Seharusnya di Laci", 
           value: currentExpectedCashToSettle, 
           bgClass: "bg-emerald-50 border-emerald-200 shadow-sm", 
@@ -285,7 +318,7 @@ export default function EmployeeKeuanganKontainerPage() {
         },
       ];
     }
-  }, [shift, dailyClosing, operationalTotal, purchaseTotal, manualCashSales, manualQrisSales, modalAwal, modalTambahan, currentExpectedCashToSettle, shift1Log]);
+  }, [shift, dailyClosing, operationalTotal, purchaseTotal, freeTotal, manualTotalSales, manualQrisSales, manualCashSales, modalAwal, modalTambahan, currentExpectedCashToSettle, shift1Log]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -296,10 +329,21 @@ export default function EmployeeKeuanganKontainerPage() {
         createdAt: serverTimestamp(),
         operationalTotal,
         purchaseTotal,
+        freeTotal,
         expectedCashToSettle: currentExpectedCashToSettle,
         cashOnHand: Number(cashOnHand || 0),
         difference,
         note: note.trim(),
+        freeDetails: (freeLogs || [])
+          .filter((log: any) => shift === 2 ? true : (log.shift ?? 2) === 1)
+          .map((log: any) => ({
+            id: log.id,
+            shift: Number(log.shift ?? 2),
+            karyawanNama: log.karyawanNama || "-",
+            items: log.items || [],
+            totalNominal: Number(log.totalNominal || 0),
+            notes: log.notes || "-",
+          })),
         operationalDetails: (operationalLogs || [])
           .filter((log: any) => shift === 2 ? true : (log.shift ?? 2) === 1)
           .map((log: any) => ({
@@ -341,9 +385,9 @@ export default function EmployeeKeuanganKontainerPage() {
       } else {
         dataToSave.modalAwal = Number(modalAwal || 0);
         dataToSave.modalTambahan = Number(modalTambahan || 0);
-        dataToSave.cashSales = Number(manualCashSales || 0);
+        dataToSave.cashSales = manualCashSales;
         dataToSave.qrisSales = Number(manualQrisSales || 0);
-        dataToSave.totalSales = Number(manualCashSales || 0) + Number(manualQrisSales || 0);
+        dataToSave.totalSales = Number(manualTotalSales || 0);
       }
 
       await addDoc(collection(db, "keuangan-kontainer"), dataToSave);
@@ -564,48 +608,73 @@ export default function EmployeeKeuanganKontainerPage() {
                 ))}
               </div>
 
-              <div className="rounded-[1.5rem] border border-primary/10 bg-primary/5 p-5">
-                <div className="flex items-center gap-3">
-                  <HandCoins className="h-5 w-5 text-primary" />
-                  <h3 className="text-sm font-black uppercase italic text-slate-900">Input Closing Shift {shift}</h3>
-                </div>
+              <div className="space-y-6">
+                {/* Kartu 1: Input Penjualan & Modal Shift */}
+                <div className="rounded-[1.5rem] border border-primary/10 bg-primary/5 p-5">
+                  <div className="flex items-center gap-3 mb-4">
+                    <HandCoins className="h-5 w-5 text-primary" />
+                    <h3 className="text-sm font-black uppercase italic text-slate-900">Input Closing Shift {shift}</h3>
+                  </div>
 
-                {/* Shift 1 (Pagi) Manual Sales & Modal Inputs */}
-                {shift === 1 && (
-                  <div className="mt-4 space-y-4 border-b border-primary/10 pb-4 mb-4">
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Penjualan Cash (Manual)</Label>
-                      <Input
-                        type="text"
-                        inputMode="numeric"
-                        value={manualCashSales === "" ? "" : formatThousand(manualCashSales)}
-                        onChange={(e) => setManualCashSales(e.target.value.replace(/\D/g, ""))}
-                        placeholder="0"
-                        className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-800"
-                      />
+                  {/* Shift 1 (Pagi) Manual Sales & Modal Inputs */}
+                  {shift === 1 && (
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600">Total Penjualan</Label>
+                        <Input
+                          type="text"
+                          inputMode="numeric"
+                          value={manualTotalSales === "" ? "" : formatThousand(manualTotalSales)}
+                          onChange={(e) => setManualTotalSales(e.target.value.replace(/\D/g, ""))}
+                          placeholder="0"
+                          className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-800"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600">Input QRIS</Label>
+                        <Input
+                          type="text"
+                          inputMode="numeric"
+                          value={manualQrisSales === "" ? "" : formatThousand(manualQrisSales)}
+                          onChange={(e) => setManualQrisSales(e.target.value.replace(/\D/g, ""))}
+                          placeholder="0"
+                          className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-800"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-sky-700">Penjualan Cash (Terisi Otomatis: Total - QRIS)</Label>
+                        <div className="h-12 rounded-xl bg-sky-50 border border-sky-200/80 px-4 flex items-center justify-between font-black text-sky-900 text-sm shadow-sm">
+                          <span>{formatCurrency(manualCashSales)}</span>
+                          <span className="text-[9px] font-black text-sky-600 uppercase tracking-widest bg-sky-100 px-2.5 py-1 rounded-lg">Otomatis</span>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600">Modal Awal (Pagi)</Label>
+                        <Input
+                          type="text"
+                          inputMode="numeric"
+                          value={modalAwal === "" ? "" : formatThousand(modalAwal)}
+                          onChange={(e) => setModalAwal(e.target.value.replace(/\D/g, ""))}
+                          placeholder="0"
+                          className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-800"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600">Modal Tambahan (Opsional)</Label>
+                        <Input
+                          type="text"
+                          inputMode="numeric"
+                          value={modalTambahan === "" ? "" : formatThousand(modalTambahan)}
+                          onChange={(e) => setModalTambahan(e.target.value.replace(/\D/g, ""))}
+                          placeholder="0"
+                          className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-800"
+                        />
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Penjualan QRIS (Manual)</Label>
-                      <Input
-                        type="text"
-                        inputMode="numeric"
-                        value={manualQrisSales === "" ? "" : formatThousand(manualQrisSales)}
-                        onChange={(e) => setManualQrisSales(e.target.value.replace(/\D/g, ""))}
-                        placeholder="0"
-                        className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-800"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Modal Awal (Pagi)</Label>
-                      <Input
-                        type="text"
-                        inputMode="numeric"
-                        value={modalAwal === "" ? "" : formatThousand(modalAwal)}
-                        onChange={(e) => setModalAwal(e.target.value.replace(/\D/g, ""))}
-                        placeholder="0"
-                        className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-800"
-                      />
-                    </div>
+                  )}
+
+                  {/* Shift 2 (Malam) Modal Tambahan Input */}
+                  {shift === 2 && (
                     <div className="space-y-2">
                       <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Modal Tambahan (Opsional)</Label>
                       <Input
@@ -617,75 +686,92 @@ export default function EmployeeKeuanganKontainerPage() {
                         className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-800"
                       />
                     </div>
-                  </div>
-                )}
-
-                {/* Shift 2 (Malam) Modal Tambahan Input */}
-                {shift === 2 && (
-                  <div className="mt-4 space-y-2 border-b border-primary/10 pb-4 mb-4">
-                    <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Modal Tambahan (Opsional)</Label>
-                    <Input
-                      type="text"
-                      inputMode="numeric"
-                      value={modalTambahan === "" ? "" : formatThousand(modalTambahan)}
-                      onChange={(e) => setModalTambahan(e.target.value.replace(/\D/g, ""))}
-                      placeholder="0"
-                      className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-800"
-                    />
-                  </div>
-                )}
-                <div className="mt-4 space-y-2">
-                  <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Nominal Kas (Uang di Pegang)</Label>
-                  <Input
-                    type="text"
-                    inputMode="numeric"
-                    value={cashOnHand === "" ? "" : formatThousand(cashOnHand)}
-                    onChange={(e) => setCashOnHand(e.target.value.replace(/\D/g, ""))}
-                    placeholder="0"
-                    className="h-12 rounded-xl border-none bg-white shadow-sm"
-                  />
-                </div>
-                <div className="mt-5 rounded-2xl bg-white p-4 shadow-sm">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Selisih</p>
-                  <p className={`mt-2 text-2xl font-black ${difference === 0 ? "text-emerald-600" : difference > 0 ? "text-amber-600" : "text-rose-600"}`}>
-                    {formatCurrency(difference)}
-                  </p>
-                </div>
-                 <div className="mt-5 space-y-2">
-                  <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Catatan Bila Ada Selisih</Label>
-                  <Input
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    placeholder="Opsional, contoh: ada tambahan uang jajan, ada kurang dari belanja..."
-                    className="h-12 rounded-xl border-none bg-white shadow-sm"
-                  />
+                  )}
                 </div>
 
-                {shift === 2 && !dailyClosing && (
-                  <div className="mt-5 bg-amber-50 border border-amber-200/80 rounded-2xl p-4 text-amber-900 flex items-start gap-3 text-xs">
-                    <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
-                    <div className="text-left">
-                      <p className="font-black uppercase tracking-wide text-[9px]">Menunggu Excel Closing Toko</p>
-                      <p className="text-[11px] mt-1 leading-relaxed font-bold">
-                        Owner belum menyelesaikan laporan / mengunggah Excel penjualan harian. Hubungi Owner untuk mengunggah Excel penjualan hari ini terlebih dahulu agar Anda dapat menyimpan data closing Shift 2.
-                      </p>
+                {/* Kartu 2: Terpisah Khusus Nominal Kas & Hitung Selisih (Warna Dasar Dark Emerald) */}
+                <div className="rounded-[1.5rem] border border-emerald-900/60 bg-gradient-to-br from-slate-900 to-emerald-950 p-5 text-white shadow-lg">
+                  <div className="flex items-center gap-3 mb-4">
+                    <Wallet className="h-5 w-5 text-emerald-400" />
+                    <div>
+                      <h3 className="text-sm font-black uppercase italic text-white leading-none">Nominal Kas (Uang di Pegang)</h3>
+                      <p className="text-[9px] text-emerald-300/80 font-bold uppercase tracking-wider mt-1">Hitung Fisik Uang Tunai Kasir</p>
                     </div>
                   </div>
-                )}
 
-                <Button
-                  onClick={handleSave}
-                  disabled={saving || (shift === 2 && !dailyClosing)}
-                  className="mt-5 h-12 w-full rounded-2xl bg-primary px-4 text-[10px] font-black uppercase tracking-[0.2em] text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-                  Simpan Histori
-                </Button>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-200">Uang Fisik Kasir (Cash on Hand)</Label>
+                      <Input
+                        type="text"
+                        inputMode="numeric"
+                        value={cashOnHand === "" ? "" : formatThousand(cashOnHand)}
+                        onChange={(e) => setCashOnHand(e.target.value.replace(/\D/g, ""))}
+                        placeholder="0"
+                        className="h-12 rounded-xl border-emerald-700/60 bg-slate-800/90 text-white placeholder:text-slate-500 font-black text-base focus:ring-2 focus:ring-emerald-400"
+                      />
+                    </div>
+
+                    {/* Box Selisih */}
+                    <div className={cn(
+                      "rounded-2xl p-4 border transition-all",
+                      difference === 0 
+                        ? "bg-emerald-900/40 border-emerald-500/40 text-emerald-200" 
+                        : difference > 0 
+                          ? "bg-amber-900/40 border-amber-500/40 text-amber-200" 
+                          : "bg-rose-900/40 border-rose-500/40 text-rose-200"
+                    )}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80">Perhitungan Selisih</span>
+                        <span className={cn(
+                          "text-[9px] font-black uppercase px-2 py-0.5 rounded-md",
+                          difference === 0 ? "bg-emerald-500/20 text-emerald-300" : difference > 0 ? "bg-amber-500/20 text-amber-300" : "bg-rose-500/20 text-rose-300"
+                        )}>
+                          {difference === 0 ? "Pas / Sesuai" : difference > 0 ? "Kas Lebih" : "Kas Kurang"}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-2xl font-black tabular-nums">
+                        {formatCurrency(difference)}
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-300">Catatan Bila Ada Selisih (Opsional)</Label>
+                      <Input
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                        placeholder="Contoh: Ada kembalian kurang / sisa tips..."
+                        className="h-11 rounded-xl border-slate-700 bg-slate-800/80 text-white placeholder:text-slate-500 text-xs"
+                      />
+                    </div>
+
+                    {shift === 2 && !dailyClosing && (
+                      <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 text-amber-200 flex items-start gap-3 text-xs">
+                        <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+                        <div className="text-left">
+                          <p className="font-black uppercase tracking-wide text-[9px]">Menunggu Excel Closing Toko</p>
+                          <p className="text-[11px] mt-1 leading-relaxed font-bold">
+                            Owner belum menyelesaikan laporan / mengunggah Excel penjualan harian. Hubungi Owner untuk mengunggah Excel penjualan hari ini terlebih dahulu agar Anda dapat menyimpan data closing Shift 2.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    <Button
+                      onClick={handleSave}
+                      disabled={saving || (shift === 2 && !dailyClosing)}
+                      className="mt-2 h-14 w-full rounded-2xl bg-emerald-500 hover:bg-emerald-600 font-black uppercase tracking-[0.2em] text-slate-950 text-[11px] shadow-lg shadow-emerald-950 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    >
+                      {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                      Simpan Histori Closing Shift {shift}
+                    </Button>
+                  </div>
+                </div>
               </div>
             </div>
           </Card>
 
-          <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
+          <div className="grid gap-6 lg:grid-cols-3">
             <Card className="rounded-[2rem] border-none bg-white p-6 shadow-sm">
               <div className="flex items-center gap-3">
                 <Wallet className="h-5 w-5 text-primary" />
@@ -761,6 +847,47 @@ export default function EmployeeKeuanganKontainerPage() {
                   )) : (
                   <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
                     Belum ada belanja bahan baku kontainer hari ini.
+                  </div>
+                )}
+              </div>
+            </Card>
+
+            <Card className="rounded-[2rem] border-none bg-white p-6 shadow-sm">
+              <div className="flex items-center gap-3">
+                <Gift className="h-5 w-5 text-pink-600" />
+                <h3 className="text-lg font-black uppercase italic text-slate-900">Rincian Input Free</h3>
+              </div>
+              <div className="mt-4 space-y-3">
+                {freeLogs && freeLogs.filter((log: any) => shift === 2 ? true : (log.shift ?? 2) === 1).length > 0 ? (
+                  freeLogs
+                    .filter((log: any) => shift === 2 ? true : (log.shift ?? 2) === 1)
+                    .map((log: any) => (
+                      <div key={log.id} className="rounded-2xl border border-pink-100 bg-pink-50/40 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-black text-slate-900">
+                              Shift {log.shift} • {log.karyawanNama}
+                            </p>
+                            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 leading-relaxed">
+                              {log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "-"}
+                              {log.notes && log.notes !== "-" && ` • ${log.notes}`}
+                            </p>
+                          </div>
+                          <p className="text-sm font-black text-pink-700">{formatCurrency(log.totalNominal || 0)}</p>
+                        </div>
+                        <div className="mt-3 space-y-1.5 border-t border-pink-100/60 pt-2">
+                          {(log.items || []).map((item: any, idx: number) => (
+                            <div key={`${log.id}-${idx}`} className="flex items-center justify-between text-xs text-slate-600">
+                              <span>{item.productName}</span>
+                              <span className="font-bold">{item.qty} x {formatCurrency(item.harga || 0)} = {formatCurrency(item.subtotal || 0)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
+                    Belum ada input free produk hari ini.
                   </div>
                 )}
               </div>
