@@ -14,7 +14,8 @@ import {
   CheckCircle2,
   Layers,
   AlertTriangle,
-  PackageX
+  PackageX,
+  Gift
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -29,6 +30,7 @@ import LaporanStockOpnamePage from "@/app/laporan/stock-opname/page";
 import LaporanClosingTokoPage from "@/app/laporan/closing-toko/page";
 import LaporanStockLossPage from "@/app/laporan/stock-loss/page";
 import LaporanBahanRusakPage from "@/app/laporan/laporan-bahan-rusak/page";
+import LaporanFreeProdukPage from "@/app/laporan/free-produk/page";
 
 function ReportHubContent() {
   const searchParams = useSearchParams();
@@ -62,6 +64,7 @@ function ReportHubContent() {
     { id: "closing-toko", name: "9. Closing Toko", icon: CheckCircle2 },
     { id: "stock-loss", name: "10. Stock Loss Harian", icon: AlertTriangle },
     { id: "bahan-rusak", name: "11. Laporan Bahan Rusak", icon: PackageX },
+    { id: "free-produk", name: "12. Laporan Free Produk", icon: Gift },
   ];
 
   return (
@@ -84,7 +87,7 @@ function ReportHubContent() {
 
       {/* Tabs Navigation (Multi-row grid for PC & Mobile - No scrolling needed) */}
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full space-y-6">
-        <TabsList className="bg-white p-2 rounded-2xl md:rounded-3xl shadow-sm border border-slate-100 h-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 w-full">
+        <TabsList className="bg-white p-2 rounded-2xl md:rounded-3xl shadow-sm border border-slate-100 h-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 w-full">
           {reportTabs.map((tab) => (
             <TabsTrigger
               key={tab.id}
@@ -141,6 +144,10 @@ function ReportHubContent() {
 
           <TabsContent value="bahan-rusak" className="m-0">
             <LaporanBahanRusakPage />
+          </TabsContent>
+
+          <TabsContent value="free-produk" className="m-0">
+            <LaporanFreeProdukPage />
           </TabsContent>
         </div>
       </Tabs>

@@ -9,12 +9,15 @@ import {
   Save,
   ClipboardList,
   Utensils,
-  Layers
+  Layers,
+  Boxes,
+  RotateCcw,
+  CheckCircle2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { collection, doc, updateDoc, deleteDoc, query, orderBy, setDoc } from "firebase/firestore";
+import { collection, doc, deleteDoc, setDoc } from "firebase/firestore";
 import { errorEmitter } from "@/firebase/error-emitter";
 import { FirestorePermissionError, type SecurityRuleContext } from "@/firebase/errors";
 import { cn } from "@/lib/utils";
@@ -75,6 +78,7 @@ export default function ResepProdukPage() {
   
   const [activeTab, setActiveTab] = useState("produk");
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedMaterialId, setSelectedMaterialId] = useState("all");
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [localRecipes, setLocalRecipes] = useState<Recipe[]>([]);
@@ -90,7 +94,7 @@ export default function ResepProdukPage() {
 
   const sortedMaterialsForSelect = useMemo(() => {
     if (!materials) return [];
-    return [...materials].sort((a: any, b: any) => (a.code || "").localeCompare(b.code || ""));
+    return [...materials].sort((a: any, b: any) => (a.nama || "").localeCompare(b.nama || ""));
   }, [materials]);
 
   useEffect(() => {
@@ -105,39 +109,62 @@ export default function ResepProdukPage() {
     return ((localRecipes.length > 0 ? localRecipes : recipes) as Recipe[]) || [];
   }, [localRecipes, recipes]);
 
-  // Filter resep berdasarkan tipe dan search
-  const filteredRecipes = useMemo(() => {
-    return recipeList.filter(r => {
-      const typeMatch = activeTab === 'produk' 
-        ? (r.type === 'produk' || (!r.type && r.produkId))
-        : (r.type === 'pelengkap');
-      
-      if (!typeMatch) return false;
-
-      const search = searchTerm.toLowerCase();
-      if (activeTab === 'produk') {
-        const prod = products?.find(p => p.id === r.produkId);
-        return prod?.nama?.toLowerCase().includes(search) || prod?.code?.toLowerCase().includes(search);
-      } else {
-        return r.namaPelengkap?.toLowerCase().includes(search);
-      }
-    });
-  }, [recipeList, activeTab, searchTerm, products]);
-
-  // List Produk untuk Tab 1 (Resep Produk)
-  const sortedAndFilteredProducts = useMemo(() => {
-    if (activeTab !== 'produk') return [];
-    return (products as any[])
-      ?.filter(item => 
-        item.nama?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.code?.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-      .sort((a, b) => (a.code || "").localeCompare(b.code || ""));
-  }, [products, searchTerm, activeTab]);
-
   const getProductRecipe = (productId: string) => {
     return recipeList.find(r => (r.produkId === productId && (r.type === 'produk' || !r.type))) as Recipe | undefined;
   };
+
+  // Filter resep pelengkap (Tab 2) berdasarkan tipe, search, dan filter bahan baku
+  const filteredPelengkapRecipes = useMemo(() => {
+    return recipeList.filter(r => {
+      if (r.type !== 'pelengkap') return false;
+
+      // Filter Bahan Baku
+      if (selectedMaterialId && selectedMaterialId !== "all") {
+        const hasMaterial = r.komposisi?.some(c => c.bahanBakuId === selectedMaterialId);
+        if (!hasMaterial) return false;
+      }
+
+      // Search term
+      if (searchTerm.trim()) {
+        const search = searchTerm.toLowerCase();
+        return r.namaPelengkap?.toLowerCase().includes(search);
+      }
+
+      return true;
+    });
+  }, [recipeList, searchTerm, selectedMaterialId]);
+
+  // List Produk untuk Tab 1 (Resep Produk) terfilter berdasarkan search & bahan baku
+  const sortedAndFilteredProducts = useMemo(() => {
+    if (activeTab !== 'produk') return [];
+
+    return (products as any[])
+      ?.filter(product => {
+        // Search term check
+        const search = searchTerm.toLowerCase();
+        const matchesSearch = !searchTerm.trim() || 
+          product.nama?.toLowerCase().includes(search) ||
+          product.code?.toLowerCase().includes(search);
+
+        if (!matchesSearch) return false;
+
+        // Material filter check
+        if (selectedMaterialId && selectedMaterialId !== "all") {
+          const recipe = getProductRecipe(product.id);
+          if (!recipe) return false;
+          const hasMaterial = recipe.komposisi?.some(c => c.bahanBakuId === selectedMaterialId);
+          if (!hasMaterial) return false;
+        }
+
+        return true;
+      })
+      .sort((a, b) => (a.code || "").localeCompare(b.code || ""));
+  }, [products, searchTerm, activeTab, selectedMaterialId, recipeList]);
+
+  const selectedMaterialDetail = useMemo(() => {
+    if (!selectedMaterialId || selectedMaterialId === "all") return null;
+    return materials?.find(m => m.id === selectedMaterialId);
+  }, [materials, selectedMaterialId]);
 
   const getMaterialDetail = (id: string) => {
     return materials?.find(m => m.id === id);
@@ -245,7 +272,7 @@ export default function ResepProdukPage() {
       .then(() => {
         toast({ title: "Resep dihapus", variant: "destructive" });
       })
-      .catch(async (err) => {
+      .catch(async () => {
         const permissionError = new FirestorePermissionError({
           path: docRef.path,
           operation: 'delete',
@@ -402,16 +429,79 @@ export default function ResepProdukPage() {
           </TabsTrigger>
         </TabsList>
 
-        <div className="relative w-full md:w-96 group mb-8">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500 group-focus-within:text-primary transition-colors" />
-          <input 
-            type="text" 
-            placeholder={activeTab === 'produk' ? "Cari resep produk..." : "Cari resep pelengkap..."}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-11 pr-4 py-3 bg-white border-none shadow-sm rounded-2xl text-xs font-bold outline-none placeholder:text-slate-500 text-slate-900 focus:ring-1 focus:ring-primary/20 transition-all"
-          />
+        {/* Filter Controls: Search & Filter Bahan Baku */}
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 mb-8">
+          {/* Search Input */}
+          <div className="relative flex-1 group">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-primary transition-colors" />
+            <input 
+              type="text" 
+              placeholder={activeTab === 'produk' ? "Cari resep produk..." : "Cari resep pelengkap..."}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-11 pr-4 py-3 bg-white border-none shadow-sm rounded-2xl text-xs font-bold outline-none placeholder:text-slate-400 text-slate-900 focus:ring-1 focus:ring-primary/20 transition-all"
+            />
+          </div>
+
+          {/* Filter Bahan Baku Dropdown */}
+          <div className="flex items-center gap-2 w-full md:w-80 shrink-0">
+            <Select value={selectedMaterialId} onValueChange={setSelectedMaterialId}>
+              <SelectTrigger className="w-full h-11 bg-white border-none shadow-sm rounded-2xl text-xs font-bold text-slate-800">
+                <div className="flex items-center gap-2 truncate">
+                  <Boxes className="h-4 w-4 text-primary shrink-0" />
+                  <SelectValue placeholder="Semua Bahan Baku" />
+                </div>
+              </SelectTrigger>
+              <SelectContent className="rounded-2xl border-none shadow-2xl max-h-72">
+                <SelectItem value="all" className="rounded-xl font-bold text-xs">
+                  ✨ Semua Bahan Baku
+                </SelectItem>
+                {sortedMaterialsForSelect.map((m: any) => (
+                  <SelectItem key={m.id} value={m.id} className="rounded-xl font-medium text-xs">
+                    {m.code ? `[${m.code}] ` : ""}{m.nama}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {(selectedMaterialId !== "all" || searchTerm) && (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setSelectedMaterialId("all");
+                  setSearchTerm("");
+                }}
+                className="h-11 px-3 rounded-2xl text-rose-600 hover:bg-rose-50 font-bold text-xs shrink-0"
+                title="Reset filter"
+              >
+                <RotateCcw className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         </div>
+
+        {/* Selected Filter Banner Indicator */}
+        {selectedMaterialDetail && (
+          <div className="mb-6 p-4 rounded-2xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <Boxes className="h-5 w-5 shrink-0" />
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Filter Resep Mengandung Bahan Baku:</p>
+                <p className="text-xs font-black uppercase text-slate-900 mt-0.5">
+                  [{selectedMaterialDetail.code}] {selectedMaterialDetail.nama}
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelectedMaterialId("all")}
+              className="text-[10px] font-black uppercase text-rose-600 hover:bg-rose-50 rounded-xl"
+            >
+              Hapus Filter
+            </Button>
+          </div>
+        )}
 
         <TabsContent value="produk" className="m-0">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -433,6 +523,7 @@ export default function ResepProdukPage() {
                     subtitle={product.kategori}
                     style={categoryStyle}
                     recipe={recipe}
+                    highlightMaterialId={selectedMaterialId}
                     onEdit={() => recipe && openEdit(recipe)}
                     onDelete={() => recipe && handleDelete(recipe.id)}
                     onAdd={() => {
@@ -445,7 +536,7 @@ export default function ResepProdukPage() {
                 );
               })
             ) : (
-              <EmptyState icon={<Utensils className="h-16 w-16" />} message="Tidak ada produk ditemukan" />
+              <EmptyState icon={<Utensils className="h-16 w-16" />} message="Tidak ada produk ditemukan untuk bahan baku ini" />
             )}
           </div>
         </TabsContent>
@@ -457,8 +548,8 @@ export default function ResepProdukPage() {
                 <div className="h-8 w-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
                 <p className="text-[10px] font-black text-slate-700 uppercase tracking-widest">Menyusun Resep...</p>
               </div>
-            ) : filteredRecipes.length > 0 ? (
-              filteredRecipes.map((recipe) => (
+            ) : filteredPelengkapRecipes.length > 0 ? (
+              filteredPelengkapRecipes.map((recipe) => (
                 <RecipeCard 
                   key={recipe.id}
                   title={recipe.namaPelengkap || "Tanpa Nama"}
@@ -466,6 +557,7 @@ export default function ResepProdukPage() {
                   subtitle="RESEP INTERNAL"
                   style={CATEGORY_STYLES["pelengkap"]}
                   recipe={recipe}
+                  highlightMaterialId={selectedMaterialId}
                   onEdit={() => openEdit(recipe)}
                   onDelete={() => handleDelete(recipe.id)}
                   getMaterialDetail={getMaterialDetail}
@@ -473,7 +565,7 @@ export default function ResepProdukPage() {
                 />
               ))
             ) : (
-              <EmptyState icon={<Layers className="h-16 w-16" />} message="Belum ada resep pelengkap" />
+              <EmptyState icon={<Layers className="h-16 w-16" />} message="Belum ada resep pelengkap ditemukan untuk bahan baku ini" />
             )}
           </div>
         </TabsContent>
@@ -488,6 +580,7 @@ function RecipeCard({
   subtitle, 
   style, 
   recipe, 
+  highlightMaterialId,
   onEdit, 
   onDelete, 
   onAdd, 
@@ -578,14 +671,24 @@ function RecipeCard({
                 <tbody className="divide-y divide-slate-100/50">
                   {recipe.komposisi.map((comp: any, idx: number) => {
                     const mat = getMaterialDetail(comp.bahanBakuId);
+                    const isHighlighted = highlightMaterialId && highlightMaterialId !== "all" && comp.bahanBakuId === highlightMaterialId;
+
                     return (
-                      <tr key={idx} className="group/row">
+                      <tr 
+                        key={idx} 
+                        className={cn(
+                          "group/row transition-colors",
+                          isHighlighted ? "bg-primary/10 font-bold" : ""
+                        )}
+                      >
                         <td className="py-3">
                           <div className="flex flex-col">
                             <span className="text-[9px] font-bold text-primary/60 mb-0.5">
                               {mat?.code || "-"}
                             </span>
-                            <span className="text-xs font-semibold text-slate-800">{toTitleCase(mat?.nama)}</span>
+                            <span className={cn("text-xs font-semibold", isHighlighted ? "text-primary font-black" : "text-slate-800")}>
+                              {toTitleCase(mat?.nama)}
+                            </span>
                           </div>
                         </td>
                         <td className="py-3 text-right">
@@ -594,7 +697,9 @@ function RecipeCard({
                           </span>
                         </td>
                         <td className="py-3 text-right">
-                          <span className="text-xs font-black text-slate-900 tabular-nums">{comp.jumlah}</span>
+                          <span className={cn("text-xs tabular-nums", isHighlighted ? "font-black text-primary" : "font-black text-slate-900")}>
+                            {comp.jumlah}
+                          </span>
                         </td>
                         <td className="py-3 pl-3">
                           <span className="text-[10px] font-bold text-slate-700 uppercase">{mat?.satuanKecil || "-"}</span>
