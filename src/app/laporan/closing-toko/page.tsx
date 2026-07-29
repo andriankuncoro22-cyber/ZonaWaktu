@@ -14,7 +14,8 @@ import {
   FileSpreadsheet,
   Layers,
   FileText,
-  HelpCircle
+  HelpCircle,
+  Gift
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -53,6 +54,13 @@ export default function LaporanClosingTokoPage() {
   );
   const { data: keuanganLogs, loading: loadingKeuangan } = useCollection(keuanganQuery);
 
+  // Fetch input-free logs
+  const freeQuery = useMemoFirebase(
+    () => query(collection(db, "input-free"), where("tanggal", "==", selectedDate)),
+    [db, selectedDate]
+  );
+  const { data: freeLogs } = useCollection(freeQuery);
+
   const penjualanData = useMemo(() => {
     if (!penjualanLogs || penjualanLogs.length === 0) return null;
     return penjualanLogs[0];
@@ -62,6 +70,21 @@ export default function LaporanClosingTokoPage() {
     if (!keuanganLogs || keuanganLogs.length === 0) return null;
     return keuanganLogs.find((log: any) => (log.shift ?? 2) === selectedShift) || null;
   }, [keuanganLogs, selectedShift]);
+
+  const freeList = useMemo(() => {
+    if (keuanganData?.freeDetails && keuanganData.freeDetails.length > 0) {
+      return keuanganData.freeDetails;
+    }
+    if (!freeLogs) return [];
+    return freeLogs.filter((log: any) => selectedShift === 2 ? true : (log.shift ?? 2) === 1);
+  }, [keuanganData, freeLogs, selectedShift]);
+
+  const totalFree = useMemo(() => {
+    if (keuanganData?.freeTotal !== undefined && keuanganData?.freeTotal !== null) {
+      return Number(keuanganData.freeTotal);
+    }
+    return freeList.reduce((sum: number, log: any) => sum + Number(log.totalNominal || 0), 0);
+  }, [keuanganData, freeList]);
 
   const loading = loadingPenjualan || loadingKeuangan;
 
@@ -102,7 +125,6 @@ export default function LaporanClosingTokoPage() {
 
   const totalOperasional = keuanganData?.operationalTotal || 0;
   const totalBelanja = keuanganData?.purchaseTotal || 0;
-  const sisaUangDisetor = keuanganData?.expectedCashToSettle || 0;
   const modalAwal = useMemo(() => {
     if (keuanganData?.modalAwal) return keuanganData.modalAwal;
     const shift1Log = keuanganLogs?.find((log: any) => (log.shift ?? 2) === 1);
@@ -114,7 +136,28 @@ export default function LaporanClosingTokoPage() {
   }, [keuanganLogs]);
   const modalTambahan = keuanganData?.modalTambahan || 0;
   const uangDiPegang = keuanganData?.cashOnHand || 0;
-  const selisihKeuangan = keuanganData?.difference || 0;
+
+  const sisaUangDisetor = useMemo(() => {
+    if (!keuanganData) return 0;
+    const cashSales = isShift1 
+      ? Number(keuanganData.cashSales || 0)
+      : Number(keuanganData.cashFromClosing || keuanganData.cashSales || 0);
+    const mAwal = Number(modalAwal || 0);
+    const mTambahan = Number(modalTambahan || 0);
+    const s1Diff = !isShift1 ? Number(shift1Difference || 0) : 0;
+    const ops = Number(totalOperasional || 0);
+    const bel = Number(totalBelanja || 0);
+    const free = Number(totalFree || 0);
+
+    const calculated = cashSales + mAwal + mTambahan + s1Diff - ops - bel - free;
+    return (cashSales > 0 || mAwal > 0 || mTambahan > 0) ? calculated : Number(keuanganData.expectedCashToSettle || 0);
+  }, [keuanganData, isShift1, modalAwal, modalTambahan, shift1Difference, totalOperasional, totalBelanja, totalFree]);
+
+  const selisihKeuangan = useMemo(() => {
+    if (!keuanganData) return 0;
+    return Number(uangDiPegang || 0) - sisaUangDisetor;
+  }, [keuanganData, uangDiPegang, sisaUangDisetor]);
+
   const catatanKaryawan = keuanganData?.note || "";
 
   return (
@@ -270,7 +313,7 @@ export default function LaporanClosingTokoPage() {
                         Pembayaran
                       </TabsTrigger>
                       <TabsTrigger value="operasional" className="rounded-lg font-black uppercase text-[8px] md:text-[9px] tracking-wider py-2 text-center">
-                        Operasional & Belanja
+                        Operasional, Belanja & Free
                       </TabsTrigger>
                       <TabsTrigger value="catatan" className="rounded-lg font-black uppercase text-[8px] md:text-[9px] tracking-wider py-2 text-center">
                         Catatan
@@ -382,7 +425,7 @@ export default function LaporanClosingTokoPage() {
                             </div>
                           )}
                        </div>
-                     </TabsContent>
+                      </TabsContent>
 
                     {/* Tab 3: Operasional & Belanja */}
                     <TabsContent value="operasional" className="m-0 space-y-6">
@@ -443,6 +486,43 @@ export default function LaporanClosingTokoPage() {
                           </div>
                         ) : (
                           <div className="text-center py-6 border border-dashed border-slate-100 rounded-2xl text-slate-400 text-xs font-bold uppercase">Tidak ada rincian belanja bahan baku.</div>
+                        )}
+                      </div>
+
+                      <div className="space-y-4 mt-6">
+                        <h4 className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                          <Gift className="h-4 w-4 text-pink-600" /> Input Free Produk ({freeList?.length || 0})
+                        </h4>
+                        {freeList && freeList.length > 0 ? (
+                          <div className="grid gap-3 grid-cols-1 md:grid-cols-2">
+                            {freeList.map((free: any, i: number) => (
+                              <div key={i} className="border border-pink-100 rounded-2xl p-3 md:p-4 bg-pink-50/30">
+                                <div className="flex justify-between items-start pb-2 border-b border-pink-100/60 gap-4">
+                                  <div className="space-y-1">
+                                    <span className="text-xs font-black text-slate-800 uppercase block">
+                                      {free.karyawanNama || "Karyawan"} {free.shift ? `(Shift ${free.shift})` : ''}
+                                    </span>
+                                    {free.notes && free.notes !== "-" && (
+                                      <span className="text-[9px] font-bold text-slate-400 uppercase block">
+                                        Catatan: {free.notes}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="text-xs font-black text-pink-700 tabular-nums shrink-0">{formatCurrency(free.totalNominal || 0)}</span>
+                                </div>
+                                <div className="mt-2 space-y-1.5">
+                                  {(free.items || []).map((item: any, idx: number) => (
+                                    <div key={idx} className="flex justify-between text-[11px] text-slate-600 font-bold uppercase">
+                                      <span>{item.productName || item.name || "-"}</span>
+                                      <span className="tabular-nums">{item.qty} x {formatCurrency(item.harga || 0)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-center py-6 border border-dashed border-slate-100 rounded-2xl text-slate-400 text-xs font-bold uppercase">Tidak ada rincian input free produk.</div>
                         )}
                       </div>
                     </TabsContent>
@@ -515,6 +595,11 @@ export default function LaporanClosingTokoPage() {
                     <div className="flex flex-col justify-between p-3 rounded-2xl border border-slate-50 bg-slate-50/50 h-20 md:h-auto md:flex-row md:items-center md:px-5 md:py-4">
                       <span className="text-[9px] md:text-xs font-black uppercase text-slate-600 leading-snug">Belanja Bahan</span>
                       <span className="text-sm md:text-base font-black text-rose-600 tabular-nums mt-1 md:mt-0">{formatCurrency(totalBelanja)}</span>
+                    </div>
+
+                    <div className="flex flex-col justify-between p-3 rounded-2xl border border-slate-50 bg-slate-50/50 h-20 md:h-auto md:flex-row md:items-center md:px-5 md:py-4">
+                      <span className="text-[9px] md:text-xs font-black uppercase text-slate-600 leading-snug">Input Free</span>
+                      <span className="text-sm md:text-base font-black text-pink-600 tabular-nums mt-1 md:mt-0">{formatCurrency(totalFree)}</span>
                     </div>
 
                     <div className="flex flex-col justify-between p-3 rounded-2xl border border-slate-50 bg-slate-50/50 h-20 md:h-auto md:flex-row md:items-center md:px-5 md:py-4 col-span-2 md:col-span-1">

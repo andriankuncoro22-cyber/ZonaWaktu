@@ -150,13 +150,18 @@ export default function EmployeeKeuanganKontainerPage() {
   const currentExpectedCashToSettle = useMemo(() => {
     if (shift === 2) {
       const cashFromSales = Number(dailyClosing?.transactionReport?.cashTotal || 0);
-      const totalShift1ModalAwal = shift1Log?.modalAwal || 0;
-      const totalShift1ModalTambahan = shift1Log?.modalTambahan || 0;
-      const shift1Difference = shift1Log?.difference || 0;
-      return cashFromSales - pureOperationalTotal - purchaseTotal - freeTotal + totalShift1ModalAwal + totalShift1ModalTambahan + Number(modalTambahan || 0) + shift1Difference;
+      const totalShift1ModalAwal = Number(shift1Log?.modalAwal || 0);
+      const totalShift1ModalTambahan = Number(shift1Log?.modalTambahan || 0);
+      const shift1Difference = Number(shift1Log?.difference || 0);
+      const shift2ModalTambahan = Number(modalTambahan || 0);
+
+      return cashFromSales + totalShift1ModalAwal + totalShift1ModalTambahan + shift2ModalTambahan + shift1Difference - pureOperationalTotal - purchaseTotal - freeTotal;
     } else {
       const cashFromSales = Number(manualCashSales || 0);
-      return cashFromSales - pureOperationalTotal - purchaseTotal - freeTotal + Number(modalAwal || 0) + Number(modalTambahan || 0);
+      const shift1ModalAwal = Number(modalAwal || 0);
+      const shift1ModalTambahan = Number(modalTambahan || 0);
+
+      return cashFromSales + shift1ModalAwal + shift1ModalTambahan - pureOperationalTotal - purchaseTotal - freeTotal;
     }
   }, [shift, dailyClosing, pureOperationalTotal, purchaseTotal, freeTotal, manualCashSales, modalAwal, modalTambahan, shift1Log]);
 
@@ -421,6 +426,50 @@ export default function EmployeeKeuanganKontainerPage() {
     }
   };
 
+  const rekapValues = useMemo(() => {
+    if (!currentShiftLog) return null;
+
+    const isShift2 = (currentShiftLog.shift ?? 2) === 2;
+    const cashSales = isShift2
+      ? Number(currentShiftLog.cashFromClosing || currentShiftLog.cashSales || 0)
+      : Number(currentShiftLog.cashSales || 0);
+
+    const totalSales = isShift2
+      ? Number(currentShiftLog.totalFromClosing || currentShiftLog.totalSales || 0)
+      : Number(currentShiftLog.totalSales || 0);
+
+    const qrisSales = isShift2
+      ? Number(currentShiftLog.qrisFromClosing || currentShiftLog.qrisSales || 0)
+      : Number(currentShiftLog.qrisSales || 0);
+
+    const modalAwal = Number(currentShiftLog.modalAwal || 0);
+    const modalTambahan = Number(currentShiftLog.modalTambahan || 0);
+    const shift1Diff = isShift2 ? Number(currentShiftLog.shift1Difference || 0) : 0;
+    const ops = Number(currentShiftLog.operationalTotal || 0);
+    const purchase = Number(currentShiftLog.purchaseTotal || 0);
+    const free = Number(currentShiftLog.freeTotal || 0);
+
+    const calculatedExpected = cashSales + modalAwal + modalTambahan + shift1Diff - ops - purchase - free;
+    const expectedCashToSettle = (cashSales > 0 || modalAwal > 0 || modalTambahan > 0)
+      ? calculatedExpected
+      : Number(currentShiftLog.expectedCashToSettle || 0);
+
+    const cashOnHand = Number(currentShiftLog.cashOnHand || 0);
+    const difference = cashOnHand - expectedCashToSettle;
+
+    return {
+      totalSales,
+      qrisSales,
+      cashSales,
+      expectedCashToSettle,
+      cashOnHand,
+      difference,
+      modalAwal,
+      modalTambahan,
+      note: currentShiftLog.note || ""
+    };
+  }, [currentShiftLog]);
+
   return (
     <div className="space-y-6 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-700">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -507,37 +556,25 @@ export default function EmployeeKeuanganKontainerPage() {
               <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4">
                 <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Total Penjualan</span>
                 <p className="text-base font-black text-slate-900 mt-1">
-                  {formatCurrency(
-                    (currentShiftLog?.shift ?? 2) === 2
-                      ? currentShiftLog?.totalFromClosing || currentShiftLog?.cashFromClosing || 0
-                      : currentShiftLog?.totalSales || 0
-                  )}
+                  {formatCurrency(rekapValues?.totalSales || 0)}
                 </p>
               </div>
               <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4">
                 <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Total QRIS</span>
                 <p className="text-base font-black text-purple-700 mt-1">
-                  {formatCurrency(
-                    (currentShiftLog?.shift ?? 2) === 2
-                      ? currentShiftLog?.qrisFromClosing || 0
-                      : currentShiftLog?.qrisSales || 0
-                  )}
+                  {formatCurrency(rekapValues?.qrisSales || 0)}
                 </p>
               </div>
               <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4">
                 <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Total Cash</span>
                 <p className="text-base font-black text-sky-700 mt-1">
-                  {formatCurrency(
-                    (currentShiftLog?.shift ?? 2) === 2
-                      ? currentShiftLog?.cashFromClosing || 0
-                      : currentShiftLog?.cashSales || 0
-                  )}
+                  {formatCurrency(rekapValues?.cashSales || 0)}
                 </p>
               </div>
               <div className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-4">
                 <span className="text-[9px] font-black uppercase tracking-wider text-emerald-700">Wajib Setor</span>
                 <p className="text-base font-black text-emerald-700 mt-1">
-                  {formatCurrency(currentShiftLog?.expectedCashToSettle || 0)}
+                  {formatCurrency(rekapValues?.expectedCashToSettle || 0)}
                 </p>
               </div>
             </div>
@@ -545,25 +582,25 @@ export default function EmployeeKeuanganKontainerPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="rounded-xl border border-slate-100 p-4 bg-slate-50/30">
                 <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Uang Fisik di Pegang</span>
-                <p className="text-lg font-black text-slate-900 mt-1">{formatCurrency(currentShiftLog?.cashOnHand || 0)}</p>
+                <p className="text-lg font-black text-slate-900 mt-1">{formatCurrency(rekapValues?.cashOnHand || 0)}</p>
               </div>
               <div className={cn(
                 "rounded-xl border p-4",
-                (currentShiftLog?.difference || 0) === 0
+                (rekapValues?.difference || 0) === 0
                   ? "border-emerald-100 bg-emerald-50/10"
                   : "border-rose-100 bg-rose-50/10"
               )}>
                 <span className={cn(
                   "text-[9px] font-black uppercase tracking-wider",
-                  (currentShiftLog?.difference || 0) === 0 ? "text-emerald-700" : "text-rose-700"
+                  (rekapValues?.difference || 0) === 0 ? "text-emerald-700" : "text-rose-700"
                 )}>
                   Selisih
                 </span>
                 <p className={cn(
                   "text-lg font-black mt-1",
-                  (currentShiftLog?.difference || 0) === 0 ? "text-emerald-700" : "text-rose-700"
+                  (rekapValues?.difference || 0) === 0 ? "text-emerald-700" : "text-rose-700"
                 )}>
-                  {formatCurrency(currentShiftLog?.difference || 0)}
+                  {formatCurrency(rekapValues?.difference || 0)}
                 </p>
               </div>
             </div>
@@ -572,12 +609,12 @@ export default function EmployeeKeuanganKontainerPage() {
               {shift === 1 && (
                 <div className="rounded-xl border border-slate-100 p-4 bg-slate-50/30">
                   <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Modal Awal</span>
-                  <p className="text-base font-black text-slate-900 mt-1">{formatCurrency(currentShiftLog?.modalAwal || 0)}</p>
+                  <p className="text-base font-black text-slate-900 mt-1">{formatCurrency(rekapValues?.modalAwal || 0)}</p>
                 </div>
               )}
               <div className="rounded-xl border border-slate-100 p-4 bg-slate-50/30">
                 <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Modal Tambahan</span>
-                <p className="text-base font-black text-slate-900 mt-1">{formatCurrency(currentShiftLog?.modalTambahan || 0)}</p>
+                <p className="text-base font-black text-slate-900 mt-1">{formatCurrency(rekapValues?.modalTambahan || 0)}</p>
               </div>
             </div>
 

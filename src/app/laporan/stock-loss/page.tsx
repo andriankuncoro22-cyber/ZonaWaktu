@@ -185,8 +185,10 @@ export default function LaporanStockLossPage() {
           const items = log.items ?? [];
           const isBelanjaType = log.type === "supplier" || log.type === "belanja";
           const isAmbilGudang = log.type === "ambil-gudang";
+          const logLocation = log.targetLocation || log.location;
 
-          if (isBelanjaType) {
+          // Only include purchases for Kontainer in Belanja Bahan (exclude Gudang Utama)
+          if (isBelanjaType && logLocation !== "gudang") {
             items.forEach((item: any) => {
               if (item.materialId) {
                 // If log has totalQtyKecil, we sum that, otherwise we will multiply qty by conversion rate
