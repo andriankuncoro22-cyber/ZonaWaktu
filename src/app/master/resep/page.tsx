@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useState, useMemo, useEffect } from "react";
 import { 
@@ -439,7 +439,7 @@ export default function ResepProdukPage() {
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(14);
     doc.setFont("helvetica", "bold");
-    doc.text("RESEP PRODUK — ZONA WAKTU", 14, 10);
+    doc.text("RESEP PRODUK â€” ZONA WAKTU", 14, 10);
     doc.setFontSize(8);
     doc.setFont("helvetica", "normal");
     doc.text(`Dicetak: ${dateStr}`, 14, 17);
@@ -487,7 +487,7 @@ export default function ResepProdukPage() {
         ];
       });
 
-      let finalY = startYPos + 10;
+      const finalY = startYPos + 10;
       autoTable(doc, {
         startY: finalY,
         head: [["No", "Kode", "Nama Bahan", "Qty", "Satuan", "Harga/Satuan", "Total Harga"]],
@@ -518,7 +518,7 @@ export default function ResepProdukPage() {
       doc.setFontSize(11);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(99, 102, 241);
-      doc.text("▌ RESEP PRODUK", 14, startY);
+      doc.text("â–Œ RESEP PRODUK", 14, startY);
       startY += 6;
 
       for (const product of allProductsWithRecipes) {
@@ -540,7 +540,7 @@ export default function ResepProdukPage() {
       doc.setFontSize(11);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(99, 102, 241);
-      doc.text("▌ RESEP PELENGKAP", 14, startY);
+      doc.text("â–Œ RESEP PELENGKAP", 14, startY);
       startY += 6;
 
       for (const recipe of allPelengkap) {
@@ -564,7 +564,7 @@ export default function ResepProdukPage() {
       doc.setPage(i);
       doc.setFontSize(7);
       doc.setTextColor(148, 163, 184);
-      doc.text(`Halaman ${i} dari ${pageCount}  •  Zona Waktu`, pageWidth / 2, doc.internal.pageSize.getHeight() - 5, { align: "center" });
+      doc.text(`Halaman ${i} dari ${pageCount}  â€¢  Zona Waktu`, pageWidth / 2, doc.internal.pageSize.getHeight() - 5, { align: "center" });
     }
 
     doc.save(`Resep_Produk_ZonaWaktu_${new Date().toLocaleDateString("id-ID").replace(/\//g, "-")}.pdf`);
@@ -576,7 +576,7 @@ export default function ResepProdukPage() {
         <div className="space-y-1">
           <h1 className="text-4xl font-black tracking-tight text-slate-900 uppercase italic">Resep Produk</h1>
           <p className="text-[11px] text-slate-700 font-bold uppercase tracking-[0.2em]">
-            Manajemen Komposisi Bahan Baku • Zona Waktu
+            Manajemen Komposisi Bahan Baku â€¢ Zona Waktu
           </p>
         </div>
 
@@ -761,7 +761,7 @@ export default function ResepProdukPage() {
               </SelectTrigger>
               <SelectContent className="rounded-2xl border-none shadow-2xl max-h-72">
                 <SelectItem value="all" className="rounded-xl font-bold text-xs">
-                  ✨ Semua Bahan Baku
+                  âœ¨ Semua Bahan Baku
                 </SelectItem>
                 {sortedMaterialsForSelect.map((m: any) => (
                   <SelectItem key={m.id} value={m.id} className="rounded-xl font-medium text-xs">
