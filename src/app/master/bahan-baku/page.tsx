@@ -173,8 +173,6 @@ export default function MasterBahanBakuPage() {
     const tableData = (filteredMaterials || []).map(item => [
       item.code || "-",
       toTitleCase(item.nama),
-      formatNumber(item.qtyBesar).toLocaleString('id-ID'),
-      item.satuanBesar || "-",
       formatNumber(item.gramPerBesar || 0).toLocaleString('id-ID') + getUnitSuffix(item),
       formatNumber(item.qtyKecil).toLocaleString('id-ID'),
       item.satuanKecil || "-",
@@ -260,11 +258,10 @@ export default function MasterBahanBakuPage() {
     const beratBungkusProduk = beratBungkusInput;
     const totalGramasiPerProduk = totalGramasiInput;
 
-    const data = {
+    const data: any = {
       code: String(formData.get("code") || "").trim(),
       nama: String(formData.get("nama") || "").trim(),
       metodePembelian: String(formData.get("metodePembelian") || "Supliyer").trim(),
-      qtyBesar: formatNumber(formData.get("qtyBesar")),
       satuanBesar: String(formData.get("satuanBesar") || "").trim(),
       qtyMin: formatNumber(formData.get("qtyMin") || 5),
       qtyMinGudang: formatNumber(formData.get("qtyMinGudang") || formData.get("qtyMin") || 5),
@@ -279,8 +276,13 @@ export default function MasterBahanBakuPage() {
     };
 
     if (editingItem) {
+      // Tidak merubah qtyBesar / stok gudang saat mengedit master bahan baku
       await updateDoc(doc(db, "bahan-baku", editingItem.id), data);
     } else {
+      data.qtyBesar = 0;
+      data.qtyGudangKecil = 0;
+      data.qtyKontainerBesar = 0;
+      data.qtyKontainerKecil = 0;
       await addDoc(collection(db, "bahan-baku"), data);
     }
     
@@ -374,10 +376,6 @@ export default function MasterBahanBakuPage() {
                 <div className="rounded-3xl border border-slate-100 bg-slate-50 p-4 space-y-4 sm:p-6">
                   <h4 className="text-[9px] font-black uppercase tracking-widest text-primary">Konfigurasi Besar</h4>
                   <div className="grid gap-4">
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">Qty Gudang</Label>
-                      <Input name="qtyBesar" type="number" step="any" defaultValue={editingItem?.qtyBesar} className="rounded-xl bg-white border-slate-200" required />
-                    </div>
                     <div className="space-y-2">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-slate-600">Satuan Besar</Label>
                       <Input name="satuanBesar" defaultValue={editingItem?.satuanBesar} placeholder="Sak / Dus" className="rounded-xl bg-white border-slate-200" required />
@@ -513,8 +511,7 @@ export default function MasterBahanBakuPage() {
               <tr className="bg-slate-50/80 border-y border-slate-100">
                 <th className="pl-4 pr-2 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500">Code</th>
                 <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-left">Nama Bahan</th>
-                <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-right">Qty Besar</th>
-                <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-left">Satuan</th>
+                
                 <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-right">Gram/Besar</th>
                 <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-right">Bungkus</th>
                 <th className="px-2 py-3 text-[9px] font-black uppercase tracking-wider text-slate-500 text-right">Total/Prod</th>
@@ -529,7 +526,7 @@ export default function MasterBahanBakuPage() {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={13} className="px-8 py-20 text-center">
+                  <td colSpan={11} className="px-8 py-20 text-center">
                     <div className="flex flex-col items-center gap-4">
                       <div className="h-8 w-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
                       <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Sinkronisasi Data...</p>
@@ -549,12 +546,7 @@ export default function MasterBahanBakuPage() {
                         {toTitleCase(item.nama)}
                       </span>
                     </td>
-                    <td className="px-2 py-3 text-right font-medium text-slate-800 tabular-nums text-xs">
-                      {formatNumber(item.qtyBesar).toLocaleString('id-ID')}
-                    </td>
-                    <td className="px-2 py-3 text-left">
-                      <span className="text-[9px] font-bold text-slate-500 uppercase">{item.satuanBesar}</span>
-                    </td>
+                    
                     <td className="px-2 py-3 text-right font-medium text-slate-800 tabular-nums text-xs">
                       {formatNumber(item.gramPerBesar || 0).toLocaleString('id-ID')}{getUnitSuffix(item)}
                     </td>
@@ -613,7 +605,7 @@ export default function MasterBahanBakuPage() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={13} className="px-8 py-32 text-center">
+                  <td colSpan={11} className="px-8 py-32 text-center">
                     <div className="max-w-xs mx-auto flex flex-col items-center">
                       <div className="h-16 w-16 bg-slate-50 rounded-[2rem] flex items-center justify-center mb-6 border border-slate-100 shadow-sm">
                         <Database className="h-7 w-7 text-slate-300" />
@@ -670,12 +662,7 @@ export default function MasterBahanBakuPage() {
                   </div>
 
                   <div className="space-y-1.5 pt-2 border-t border-slate-100/60 text-[9px] sm:text-[10px]">
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400 font-bold">Stok</span>
-                      <span className="font-black text-slate-800">
-                        {formatNumber(item.qtyBesar).toLocaleString('id-ID')} <span className="text-[7px] font-bold text-slate-400 uppercase">{item.satuanBesar}</span>
-                      </span>
-                    </div>
+                    
                     <div className="flex items-center justify-between">
                       <span className="text-slate-400 font-bold">Konversi</span>
                       <span className="font-black text-slate-800">

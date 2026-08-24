@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useMemo, useState } from "react";
 import {
@@ -91,8 +91,16 @@ interface EnrichedWarehouseEntry extends RawOpnameEntry {
   items: EnrichedWarehouseItem[];
 }
 
+const cleanNumber = (val: any): number => {
+  if (val === undefined || val === null) return 0;
+  if (typeof val === "number") return isNaN(val) ? 0 : val;
+  const str = String(val).replace(/[^0-9.-]/g, "");
+  const num = parseFloat(str);
+  return isNaN(num) ? 0 : num;
+};
+
 const formatNumber = (value: number | string | undefined) => {
-  const num = Number(value || 0);
+  const num = cleanNumber(value);
   return new Intl.NumberFormat("id-ID").format(num);
 };
 
@@ -189,31 +197,70 @@ export default function LaporanStockOpnamePage() {
     const map: Record<string, BahanBaku> = {};
     (materials as BahanBaku[])?.forEach((material) => {
       if (material?.id) map[material.id] = material;
-      if (material?.code) map[material.code] = material;
+      if (material?.code) {
+        map[material.code] = material;
+        map[material.code.trim().toLowerCase()] = material;
+      }
+      if (material?.nama) {
+        map[material.nama.trim().toLowerCase()] = material;
+      }
     });
     return map;
   }, [materials]);
 
   const filteredContainerEntries = useMemo((): EnrichedContainerEntry[] => {
-    return (opnameHistory as RawOpnameEntry[])
-      ?.map((entry) => ({
-        ...entry,
-        entryDate: toDateValue(entry.date),
-        items: (entry.items || []).map((item): EnrichedContainerItem => {
-          const material = materialMap[item.id ?? ""] || materialMap[item.code ?? ""] || null;
-          return {
-            ...item,
-            beforeBulk: Number(item.before?.qtyKontainerBesar || 0),
-            beforeAktif: Number(item.before?.qtyKontainerKecil || 0),
-            afterBulk: Number(item.after?.qtyKontainerBesar || 0),
-            afterAktif: Number(item.after?.qtyKontainerKecil || 0),
-            diffBulk: Number(item.after?.qtyKontainerBesar || 0) - Number(item.before?.qtyKontainerBesar || 0),
-            diffAktif: Number(item.after?.qtyKontainerKecil || 0) - Number(item.before?.qtyKontainerKecil || 0),
-            unitBulk: material?.satuanBesar ?? "",
-            unitAktif: material?.satuanKecil ?? "",
-          };
-        }),
-      }))
+    const rawList = (opnameHistory as RawOpnameEntry[]) || [];
+    return rawList
+      ?.map((entry) => {
+        return {
+          ...entry,
+          entryDate: toDateValue(entry.date),
+          items: (entry.items || []).map((item): EnrichedContainerItem => {
+            const material = materialMap[item.id ?? ""] || 
+                             materialMap[String(item.code ?? "").trim().toLowerCase()] || 
+                             materialMap[String(item.nama ?? "").trim().toLowerCase()] || 
+                             null;
+
+            // Stok bahan baku pada waktu/jam stock opname disimpan (Snapshot waktu opname, bukan realtime)
+            const snapshotStockBulk = cleanNumber(item.before?.qtyKontainerBesar ?? material?.qtyKontainerBesar);
+            const snapshotStockAktif = cleanNumber(item.before?.qtyKontainerKecil ?? material?.qtyKontainerKecil);
+
+            // Hasil opname fisik pada waktu tersebut
+            const opnameBulk = cleanNumber(item.after?.qtyKontainerBesar ?? item.before?.qtyKontainerBesar);
+
+            let opnameAktif = 0;
+            if ((item as any).grams !== undefined && (item as any).grams !== null) {
+              opnameAktif = Math.max(0, cleanNumber((item as any).grams));
+            } else if ((item.after as any)?.grams !== undefined && (item.after as any)?.grams !== null) {
+              opnameAktif = Math.max(0, cleanNumber((item.after as any)?.grams));
+            } else {
+              // Pemulihan riwayat: jika angka tersimpan negatif (seperti 0 - 800 = -800) atau terpotong berat bungkus
+              const rawSaved = cleanNumber(item.after?.qtyKontainerKecil ?? item.before?.qtyKontainerKecil);
+              const beratBungkus = cleanNumber(material?.beratBungkusProduk);
+              if (rawSaved < 0) {
+                // Contoh rawSaved = -800 ml karena 0 - 800 di sistem lama, kembalikan ke 0
+                opnameAktif = Math.max(0, rawSaved + beratBungkus);
+              } else if (rawSaved === 0) {
+                opnameAktif = 0;
+              } else {
+                opnameAktif = Math.max(0, rawSaved + beratBungkus);
+              }
+            }
+
+            return {
+              ...item,
+              beforeBulk: snapshotStockBulk,
+              beforeAktif: snapshotStockAktif,
+              afterBulk: opnameBulk,
+              afterAktif: opnameAktif,
+              diffBulk: opnameBulk - snapshotStockBulk,
+              diffAktif: opnameAktif - snapshotStockAktif,
+              unitBulk: material?.satuanBesar ?? "",
+              unitAktif: material?.satuanKecil ?? "",
+            };
+          }),
+        };
+      })
       .filter((entry) => {
         const isCreatedByAdmin = entry.note?.toLowerCase().includes("admin");
         if (opnameSource === "admin" && !isCreatedByAdmin) return false;
@@ -231,20 +278,41 @@ export default function LaporanStockOpnamePage() {
   }, [opnameHistory, selectedDate, selectedMonth, materialMap, opnameSource]);
 
   const filteredWarehouseEntries = useMemo((): EnrichedWarehouseEntry[] => {
-    return (warehouseHistory as RawOpnameEntry[])
-      ?.map((entry) => ({
-        ...entry,
-        entryDate: toDateValue(entry.date),
-        items: (entry.items || []).map((item): EnrichedWarehouseItem => {
-          return {
-            ...item,
-            beforeQtyBesar: Number(item.beforeQtyBesar || 0),
-            afterQtyBesar: Number(item.afterQtyBesar || 0),
-            diffQtyBesar: Number(item.diffQtyBesar || 0),
-            unitBesar: item.unitBesar || "",
-          };
-        }),
-      }))
+    const rawList = (warehouseHistory as RawOpnameEntry[]) || [];
+    return rawList
+      ?.map((entry, index) => {
+        const prevEntry = rawList.slice(index + 1).find((e) => {
+          const isCurrAdmin = entry.note?.toLowerCase().includes("admin");
+          const isPrevAdmin = e.note?.toLowerCase().includes("admin");
+          return isCurrAdmin === isPrevAdmin;
+        });
+
+        const prevItemsMap: Record<string, number> = {};
+        if (prevEntry && Array.isArray(prevEntry.items)) {
+          prevEntry.items.forEach((pItem) => {
+            const val = Number(pItem.afterQtyBesar ?? pItem.beforeQtyBesar ?? 0);
+            if (pItem.id) prevItemsMap[pItem.id] = val;
+            if (pItem.code) prevItemsMap[pItem.code] = val;
+          });
+        }
+
+        return {
+          ...entry,
+          entryDate: toDateValue(entry.date),
+          items: (entry.items || []).map((item): EnrichedWarehouseItem => {
+            const prevVal = prevItemsMap[item.id ?? ""] ?? prevItemsMap[item.code ?? ""];
+            const beforeQtyBesar = prevVal !== undefined ? Number(prevVal) : Number(item.beforeQtyBesar || 0);
+            const afterQtyBesar = Number(item.afterQtyBesar || 0);
+            return {
+              ...item,
+              beforeQtyBesar,
+              afterQtyBesar,
+              diffQtyBesar: afterQtyBesar - beforeQtyBesar,
+              unitBesar: item.unitBesar || "",
+            };
+          }),
+        };
+      })
       .filter((entry) => {
         const isCreatedByAdmin = entry.note?.toLowerCase().includes("admin");
         if (opnameSource === "admin" && !isCreatedByAdmin) return false;
@@ -307,12 +375,12 @@ export default function LaporanStockOpnamePage() {
         tanggal: formatDateLabel(entry.entryDate),
         kode: item.code,
         nama: item.nama,
-        sebelumBulk: item.beforeBulk,
+        stokBulkBahanBaku: item.beforeBulk,
         satuanBulk: item.unitBulk || "-",
-        sebelumAktif: item.beforeAktif,
+        stokAktifBahanBaku: item.beforeAktif,
         satuanAktif: item.unitAktif || "-",
-        sesudahBulk: item.afterBulk,
-        sesudahAktif: item.afterAktif,
+        hasilOpnameBulk: item.afterBulk,
+        hasilOpnameAktif: item.afterAktif,
         selisih: formatCombinedDifference(item),
       }))
     );
@@ -386,7 +454,7 @@ export default function LaporanStockOpnamePage() {
     docPDF.text("Stock Opname Kontainer", 15, startY);
 
     autoTable(docPDF, {
-      head: [["Tanggal", "Kode", "Nama", "Sebelum Bulk", "Sebelum Aktif", "Sesudah Bulk", "Sesudah Aktif", "Selisih"]],
+      head: [["Tanggal", "Kode", "Nama", "Bulk (Bahan Baku)", "Aktif (Bahan Baku)", "Bulk (Opname)", "Aktif (Opname)", "Selisih"]],
       body: filteredContainerEntries.flatMap((entry) =>
         (entry.items || []).map((item) => [
           formatDateLabel(entry.entryDate),
@@ -562,10 +630,10 @@ export default function LaporanStockOpnamePage() {
                           <tr>
                             <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Kode</th>
                             <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Nama Bahan</th>
-                            <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Sebelum Bulk</th>
-                            <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Sebelum Aktif</th>
-                            <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Sesudah Bulk</th>
-                            <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Sesudah Aktif</th>
+                            <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Bulk (Bahan Baku)</th>
+                            <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Aktif (Bahan Baku)</th>
+                            <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Bulk (Hasil Opname)</th>
+                            <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Aktif (Hasil Opname)</th>
                             <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Selisih</th>
                           </tr>
                         </thead>
@@ -619,14 +687,14 @@ export default function LaporanStockOpnamePage() {
 
                           <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100/60 text-[9px] leading-tight">
                             <div className="bg-slate-50 p-2 rounded-lg flex flex-col justify-between">
-                              <span className="text-slate-400 font-bold uppercase tracking-wider block mb-1">Sebelum</span>
+                              <span className="text-slate-400 font-bold uppercase tracking-wider block mb-1">Stok Bahan Baku</span>
                               <div className="text-slate-700 font-black">
                                 <div>Bulk: {formatNumber(item.beforeBulk)} {item.unitBulk || ""}</div>
                                 <div>Aktif: {formatNumber(item.beforeAktif)} {item.unitAktif || ""}</div>
                               </div>
                             </div>
                             <div className="bg-slate-50 p-2 rounded-lg flex flex-col justify-between">
-                              <span className="text-slate-400 font-bold uppercase tracking-wider block mb-1">Sesudah</span>
+                              <span className="text-slate-400 font-bold uppercase tracking-wider block mb-1">Hasil Opname</span>
                               <div className="text-slate-700 font-black">
                                 <div>Bulk: {formatNumber(item.afterBulk)} {item.unitBulk || ""}</div>
                                 <div>Aktif: {formatNumber(item.afterAktif)} {item.unitAktif || ""}</div>

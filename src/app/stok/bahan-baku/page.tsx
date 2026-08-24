@@ -11,7 +11,8 @@ import {
   FileDown,
   FileSpreadsheet,
   Edit2,
-  Trash2
+  Trash2,
+  Upload
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -82,6 +83,204 @@ export default function StokBahanBakuPage() {
   const [transferring, setTransferring] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const cleanNumber = (val: any): number => {
+    if (val === undefined || val === null) return 0;
+    if (typeof val === "number") return isNaN(val) ? 0 : val;
+    const str = String(val).replace(/[^0-9.-]/g, "");
+    const num = parseFloat(str);
+    return isNaN(num) ? 0 : num;
+  };
+
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: "binary" });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const excelData = XLSX.utils.sheet_to_json(ws) as any[];
+
+        if (!excelData || excelData.length === 0) {
+          toast({ variant: "destructive", title: "Berkas Kosong", description: "Berkas Excel tidak memiliki data." });
+          return;
+        }
+
+        const allMaterials = (materials as BahanBaku[]) || [];
+        const cleanStr = (s: any) => String(s ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+
+        const getRowVal = (row: any, primaryKeywords: string[], secondaryKeywords: string[] = []) => {
+          const keys = Object.keys(row);
+          // First pass: exact matches, ignoring headers that contain "satuan" or "unit"
+          for (const k of keys) {
+            const cleanK = cleanStr(k);
+            if (cleanK.includes("satuan") || cleanK.includes("unit")) continue;
+            for (const kw of primaryKeywords) {
+              const cleanKw = cleanStr(kw);
+              if (cleanK === cleanKw) {
+                const val = row[k];
+                if (val !== undefined && val !== null && String(val).trim() !== "") {
+                  return val;
+                }
+              }
+            }
+          }
+          // Second pass: includes matches, ignoring headers that contain "satuan" or "unit"
+          for (const k of keys) {
+            const cleanK = cleanStr(k);
+            if (cleanK.includes("satuan") || cleanK.includes("unit")) continue;
+            for (const kw of [...primaryKeywords, ...secondaryKeywords]) {
+              const cleanKw = cleanStr(kw);
+              if (cleanK.includes(cleanKw)) {
+                const val = row[k];
+                if (val !== undefined && val !== null && String(val).trim() !== "") {
+                  return val;
+                }
+              }
+            }
+          }
+          return undefined;
+        };
+
+        const updates: {
+          id: string;
+          nama?: string;
+          data: {
+            qtyBesar: number;
+            qtyGudangKecil: number;
+            qtyKontainerBesar: number;
+            qtyKontainerKecil: number;
+            qtyMin?: number;
+            qtyMinGudang?: number;
+            qtyMinKontainer?: number;
+          };
+        }[] = [];
+
+        excelData.forEach((row: any) => {
+          const codeVal = getRowVal(row, ["code", "kode", "kd", "sku", "barcode"]);
+          const namaVal = getRowVal(row, ["nama", "name", "bahan", "barang", "item"]);
+
+          if (!codeVal && !namaVal) return;
+
+          let mat = allMaterials.find(m => cleanStr(m.code) === cleanStr(codeVal));
+          if (!mat && namaVal) {
+            mat = allMaterials.find(m => cleanStr(m.nama) === cleanStr(namaVal) || cleanStr(m.nama).includes(cleanStr(namaVal)));
+          }
+
+          if (!mat) return;
+
+          // 1. Stok Gudang (Besar)
+          const gudangBesarVal = getRowVal(row, [
+            "stokgudangbesar", "gudangbesar", "stokgudang", "gudang", "qtygudangbesar", "qtybesar"
+          ]);
+          // 2. Stok Gudang (Kecil)
+          const gudangKecilVal = getRowVal(row, [
+            "stokgudangkecil", "gudangkecil", "qtygudangkecil"
+          ]);
+          // 3. Qty Bulk Kontainer
+          const bulkKontainerVal = getRowVal(row, [
+            "qtybulkkontainer", "bulkkontainer", "stokbulk", "bulk", "qtybulk", "kontainerbesar"
+          ]);
+          // 4. Qty Aktif Kontainer
+          const aktifKontainerVal = getRowVal(row, [
+            "qtyaktifikontainer", "qtyaktifkontainer", "aktifkontainer", "stokaktif", "aktif", "qtyaktif", "kontainerkecil", "gram", "grams", "gramasi"
+          ]);
+          // 5. Min Stok
+          const minGudangVal = getRowVal(row, ["minstokgudang", "mingudang", "minstok"]);
+          const minKontainerVal = getRowVal(row, ["minstokkontainer", "minkontainer"]);
+
+          const conversionRate = Number(mat.qtyKecil || 1);
+
+          // Calculate Gudang stock
+          const rawGudangBesar = gudangBesarVal !== undefined ? cleanNumber(gudangBesarVal) : Number(mat.qtyBesar || 0);
+          const intGudangBesar = Math.floor(rawGudangBesar);
+          const gudangDecimalRemainder = (rawGudangBesar - intGudangBesar) * conversionRate;
+
+          const rawGudangSmall = gudangKecilVal !== undefined ? cleanNumber(gudangKecilVal) : Number(mat.qtyGudangKecil || 0);
+          const finalGudangSmall = Math.round((rawGudangSmall + gudangDecimalRemainder) * 100) / 100;
+
+          // Calculate Kontainer stock
+          const rawKontainerBesar = bulkKontainerVal !== undefined ? cleanNumber(bulkKontainerVal) : Number(mat.qtyKontainerBesar || 0);
+          const intKontainerBesar = Math.floor(rawKontainerBesar);
+          const kontainerDecimalRemainder = (rawKontainerBesar - intKontainerBesar) * conversionRate;
+
+          const rawKontainerSmall = aktifKontainerVal !== undefined ? cleanNumber(aktifKontainerVal) : Number(mat.qtyKontainerKecil || 0);
+          const finalKontainerSmall = Math.round((rawKontainerSmall + kontainerDecimalRemainder) * 100) / 100;
+
+          const updateObj: any = {
+            qtyBesar: intGudangBesar,
+            qtyGudangKecil: finalGudangSmall,
+            qtyKontainerBesar: intKontainerBesar,
+            qtyKontainerKecil: finalKontainerSmall,
+          };
+
+          if (minGudangVal !== undefined) {
+            updateObj.qtyMin = cleanNumber(minGudangVal);
+            updateObj.qtyMinGudang = cleanNumber(minGudangVal);
+          }
+          if (minKontainerVal !== undefined) {
+            updateObj.qtyMinKontainer = cleanNumber(minKontainerVal);
+          }
+
+          updates.push({
+            id: mat.id,
+            nama: mat.nama,
+            data: updateObj,
+          });
+        });
+
+        if (updates.length === 0) {
+          toast({
+            variant: "destructive",
+            title: "Tidak Ada Data Cocok",
+            description: "Tidak ditemukan kode atau nama bahan baku yang cocok dengan master database.",
+          });
+          return;
+        }
+
+        const isConfirmed = window.confirm(
+          `Ditemukan ${updates.length} data bahan baku dari Excel.\n\nApakah Anda yakin ingin MENIMPA stok bahan baku sistem saat ini dengan data dari berkas Excel tersebut?`
+        );
+
+        if (!isConfirmed) return;
+
+        setImporting(true);
+        const batchSize = 400;
+        for (let i = 0; i < updates.length; i += batchSize) {
+          const chunk = updates.slice(i, i + batchSize);
+          const batch = writeBatch(db);
+          chunk.forEach((item) => {
+            const ref = doc(db, "bahan-baku", item.id);
+            batch.update(ref, item.data);
+          });
+          await batch.commit();
+        }
+
+        toast({
+          title: "Impor Berhasil",
+          description: `Berhasil menimpa ${updates.length} data stok bahan baku dari Excel.`,
+        });
+      } catch (err) {
+        console.error("Error importing excel to bahan baku:", err);
+        toast({
+          variant: "destructive",
+          title: "Gagal Impor",
+          description: "Terjadi kesalahan saat membaca berkas Excel atau menimpa data.",
+        });
+      } finally {
+        setImporting(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    };
+    reader.readAsBinaryString(file);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
   
   const [transferData, setTransferData] = useState({
     materialId: "",
@@ -358,6 +557,22 @@ export default function StokBahanBakuPage() {
         </div>
         
         <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-2 md:pb-0 scrollbar-hide">
+          <input
+            type="file"
+            ref={fileInputRef}
+            className="hidden"
+            accept=".xlsx, .xls"
+            onChange={handleImportExcel}
+          />
+          <Button 
+            variant="outline" 
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            className="rounded-xl border-slate-200 px-4 h-12 font-black uppercase tracking-widest text-[9px] gap-2 bg-white hover:text-indigo-600 hover:bg-slate-50"
+          >
+            {importing ? <Loader2 className="h-4 w-4 animate-spin text-indigo-600" /> : <Upload className="h-4 w-4 text-indigo-600" />}
+            <span>Impor Excel</span>
+          </Button>
           <Button 
             variant="outline" 
             onClick={handleExportExcel}

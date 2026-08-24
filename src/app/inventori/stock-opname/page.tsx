@@ -1,9 +1,9 @@
-
+﻿
 "use client";
 
 import React, { useState, useEffect } from "react";
 import { 
-  ClipboardList, 
+   
   Search, 
   FileDown, 
   FileSpreadsheet, 
@@ -12,15 +12,15 @@ import {
   AlertCircle,
   Archive,
   Layers,
-  BarChart3
+  BarChart3,
+  Upload
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useFirestore, useCollection, useMemoFirebase, useDoc } from "@/firebase";
-import { collection, query, orderBy, doc, writeBatch, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, query, orderBy, doc, addDoc, serverTimestamp } from "firebase/firestore";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -44,22 +44,27 @@ export default function StockOpnamePage() {
     item.code?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const cleanNumber = (val: any): number => {
+    if (val === undefined || val === null) return 0;
+    if (typeof val === "number") return isNaN(val) ? 0 : val;
+    const str = String(val).replace(/[^0-9.-]/g, "");
+    const num = parseFloat(str);
+    return isNaN(num) ? 0 : num;
+  };
+
   const getUnitWeight = (item: any) => {
-    const gramPerBesar = Number(item.gramPerBesar || 0);
-    const konversi = Number(item.qtyKecil || 1);
-    return konversi > 0 ? gramPerBesar / konversi : 0;
+    const gramPerBesar = cleanNumber(item?.gramPerBesar);
+    const konversi = cleanNumber(item?.qtyKecil) || 1;
+    const res = konversi > 0 ? gramPerBesar / konversi : 0;
+    return isNaN(res) ? 0 : res;
   };
 
-  const getTotalWeightFromAktif = (item: any, aktifQty: number) => {
-    const beratBungkus = Number(item.beratBungkusProduk || 0);
-    return Number(aktifQty || 0) * getUnitWeight(item) + beratBungkus;
-  };
-
-  const getAktifFromGrams = (item: any, gramsValue: number) => {
-    const beratBungkus = Number(item.beratBungkusProduk || 0);
-    const netGrams = Math.max(0, Number(gramsValue || 0) - beratBungkus);
+  const getAktifFromGrams = (item: any, gramsValue: any) => {
+    const beratBungkus = cleanNumber(item?.beratBungkusProduk);
+    const netGrams = Math.max(0, cleanNumber(gramsValue) - beratBungkus);
     const unitWeight = getUnitWeight(item);
-    return unitWeight > 0 ? netGrams / unitWeight : 0;
+    const res = unitWeight > 0 ? netGrams / unitWeight : 0;
+    return isNaN(res) ? 0 : res;
   };
 
   // Local state to hold kontainer opname inputs per item
@@ -87,6 +92,135 @@ export default function StockOpnamePage() {
       setBulkInputs(nextBulk);
     });
   }, [materials, searchTerm]);
+
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: "binary" });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const excelData = XLSX.utils.sheet_to_json(ws) as any[];
+
+        if (!excelData || excelData.length === 0) {
+          window.alert("Berkas Excel kosong atau format tidak sesuai.");
+          return;
+        }
+
+        const newBulkInputs: Record<string, number> = { ...bulkInputs };
+        const newKontainerInputs: Record<string, { aktif: number; grams: number }> = { ...kontainerInputs };
+        const allMaterials = (materials as any[]) || [];
+
+        let matchedCount = 0;
+
+        const cleanStr = (s: any) => String(s ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+
+        const getRowVal = (row: any, primaryKeywords: string[], secondaryKeywords: string[] = []) => {
+          const keys = Object.keys(row);
+          // First pass: exact matches, ignoring headers that contain "satuan" or "unit"
+          for (const k of keys) {
+            const cleanK = cleanStr(k);
+            if (cleanK.includes("satuan") || cleanK.includes("unit")) continue;
+            for (const kw of primaryKeywords) {
+              const cleanKw = cleanStr(kw);
+              if (cleanK === cleanKw) {
+                const val = row[k];
+                if (val !== undefined && val !== null && String(val).trim() !== "") {
+                  return val;
+                }
+              }
+            }
+          }
+          // Second pass: includes matches, ignoring headers that contain "satuan" or "unit"
+          for (const k of keys) {
+            const cleanK = cleanStr(k);
+            if (cleanK.includes("satuan") || cleanK.includes("unit")) continue;
+            for (const kw of [...primaryKeywords, ...secondaryKeywords]) {
+              const cleanKw = cleanStr(kw);
+              if (cleanK.includes(cleanKw)) {
+                const val = row[k];
+                if (val !== undefined && val !== null && String(val).trim() !== "") {
+                  return val;
+                }
+              }
+            }
+          }
+          return undefined;
+        };
+
+        excelData.forEach((row: any) => {
+          const codeVal = getRowVal(row, ["code", "kode", "kd", "sku", "barcode"]);
+          const namaVal = getRowVal(row, ["nama", "name", "bahan", "barang", "item"]);
+
+          if (!codeVal && !namaVal) return;
+
+          let mat = allMaterials.find(m => cleanStr(m.code) === cleanStr(codeVal));
+          if (!mat && namaVal) {
+            mat = allMaterials.find(m => cleanStr(m.nama) === cleanStr(namaVal) || cleanStr(m.nama).includes(cleanStr(namaVal)));
+          }
+
+          if (!mat) return;
+
+          const bulkValRaw = getRowVal(
+            row,
+            ["bulk", "bulkkontainer", "bulkkontainersistem", "stokbulk", "bulkfisik", "qtybulk"],
+            ["bulk", "kontainerbesar"]
+          );
+          if (bulkValRaw !== undefined) {
+            newBulkInputs[mat.id] = cleanNumber(bulkValRaw);
+          }
+
+          const gramsValRaw = getRowVal(
+            row,
+            ["gram", "grams", "gramasi", "berat", "timbangan", "beratgram", "stokgramasi"],
+            ["gram", "berat", "timbang"]
+          );
+
+          const aktifValRaw = getRowVal(
+            row,
+            ["aktifkontainer", "aktifkontainersistem", "stokaktif", "aktif", "aktifisik", "qtyaktif"],
+            ["aktif", "kontainerkecil"]
+          );
+
+          if (gramsValRaw !== undefined) {
+            const gramsNum = cleanNumber(gramsValRaw);
+            newKontainerInputs[mat.id] = {
+              grams: gramsNum,
+              aktif: gramsNum
+            };
+          } else if (aktifValRaw !== undefined) {
+            const numVal = cleanNumber(aktifValRaw);
+            newKontainerInputs[mat.id] = {
+              grams: numVal,
+              aktif: numVal
+            };
+          }
+
+          matchedCount++;
+        });
+
+        setBulkInputs({ ...newBulkInputs });
+        setKontainerInputs({ ...newKontainerInputs });
+
+        if (matchedCount > 0) {
+          window.alert(`Berhasil mengimpor ${matchedCount} data bahan baku ke formulir opnam.`);
+        } else {
+          window.alert("Tidak ada data bahan yang cocok. Pastikan Excel memiliki kolom 'Kode' atau 'Nama Bahan', serta 'Bulk' dan 'Gram' / 'Aktif'.");
+        }
+      } catch (err) {
+        console.error("Error parsing excel:", err);
+        window.alert("Gagal membaca berkas Excel. Pastikan formatnya benar.");
+      }
+    };
+    reader.readAsBinaryString(file);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
 
   const formatTotalStock = (item: any) => {
     const qtyGudang = Number(item.qtyBesar || 0);
@@ -187,9 +321,23 @@ export default function StockOpnamePage() {
         </div>
         
         <div className="flex items-center gap-3">
-          <Button 
-            variant="outline" 
-            onClick={handleExportExcel}
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              accept=".xlsx, .xls"
+              onChange={handleImportExcel}
+            />
+            <Button
+              variant="outline"
+              onClick={() => fileInputRef.current?.click()}
+              className="rounded-2xl border-slate-200 px-6 h-12 font-black uppercase tracking-widest text-[10px] gap-2 bg-white hover:bg-slate-50 hover:text-indigo-600"
+            >
+              <Upload className="h-4 w-4 text-indigo-600" /> Impor Excel
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={handleExportExcel}
             className="rounded-2xl border-slate-200 px-6 h-12 font-black uppercase tracking-widest text-[10px] gap-2 bg-white hover:bg-slate-50"
           >
             <FileSpreadsheet className="h-4 w-4 text-emerald-600" /> Excel
@@ -381,7 +529,7 @@ export default function StockOpnamePage() {
                                    [item.id]: {
                                      ...(prev[item.id] || { aktif: 0, grams: 0 }),
                                      aktif: val,
-                                     grams: getTotalWeightFromAktif(item, val),
+                                     grams: val,
                                    },
                                  }));
                                }}
@@ -486,7 +634,7 @@ export default function StockOpnamePage() {
                                     [item.id]: {
                                       ...(prev[item.id] || { aktif: 0, grams: 0 }),
                                       aktif: val,
-                                      grams: getTotalWeightFromAktif(item, val),
+                                      grams: val,
                                     },
                                   }));
                                 }}
@@ -660,41 +808,61 @@ export default function StockOpnamePage() {
                  <AlertCircle className="h-6 w-6" />
                </div>
                <div>
-                 <p className="text-xs font-black uppercase tracking-widest">Sinkronisasi Data Fisik</p>
+                 <p className="text-xs font-black uppercase tracking-widest">Simpan Data Fisik Opnam</p>
                  <p className="text-[10px] font-medium text-slate-400 mt-1 max-w-md leading-relaxed">
-                   Pastikan semua tim operasional telah menyelesaikan input fisik untuk stok Bulk dan Aktif sebelum melakukan finalisasi update sistem.
+                   Pastikan semua data fisik stok Bulk dan Aktif telah sesuai sebelum melakukan penyimpanan.
                  </p>
                </div>
              </div>
-             <Button className="w-full md:w-auto rounded-2xl bg-primary hover:bg-primary/90 text-white px-10 h-14 font-black uppercase tracking-widest text-[11px] shadow-xl shadow-primary/20">
-                Finalisasi & Update Stok Sistem
-             </Button>
+             
             <div className="mt-3">
               <Button
                 onClick={async () => {
                   if (processing) return;
                   setProcessing(true);
                   try {
-                    const batch = writeBatch(db);
+                    const latestHistory = histories && (histories as any[]).length > 0 ? (histories as any[])[0] : null;
+                    const prevItemsMap: Record<string, { qtyKontainerBesar?: number; qtyKontainerKecil?: number }> = {};
+                    if (latestHistory && Array.isArray(latestHistory.items)) {
+                      latestHistory.items.forEach((it: any) => {
+                        if (it.id) prevItemsMap[it.id] = { qtyKontainerBesar: it.after?.qtyKontainerBesar, qtyKontainerKecil: it.after?.qtyKontainerKecil };
+                        if (it.code) prevItemsMap[it.code] = { qtyKontainerBesar: it.after?.qtyKontainerBesar, qtyKontainerKecil: it.after?.qtyKontainerKecil };
+                      });
+                    }
+
                     const historyItems: any[] = [];
                     (filteredMaterials || []).forEach((it: any) => {
-                      const beforeBulk = Number(it.qtyKontainerBesar || 0);
-                      const beforeAktif = Number(it.qtyKontainerKecil || 0);
+                      // Snapshot stok bahan baku sistem tepat pada saat opname disimpan
+                      const beforeBulk = Number(it.qtyKontainerBesar ?? 0);
+                      const beforeAktif = Number(it.qtyKontainerKecil ?? 0);
+
                       const inputBulk = bulkInputs[it.id];
-                      const afterBulk = (inputBulk === "" || inputBulk === undefined || inputBulk === null)
-                        ? beforeBulk
-                        : Number(inputBulk);
+                      const afterBulk = Math.max(0, cleanNumber(
+                        (inputBulk === "" || inputBulk === undefined || inputBulk === null)
+                          ? beforeBulk
+                          : inputBulk
+                      ));
+                      const inputGrams = kontainerInputs[it.id]?.grams;
                       const inputAktif = kontainerInputs[it.id]?.aktif;
-                      const afterAktif = (inputAktif === "" || inputAktif === undefined || inputAktif === null)
-                        ? beforeAktif
-                        : Number(inputAktif);
-                      const ref = doc(db, "bahan-baku", it.id);
-                      batch.update(ref, { qtyKontainerBesar: afterBulk, qtyKontainerKecil: afterAktif });
-                      historyItems.push({ id: it.id, code: it.code, nama: it.nama, before: { qtyKontainerBesar: beforeBulk, qtyKontainerKecil: beforeAktif }, after: { qtyKontainerBesar: afterBulk, qtyKontainerKecil: afterAktif } });
+                      const afterAktif = Math.max(0, cleanNumber(
+                        (inputGrams !== "" && inputGrams !== undefined && inputGrams !== null)
+                          ? inputGrams
+                          : ((inputAktif !== "" && inputAktif !== undefined && inputAktif !== null)
+                              ? inputAktif
+                              : beforeAktif)
+                      ));
+
+                      historyItems.push({
+                        id: it.id,
+                        code: it.code,
+                        nama: it.nama,
+                        grams: afterAktif,
+                        before: { qtyKontainerBesar: beforeBulk, qtyKontainerKecil: beforeAktif },
+                        after: { qtyKontainerBesar: afterBulk, qtyKontainerKecil: afterAktif, grams: afterAktif },
+                      });
                     });
-                    await batch.commit();
-                    await addDoc(collection(db, "opnam_harian"), { date: serverTimestamp(), note: "Finalisasi Opnam Harian (manual)", items: historyItems });
-                    window.alert("Finalisasi berhasil dan stok sistem diperbarui.");
+                    await addDoc(collection(db, "opnam_harian"), { date: serverTimestamp(), note: "Finalisasi Opnam Harian (admin)", items: historyItems });
+                    window.alert("Opnam harian berhasil disimpan.");
                   } catch (err) {
                     console.error(err);
                     window.alert("Terjadi kesalahan saat finalisasi. Cek console.");
@@ -705,7 +873,7 @@ export default function StockOpnamePage() {
                 className="w-full md:w-auto rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white px-10 h-14 font-black uppercase tracking-widest text-[11px] shadow-xl shadow-emerald-200"
                 disabled={processing}
               >
-                {processing ? "Memproses..." : "Finalisasi & Update Stok Sistem (langsung)"}
+                {processing ? "Memproses..." : "Finalisasi & Simpan Opnam Harian"}
               </Button>
             </div>
           </div>

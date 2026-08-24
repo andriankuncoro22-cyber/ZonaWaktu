@@ -12,7 +12,10 @@ import {
   Layers,
   Boxes,
   RotateCcw,
-  CheckCircle2
+  CheckCircle2,
+  FileSpreadsheet,
+  FileText,
+  Download
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -286,6 +289,287 @@ export default function ResepProdukPage() {
     return str.toLowerCase().replace(/\b\w/g, s => s.toUpperCase());
   };
 
+  const getPricePerSmallUnitGlobal = (mat: any) => {
+    if (!mat) return 0;
+    const explicitPriceKecil = Number(mat.hargaSatuanKecil || 0);
+    if (explicitPriceKecil > 0) return explicitPriceKecil;
+    const conversionRate = Number(mat.qtyKecil || 1);
+    const unitPrice = Number(mat.currentPrice ?? mat.avgPrice ?? mat.hargaBeliSatuanBesar ?? 0);
+    return conversionRate > 0 ? unitPrice / conversionRate : 0;
+  };
+
+  const buildExportData = () => {
+    const allRows: any[] = [];
+
+    // --- Tab Produk ---
+    sortedAndFilteredProducts?.forEach((product: any) => {
+      const recipe = getProductRecipe(product.id);
+      if (!recipe || !recipe.komposisi?.length) {
+        allRows.push({
+          Tipe: "Produk",
+          Kode: product.code || "-",
+          "Nama Produk / Pelengkap": toTitleCase(product.nama),
+          Kategori: product.kategori || "-",
+          "No": "-",
+          "Kode Bahan": "-",
+          "Nama Bahan": "Belum ada resep",
+          "Qty": "-",
+          "Satuan": "-",
+          "Harga Satuan (Rp)": 0,
+          "Total Harga (Rp)": 0,
+          "Total HPP (Rp)": 0,
+        });
+        return;
+      }
+
+      let totalHpp = 0;
+      recipe.komposisi.forEach((comp: any, idx: number) => {
+        const mat = getMaterialDetail(comp.bahanBakuId);
+        const hargaSatuan = getPricePerSmallUnitGlobal(mat);
+        const totalHarga = hargaSatuan * Number(comp.jumlah || 0);
+        totalHpp += totalHarga;
+
+        allRows.push({
+          Tipe: idx === 0 ? "Produk" : "",
+          Kode: idx === 0 ? (product.code || "-") : "",
+          "Nama Produk / Pelengkap": idx === 0 ? toTitleCase(product.nama) : "",
+          Kategori: idx === 0 ? (product.kategori || "-") : "",
+          "No": idx + 1,
+          "Kode Bahan": mat?.code || "-",
+          "Nama Bahan": toTitleCase(mat?.nama),
+          "Qty": comp.jumlah,
+          "Satuan": mat?.satuanKecil || "-",
+          "Harga Satuan (Rp)": hargaSatuan,
+          "Total Harga (Rp)": totalHarga,
+          "Total HPP (Rp)": idx === recipe.komposisi.length - 1 ? totalHpp : "",
+        });
+      });
+
+      // Blank row separator
+      allRows.push({});
+    });
+
+    // --- Tab Pelengkap ---
+    filteredPelengkapRecipes.forEach((recipe: any) => {
+      if (!recipe.komposisi?.length) {
+        allRows.push({
+          Tipe: "Pelengkap",
+          Kode: "PELENGKAP",
+          "Nama Produk / Pelengkap": toTitleCase(recipe.namaPelengkap || "Tanpa Nama"),
+          Kategori: "Resep Internal",
+          "No": "-",
+          "Kode Bahan": "-",
+          "Nama Bahan": "Belum ada komposisi",
+          "Qty": "-",
+          "Satuan": "-",
+          "Harga Satuan (Rp)": 0,
+          "Total Harga (Rp)": 0,
+          "Total HPP (Rp)": 0,
+        });
+        return;
+      }
+
+      let totalHpp = 0;
+      recipe.komposisi.forEach((comp: any, idx: number) => {
+        const mat = getMaterialDetail(comp.bahanBakuId);
+        const hargaSatuan = getPricePerSmallUnitGlobal(mat);
+        const totalHarga = hargaSatuan * Number(comp.jumlah || 0);
+        totalHpp += totalHarga;
+
+        allRows.push({
+          Tipe: idx === 0 ? "Pelengkap" : "",
+          Kode: idx === 0 ? "PELENGKAP" : "",
+          "Nama Produk / Pelengkap": idx === 0 ? toTitleCase(recipe.namaPelengkap || "Tanpa Nama") : "",
+          Kategori: idx === 0 ? "Resep Internal" : "",
+          "No": idx + 1,
+          "Kode Bahan": mat?.code || "-",
+          "Nama Bahan": toTitleCase(mat?.nama),
+          "Qty": comp.jumlah,
+          "Satuan": mat?.satuanKecil || "-",
+          "Harga Satuan (Rp)": hargaSatuan,
+          "Total Harga (Rp)": totalHarga,
+          "Total HPP (Rp)": idx === recipe.komposisi.length - 1 ? totalHpp : "",
+        });
+      });
+
+      allRows.push({});
+    });
+
+    return allRows;
+  };
+
+  const handleDownloadExcel = async () => {
+    const XLSX = await import("xlsx");
+    const rows = buildExportData();
+    const ws = XLSX.utils.json_to_sheet(rows);
+
+    // Column width
+    ws['!cols'] = [
+      { wch: 10 }, // Tipe
+      { wch: 12 }, // Kode
+      { wch: 30 }, // Nama
+      { wch: 18 }, // Kategori
+      { wch: 5  }, // No
+      { wch: 12 }, // Kode Bahan
+      { wch: 28 }, // Nama Bahan
+      { wch: 8  }, // Qty
+      { wch: 10 }, // Satuan
+      { wch: 18 }, // Harga Satuan
+      { wch: 18 }, // Total Harga
+      { wch: 18 }, // Total HPP
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Resep Produk");
+    XLSX.writeFile(wb, `Resep_Produk_ZonaWaktu_${new Date().toLocaleDateString("id-ID").replace(/\//g, "-")}.xlsx`);
+  };
+
+  const handleDownloadPDF = async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const { default: autoTable } = await import("jspdf-autotable");
+
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const now = new Date();
+    const dateStr = now.toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" });
+
+    // Header
+    doc.setFillColor(30, 41, 59); // slate-800
+    doc.rect(0, 0, pageWidth, 22, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text("RESEP PRODUK — ZONA WAKTU", 14, 10);
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Dicetak: ${dateStr}`, 14, 17);
+    doc.setTextColor(30, 41, 59);
+
+    // --- Produk Recipes ---
+    let startY = 28;
+
+    const allProductsWithRecipes = (sortedAndFilteredProducts || []);
+    const allPelengkap = filteredPelengkapRecipes;
+
+    const buildProdukSection = (product: any, recipe: any, startYPos: number) => {
+      doc.setFillColor(241, 245, 249); // slate-100
+      doc.roundedRect(14, startYPos, pageWidth - 28, 10, 2, 2, "F");
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(30, 41, 59);
+      doc.text(`[${product.code || "-"}]  ${toTitleCase(product.nama)}`, 18, startYPos + 6.5);
+      doc.setFontSize(7);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(100, 116, 139);
+      doc.text(product.kategori || "-", pageWidth - 18, startYPos + 6.5, { align: "right" });
+
+      if (!recipe || !recipe.komposisi?.length) {
+        doc.setFontSize(7.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text("Belum ada resep.", 18, startYPos + 18);
+        return startYPos + 24;
+      }
+
+      let totalHpp = 0;
+      const tableBody: any[][] = recipe.komposisi.map((comp: any, idx: number) => {
+        const mat = getMaterialDetail(comp.bahanBakuId);
+        const hargaSatuan = getPricePerSmallUnitGlobal(mat);
+        const totalHarga = hargaSatuan * Number(comp.jumlah || 0);
+        totalHpp += totalHarga;
+        return [
+          idx + 1,
+          mat?.code || "-",
+          toTitleCase(mat?.nama),
+          comp.jumlah,
+          mat?.satuanKecil || "-",
+          `Rp ${hargaSatuan.toLocaleString("id-ID", { maximumFractionDigits: 1 })}`,
+          `Rp ${totalHarga.toLocaleString("id-ID", { maximumFractionDigits: 1 })}`,
+        ];
+      });
+
+      let finalY = startYPos + 10;
+      autoTable(doc, {
+        startY: finalY,
+        head: [["No", "Kode", "Nama Bahan", "Qty", "Satuan", "Harga/Satuan", "Total Harga"]],
+        body: tableBody,
+        foot: [["", "", "", "", "", "Total HPP:", `Rp ${totalHpp.toLocaleString("id-ID", { maximumFractionDigits: 0 })}`]],
+        margin: { left: 14, right: 14 },
+        styles: { fontSize: 7.5, cellPadding: 2.5, textColor: [30, 41, 59] },
+        headStyles: { fillColor: [99, 102, 241], textColor: 255, fontStyle: "bold", fontSize: 7 },
+        footStyles: { fillColor: [241, 245, 249], textColor: [99, 102, 241], fontStyle: "bold", fontSize: 7.5 },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: {
+          0: { cellWidth: 8 },
+          1: { cellWidth: 18 },
+          2: { cellWidth: "auto" },
+          3: { cellWidth: 15, halign: "right" },
+          4: { cellWidth: 18 },
+          5: { cellWidth: 32, halign: "right" },
+          6: { cellWidth: 32, halign: "right" },
+        },
+        didDrawPage: () => {},
+      });
+
+      return (doc as any).lastAutoTable.finalY + 8;
+    };
+
+    // Section Resep Produk
+    if (allProductsWithRecipes.length > 0) {
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(99, 102, 241);
+      doc.text("▌ RESEP PRODUK", 14, startY);
+      startY += 6;
+
+      for (const product of allProductsWithRecipes) {
+        const recipe = getProductRecipe(product.id);
+        if (startY > doc.internal.pageSize.getHeight() - 40) {
+          doc.addPage();
+          startY = 15;
+        }
+        startY = buildProdukSection(product, recipe, startY);
+      }
+    }
+
+    // Section Resep Pelengkap
+    if (allPelengkap.length > 0) {
+      if (startY > doc.internal.pageSize.getHeight() - 50) {
+        doc.addPage();
+        startY = 15;
+      }
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(99, 102, 241);
+      doc.text("▌ RESEP PELENGKAP", 14, startY);
+      startY += 6;
+
+      for (const recipe of allPelengkap) {
+        if (startY > doc.internal.pageSize.getHeight() - 40) {
+          doc.addPage();
+          startY = 15;
+        }
+        const fakeProduct = {
+          code: "PLNGKP",
+          nama: recipe.namaPelengkap || "Tanpa Nama",
+          kategori: "Resep Internal",
+          id: "",
+        };
+        startY = buildProdukSection(fakeProduct, recipe, startY);
+      }
+    }
+
+    // Footer on each page
+    const pageCount = (doc as any).internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(7);
+      doc.setTextColor(148, 163, 184);
+      doc.text(`Halaman ${i} dari ${pageCount}  •  Zona Waktu`, pageWidth / 2, doc.internal.pageSize.getHeight() - 5, { align: "center" });
+    }
+
+    doc.save(`Resep_Produk_ZonaWaktu_${new Date().toLocaleDateString("id-ID").replace(/\//g, "-")}.pdf`);
+  };
+
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-10">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
@@ -295,6 +579,28 @@ export default function ResepProdukPage() {
             Manajemen Komposisi Bahan Baku • Zona Waktu
           </p>
         </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Download Buttons */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleDownloadExcel}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white text-[10px] font-black uppercase tracking-widest shadow-lg shadow-emerald-200 transition-all duration-200"
+              title="Download Excel"
+            >
+              <FileSpreadsheet className="h-4 w-4" />
+              Excel
+            </button>
+            <button
+              onClick={handleDownloadPDF}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-rose-500 hover:bg-rose-600 active:scale-95 text-white text-[10px] font-black uppercase tracking-widest shadow-lg shadow-rose-200 transition-all duration-200"
+              title="Download PDF"
+            >
+              <FileText className="h-4 w-4" />
+              PDF
+            </button>
+          </div>
+
         
         <Dialog open={isDialogOpen} onOpenChange={(open) => {
           setIsDialogOpen(open);
@@ -411,6 +717,7 @@ export default function ResepProdukPage() {
             </form>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
