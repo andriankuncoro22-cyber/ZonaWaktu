@@ -3,14 +3,8 @@
 import React, { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useFirestore, useDoc, useMemoFirebase } from "@/firebase";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  doc,
-} from "firebase/firestore";
+import { useFirestore, useDoc, useMemoFirebase, collection, doc } from "@/firebase";
+import { query, where, getDocs } from "firebase/firestore";
 import {
   Loader2,
   CalendarDays,

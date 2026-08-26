@@ -6,11 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Coffee, Loader2, ArrowLeft, Eye, EyeOff } from "lucide-react";
-import { useFirestore, doc } from "@/firebase";
-import { getDoc } from "firebase/firestore";
+import { useFirestore, collection, doc } from "@/firebase";
+import { getDoc, query, where, getDocs } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 
-export default function EmployeeLoginPage() {
+export default function KedungrejaEmployeeLoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -25,26 +25,56 @@ export default function EmployeeLoginPage() {
     setError("");
 
     try {
-      const credentialsRef = doc(db, "employee_credentials", "logins");
-      const docSnap = await getDoc(credentialsRef);
-
-      if (docSnap.exists()) {
-        const credentials = docSnap.data().users || [];
+      // 1. Check in employee_credentials/logins_kedungreja or logins
+      let userFound = false;
+      
+      const kedungrejaRef = doc(db, "employee_credentials", "logins_kedungreja");
+      const kedungrejaSnap = await getDoc(kedungrejaRef);
+      if (kedungrejaSnap.exists()) {
+        const credentials = kedungrejaSnap.data().users || [];
         const user = credentials.find(
           (u: any) => u.username === username && u.password === password
         );
-
         if (user) {
-          localStorage.setItem("current_branch", "gdm");
-          toast({ title: "Login Berhasil", description: `Selamat datang, ${username}!` });
-          setUsername("");
-          setPassword("");
-          router.push("/employee/dashboard");
-        } else {
-          setError("Username atau password salah.");
+          userFound = true;
         }
+      }
+
+      if (!userFound) {
+        const credentialsRef = doc(db, "employee_credentials", "logins");
+        const docSnap = await getDoc(credentialsRef);
+        if (docSnap.exists()) {
+          const credentials = docSnap.data().users || [];
+          const user = credentials.find(
+            (u: any) => u.username === username && u.password === password
+          );
+          if (user) {
+            userFound = true;
+          }
+        }
+      }
+
+      // Also check direct karyawan collection
+      if (!userFound) {
+        const q = query(
+          collection(db, "karyawan"),
+          where("username", "==", username),
+          where("password", "==", password)
+        );
+        const kSnap = await getDocs(q);
+        if (!kSnap.empty) {
+          userFound = true;
+        }
+      }
+
+      if (userFound) {
+        localStorage.setItem("current_branch", "kedungreja");
+        toast({ title: "Login Berhasil", description: `Selamat datang di Cabang Kedungreja, ${username}!` });
+        setUsername("");
+        setPassword("");
+        router.push("/employee/dashboard");
       } else {
-        setError("Sistem otentikasi belum dikonfigurasi.");
+        setError("Username atau password salah.");
       }
     } catch (err) {
       setError("Gagal terhubung ke server. Coba lagi nanti.");
@@ -57,7 +87,7 @@ export default function EmployeeLoginPage() {
   return (
     <div className="min-h-screen bg-[#8b1a1a] text-white overflow-hidden relative font-sans flex flex-col justify-center items-center">
       <div className="absolute top-6 left-6 z-20">
-        <Button onClick={() => router.push('/zona_gdm')} variant="ghost" size="icon" className="bg-white/10 text-white hover:bg-white/20">
+        <Button onClick={() => router.push('/zona_kedungreja')} variant="ghost" size="icon" className="bg-white/10 text-white hover:bg-white/20">
           <ArrowLeft className="h-4 w-4" />
         </Button>
       </div>
@@ -69,7 +99,10 @@ export default function EmployeeLoginPage() {
           <div className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center border border-white/20 backdrop-blur-md">
             <Coffee className="h-5 w-5 text-white" />
           </div>
-          <span className="text-sm font-black tracking-[0.3em] uppercase">ZONA WAKTU</span>
+          <div className="flex flex-col">
+            <span className="text-sm font-black tracking-[0.3em] uppercase">ZONA WAKTU</span>
+            <span className="text-[9px] font-bold text-white/60 uppercase tracking-widest">Cabang Kedungreja</span>
+          </div>
         </div>
         <div className="w-full max-w-sm p-8 bg-white/10 border border-white/20 backdrop-blur-md rounded-lg">
           <h2 className="text-2xl font-black text-center mb-6 uppercase tracking-widest">Sistem Karyawan</h2>
@@ -82,6 +115,7 @@ export default function EmployeeLoginPage() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="bg-black/20 border-white/30 text-white"
+                placeholder="Masukkan username karyawan"
                 disabled={loading}
               />
             </div>
@@ -103,6 +137,7 @@ export default function EmployeeLoginPage() {
                     onClick={() => setShowPassword((s) => !s)}
                     className="text-white/80 bg-transparent hover:bg-white/10"
                     type="button"
+                    disabled={loading}
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
@@ -112,7 +147,7 @@ export default function EmployeeLoginPage() {
             {error && <p className="text-red-400 text-sm font-bold text-center py-2">{error}</p>}
             <Button onClick={handleLogin} disabled={loading} className="w-full bg-white text-[#8b1a1a] hover:bg-slate-100 font-bold uppercase tracking-widest">
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Login
+              Login Karyawan
             </Button>
           </div>
         </div>

@@ -11,16 +11,19 @@ import {
   FileDown, 
   FileSpreadsheet,
   Save,
-  Trash
+  Trash,
+  Download,
+  Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { useFirestore, useCollection, useMemoFirebase, useDoc } from "@/firebase";
-import { collection, addDoc, doc, updateDoc, deleteDoc, getDocs, writeBatch } from "firebase/firestore";
+import { useFirestore, useCollection, useMemoFirebase, useDoc, collection, doc } from "@/firebase";
+import { addDoc, updateDoc, deleteDoc, getDocs, writeBatch } from "firebase/firestore";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
   DialogContent,
@@ -59,9 +62,11 @@ export default function MasterBahanBakuPage() {
   const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
   const { data: settings } = useDoc(settingsRef);
 
+  const { toast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [editingItem, setEditingItem] = useState<BahanBaku | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [satuanKalibrasiInput, setSatuanKalibrasiInput] = useState<"Gram" | "Pcs">("Gram");
   const [totalGramasiInput, setTotalGramasiInput] = useState(0);
   const [beratBungkusInput, setBeratBungkusInput] = useState(0);
@@ -78,6 +83,14 @@ export default function MasterBahanBakuPage() {
   const formatNumber = (val: any) => {
     const num = Number(val);
     return isNaN(num) ? 0 : num;
+  };
+
+  const parseExcelNumber = (val: any, defaultVal = 0) => {
+    if (val === undefined || val === null || val === "") return defaultVal;
+    if (typeof val === "number") return isNaN(val) ? defaultVal : val;
+    const str = String(val).trim().replace(/\s/g, '').replace(',', '.');
+    const num = parseFloat(str);
+    return isNaN(num) ? defaultVal : num;
   };
 
   const getGramasiPerProduk = (item?: Partial<BahanBaku> | null) => {
@@ -113,6 +126,76 @@ export default function MasterBahanBakuPage() {
   const toTitleCase = (str: string) => {
     if (!str) return "-";
     return str.toLowerCase().replace(/\b\w/g, s => s.toUpperCase());
+  };
+
+  const handleDownloadTemplate = () => {
+    const sampleData = [
+      {
+        "Code": "BB-067",
+        "Nama Barang": "CREAMYFOAM",
+        "Qty Besar": 0,
+        "Satuan Besar": "cup",
+        "Satuan Kalibrasi": "Pcs",
+        "Nilai per Satuan Besar": 20,
+        "Bungkus / Packaging": 0,
+        "Total / Prod": 20,
+        "Qty Kecil": 20,
+        "Satuan Kecil": "cup",
+        "Min Stok Gudang": 0,
+        "Min Stok Kontainer": 5,
+        "Metode Pembelian": "2. Beli Sendiri"
+      },
+      {
+        "Code": "BB001",
+        "Nama Barang": "Base Kopi",
+        "Qty Besar": 0,
+        "Satuan Besar": "Pack",
+        "Satuan Kalibrasi": "Gram",
+        "Nilai per Satuan Besar": 250,
+        "Bungkus / Packaging": 10,
+        "Total / Prod": 260,
+        "Qty Kecil": 250,
+        "Satuan Kecil": "gr",
+        "Min Stok Gudang": 6,
+        "Min Stok Kontainer": 3,
+        "Metode Pembelian": "1. Supliyer"
+      },
+      {
+        "Code": "BB004",
+        "Nama Barang": "Gula Cair",
+        "Qty Besar": 0,
+        "Satuan Besar": "liter",
+        "Satuan Kalibrasi": "Gram",
+        "Nilai per Satuan Besar": 1000,
+        "Bungkus / Packaging": 46,
+        "Total / Prod": 1046,
+        "Qty Kecil": 1000,
+        "Satuan Kecil": "ml",
+        "Min Stok Gudang": 2,
+        "Min Stok Kontainer": 1,
+        "Metode Pembelian": "1. Supliyer"
+      },
+      {
+        "Code": "BB005",
+        "Nama Barang": "Gula Aren",
+        "Qty Besar": 0,
+        "Satuan Besar": "liter",
+        "Satuan Kalibrasi": "Gram",
+        "Nilai per Satuan Besar": 1000,
+        "Bungkus / Packaging": 23,
+        "Total / Prod": 1023,
+        "Qty Kecil": 1000,
+        "Satuan Kecil": "ml",
+        "Min Stok Gudang": 1,
+        "Min Stok Kontainer": 0.5,
+        "Metode Pembelian": "1. Supliyer"
+      }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(sampleData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Template Bahan Baku");
+    XLSX.writeFile(wb, "template-master-bahan-baku.xlsx");
   };
 
   const handleExportExcel = () => {
@@ -202,40 +285,151 @@ export default function MasterBahanBakuPage() {
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
+        setIsImporting(true);
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: "binary" });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws);
+        const data: any[] = XLSX.utils.sheet_to_json(ws);
+
+        if (!data || data.length === 0) {
+          toast({
+            title: "Import Gagal",
+            description: "File Excel kosong atau tidak memiliki data yang valid.",
+            variant: "destructive"
+          });
+          setIsImporting(false);
+          return;
+        }
+
+        const colRef = collection(db, "bahan-baku");
+        const existingSnap = await getDocs(colRef);
+        const existingMap = new Map<string, string>(); // code.toLowerCase() -> docId
+        existingSnap.forEach((d) => {
+          const c = d.data().code;
+          if (c) existingMap.set(String(c).trim().toLowerCase(), d.id);
+        });
 
         const batch = writeBatch(db);
-        const colRef = collection(db, "bahan-baku");
+        let count = 0;
 
         data.forEach((row: any) => {
-          const codeValue = row["Code"] || row["code"] || row["Kode"] || "";
-          const namaValue = row["Nama Barang"] || row["nama"] || row["Nama"] || "";
-          const rawMetode = String(row["Metode Pembelian"] || row["metodePembelian"] || "").trim();
-          const rawSatuanKalibrasi = String(row["Satuan Kalibrasi"] || "").trim().toLowerCase();
+          const codeValue = row["Code"] || row["code"] || row["Kode"] || row["KODE"] || "";
+          const namaValue = row["Nama Barang"] || row["Nama barang"] || row["nama"] || row["Nama"] || row["BARANG"] || "";
+          if (!codeValue && !namaValue) return;
 
-          const newDocRef = doc(colRef);
-          batch.set(newDocRef, {
-            code: String(codeValue).trim(),
+          const rawMetode = String(row["Metode Pembelian"] || row["metodePembelian"] || row["Metode"] || "").trim().toLowerCase();
+          const rawKalibrasi = String(row["Satuan Kalibrasi"] || row["satuanKalibrasi"] || row["Kalibrasi"] || "").trim().toLowerCase();
+
+          const qtyBesar = parseExcelNumber(row["Qty Besar"] ?? row["Qty besar"] ?? row["qtyBesar"], 0);
+          const satuanBesar = String(row["Satuan Besar"] || row["Satuan besar"] || row["satuanBesar"] || "").trim();
+          const satuanKalibrasi: "Gram" | "Pcs" = rawKalibrasi.includes("pcs") ? "Pcs" : "Gram";
+
+          let gramPerBesar = parseExcelNumber(
+            row["Nilai per Satuan Besar"] ?? 
+            row["Nilai Per Satuan Besar"] ?? 
+            row["Nilai per Satuan"] ?? 
+            row["Gram per Satuan Besar"] ?? 
+            row["gramPerBesar"] ?? 
+            row["Gram/Sat.B"],
+            0
+          );
+
+          const beratBungkusProduk = parseExcelNumber(
+            row["Bungkus / Packaging"] ?? 
+            row["Bungkus/Packaging"] ?? 
+            row["Bungkus"] ?? 
+            row["Packaging"] ?? 
+            row["beratBungkusProduk"],
+            0
+          );
+
+          let totalGramasiPerProduk = parseExcelNumber(
+            row["Total / Prod"] ?? 
+            row["Total/Prod"] ?? 
+            row["Total Prod"] ?? 
+            row["totalGramasiPerProduk"],
+            0
+          );
+
+          if (totalGramasiPerProduk === 0 && gramPerBesar > 0) {
+            totalGramasiPerProduk = gramPerBesar + beratBungkusProduk;
+          } else if (gramPerBesar === 0 && totalGramasiPerProduk > 0) {
+            gramPerBesar = Math.max(0, totalGramasiPerProduk - beratBungkusProduk);
+          }
+
+          const qtyKecil = parseExcelNumber(
+            row["Qty Kecil"] ?? 
+            row["Qty kecil"] ?? 
+            row["qtyKecil"] ?? 
+            row["Konversi"] ?? 
+            row["Isi Per Sat. Besar"],
+            1
+          );
+          const satuanKecil = String(row["Satuan Kecil"] || row["Satuan kecil"] || row["satuanKecil"] || "").trim();
+
+          const qtyMinGudang = parseExcelNumber(
+            row["Min Stok Gudang"] ?? 
+            row["Min Stok gudang"] ?? 
+            row["Min Stok Gudang\n"] ?? 
+            row["qtyMinGudang"] ?? 
+            row["Min Stok"] ?? 
+            row["Batas Minimum Stok Gudang"],
+            0
+          );
+
+          const qtyMinKontainer = parseExcelNumber(
+            row["Min Stok Kontainer"] ?? 
+            row["Min Stok kontainer"] ?? 
+            row["Min Stok Kontaine\nr"] ?? 
+            row["qtyMinKontainer"] ?? 
+            row["Batas Minimum Stok Kontainer"],
+            0
+          );
+
+          const metodePembelian = (rawMetode.includes("beli sendiri") || rawMetode.includes("2.")) 
+            ? "Beli Sendiri" 
+            : "Supliyer";
+
+          const cleanCode = String(codeValue).trim();
+          const existingDocId = existingMap.get(cleanCode.toLowerCase());
+          const targetDocRef = existingDocId ? doc(colRef, existingDocId) : doc(colRef);
+
+          const payload: any = {
+            code: cleanCode,
             nama: String(namaValue).trim(),
-            metodePembelian: rawMetode.includes("Beli Sendiri") ? "Beli Sendiri" : "Supliyer",
-            qtyBesar: formatNumber(row["Qty Besar"] || 0),
-            satuanBesar: String(row["Satuan Besar"] || "").trim(),
-            qtyKecil: formatNumber(row["Qty Kecil"] || row["Konversi"] || 0),
-            satuanKecil: String(row["Satuan Kecil"] || "").trim(),
-            satuanKalibrasi: rawSatuanKalibrasi.includes("pcs") ? "Pcs" : "Gram",
-            gramPerBesar: formatNumber(row["Nilai per Satuan Besar"] || row["Gram per Satuan Besar"] || row["Gram/Sat.B"] || 0),
-            beratBungkusProduk: formatNumber(row["Bungkus / Packaging"] || row["Bungkus"] || 0),
-            totalGramasiPerProduk: formatNumber(row["Total / Prod"] || 0),
-          });
+            metodePembelian,
+            qtyBesar,
+            satuanBesar,
+            satuanKalibrasi,
+            gramPerBesar,
+            beratBungkusProduk,
+            totalGramasiPerProduk,
+            qtyKecil,
+            satuanKecil,
+            qtyMinGudang,
+            qtyMinKontainer,
+            qtyMin: qtyMinGudang,
+          };
+
+          batch.set(targetDocRef, payload, { merge: true });
+          count++;
         });
 
         await batch.commit();
-      } catch (err) {
+        toast({
+          title: "Import Berhasil",
+          description: `Berhasil mengimpor dan memperbarui ${count} data bahan baku.`,
+        });
+      } catch (err: any) {
         console.error("Error importing excel:", err);
+        toast({
+          title: "Import Gagal",
+          description: err?.message || "Terjadi kesalahan saat memproses file Excel.",
+          variant: "destructive"
+        });
+      } finally {
+        setIsImporting(false);
       }
     };
     reader.readAsBinaryString(file);
@@ -310,11 +504,22 @@ export default function MasterBahanBakuPage() {
           <div className="flex items-center gap-2 bg-white p-1 rounded-2xl shadow-sm border border-slate-100">
             <Button 
               variant="ghost"
+              onClick={handleDownloadTemplate}
+              className="rounded-xl px-3 font-bold h-10 text-[10px] uppercase tracking-wider gap-1.5 text-slate-700 hover:bg-slate-50"
+              title="Unduh Format Template Excel"
+            >
+              <Download className="h-4 w-4 text-blue-600" />
+              Template
+            </Button>
+            <div className="w-[1px] h-6 bg-slate-100" />
+            <Button 
+              variant="ghost"
               onClick={() => fileInputRef.current?.click()}
+              disabled={isImporting}
               className="rounded-xl px-4 font-bold h-10 text-[10px] uppercase tracking-wider gap-2 text-slate-700 hover:bg-slate-50"
             >
-              <FileUp className="h-4 w-4 text-primary" />
-              Import
+              {isImporting ? <Loader2 className="h-4 w-4 text-primary animate-spin" /> : <FileUp className="h-4 w-4 text-primary" />}
+              {isImporting ? "Mengimpor..." : "Import Excel"}
             </Button>
             <div className="w-[1px] h-6 bg-slate-100" />
             <Button 

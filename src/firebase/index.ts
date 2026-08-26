@@ -7,6 +7,7 @@ export * from './firestore/use-collection';
 export * from './firestore/use-doc';
 export * from './error-emitter';
 export * from './errors';
+export * from '@/lib/branch-helper';
 
 import { useMemo, DependencyList } from 'react';
 import { app, auth, db } from './config';
@@ -23,3 +24,5 @@ export function useMemoFirebase<T>(factory: () => T, deps: DependencyList): T {
 export function initializeFirebase() {
   return { app, auth, db };
 }
+
+export { branchCollection as collection, branchDoc as doc } from '@/lib/branch-helper';

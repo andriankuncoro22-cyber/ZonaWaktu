@@ -23,19 +23,8 @@ import {
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
-import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { 
-  collection, 
-  addDoc, 
-  serverTimestamp, 
-  query, 
-  orderBy, 
-  doc, 
-  deleteDoc,
-  updateDoc,
-  increment,
-  where
-} from "firebase/firestore";
+import { useFirestore, useCollection, useMemoFirebase, collection, doc } from "@/firebase";
+import { addDoc, serverTimestamp, query, orderBy, deleteDoc, updateDoc, increment, where } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 

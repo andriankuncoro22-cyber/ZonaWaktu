@@ -13,17 +13,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { 
-  collection, 
-  addDoc, 
-  serverTimestamp, 
-  query, 
-  where, 
-  doc, 
-  deleteDoc,
-  orderBy
-} from "firebase/firestore";
+import { useFirestore, useCollection, useMemoFirebase, collection, doc } from "@/firebase";
+import { addDoc, serverTimestamp, query, where, deleteDoc, orderBy } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";

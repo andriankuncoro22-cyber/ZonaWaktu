@@ -3,8 +3,8 @@
 import React, { useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { collection, query, where, orderBy } from "firebase/firestore";
+import { useFirestore, useCollection, useMemoFirebase, collection } from "@/firebase";
+import { query, where, orderBy } from "firebase/firestore";
 import { Calendar, Search, ShoppingBag, TrendingUp, Wallet, Package } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { calculateRecipeIngredientCost } from "@/lib/hpp";

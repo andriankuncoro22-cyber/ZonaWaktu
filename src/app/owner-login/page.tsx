@@ -16,6 +16,7 @@ export default function OwnerLoginPage() {
 
   const handleLogin = () => {
     if (username === "zonagdm" && password === "ownerzona") {
+      localStorage.setItem("current_branch", "gdm");
       setUsername("");
       setPassword("");
       router.push("/dashboard");
@@ -27,7 +28,7 @@ export default function OwnerLoginPage() {
   return (
     <div className="min-h-screen bg-[#8b1a1a] text-white overflow-hidden relative font-sans flex flex-col justify-center items-center">
       <div className="absolute top-6 left-6 z-20">
-        <Button onClick={() => router.push('/')} variant="ghost" size="icon" className="bg-white/10 text-white hover:bg-white/20">
+        <Button onClick={() => router.push('/zona_gdm')} variant="ghost" size="icon" className="bg-white/10 text-white hover:bg-white/20">
           <ArrowLeft className="h-4 w-4" />
         </Button>
       </div>

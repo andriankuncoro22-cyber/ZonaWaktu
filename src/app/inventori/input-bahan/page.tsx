@@ -32,20 +32,8 @@ import {
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
-import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { 
-  collection, 
-  addDoc, 
-  serverTimestamp, 
-  query, 
-  orderBy, 
-  limit, 
-  doc, 
-  updateDoc, 
-  increment,
-  deleteDoc,
-  writeBatch
-} from "firebase/firestore";
+import { useFirestore, useCollection, useMemoFirebase, collection, doc } from "@/firebase";
+import { addDoc, serverTimestamp, query, orderBy, limit, updateDoc, increment, deleteDoc, writeBatch } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { applyPurchase } from "@/lib/hpp";

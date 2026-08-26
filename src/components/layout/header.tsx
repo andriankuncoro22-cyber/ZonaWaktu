@@ -4,8 +4,8 @@ import React, { useState } from "react";
 import { Search, Bell, Coffee, ChevronDown, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { useFirestore, useDoc, useMemoFirebase } from "@/firebase";
-import { doc } from "firebase/firestore";
+import { useFirestore, useDoc, useMemoFirebase, doc } from "@/firebase";
+
 import Image from "next/image";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Sidebar } from "./sidebar";
@@ -70,6 +70,30 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-2 md:gap-4">
+        {/* Active Store Branch Badge */}
+        {(() => {
+          const isKedungreja = typeof window !== "undefined" && localStorage.getItem("current_branch") === "kedungreja";
+          return (
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white border border-slate-100 shadow-sm">
+              <span className={`h-2 w-2 rounded-full animate-pulse ${isKedungreja ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+              <div className="text-left">
+                <p className="text-[9px] font-black uppercase text-slate-800 leading-none">
+                  {isKedungreja ? "Outlet Kedungreja" : "Outlet Gandrungmangu"}
+                </p>
+                <p className="text-[7px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">
+                  {isKedungreja ? "ZW-02 • Aktif" : "ZW-01 • Pusat"}
+                </p>
+              </div>
+              <a 
+                href="/" 
+                className="ml-1 text-[8px] font-black uppercase text-primary hover:underline pl-1 border-l border-slate-200"
+              >
+                Ganti
+              </a>
+            </div>
+          );
+        })()}
+
         <Button variant="ghost" size="icon" className="rounded-xl md:rounded-2xl text-slate-600 relative bg-white shadow-sm hover:bg-slate-50 border border-slate-100 h-10 w-10">
           <Bell className="h-5 w-5" />
           <span className="absolute top-2 right-2 h-2 w-2 bg-primary rounded-full border-2 border-white" />
@@ -84,7 +108,9 @@ export function Header() {
           </Avatar>
           <div className="text-left hidden sm:block">
             <p className="text-[9px] md:text-[10px] font-black text-slate-900 leading-none uppercase italic">Admin Zona</p>
-            <p className="text-[7px] md:text-[8px] text-slate-400 font-bold uppercase tracking-widest mt-1">Super Admin</p>
+            <p className="text-[7px] md:text-[8px] text-slate-400 font-bold uppercase tracking-widest mt-1">
+              {typeof window !== "undefined" && localStorage.getItem("current_branch") === "kedungreja" ? "Cabang Kedungreja" : "Cabang Gandrungmangu"}
+            </p>
           </div>
           <ChevronDown className="h-3 w-3 text-slate-400 ml-0 md:ml-1" />
         </div>

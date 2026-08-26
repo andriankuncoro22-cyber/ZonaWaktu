@@ -24,22 +24,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { 
-  collection, 
-  doc, 
-  setDoc, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  query, 
-  orderBy, 
-  where,
-  getDoc,
-  getDocs,
-  writeBatch,
-  serverTimestamp
-} from "firebase/firestore";
+import { useFirestore, useCollection, useMemoFirebase, collection, doc } from "@/firebase";
+import { setDoc, addDoc, updateDoc, deleteDoc, query, orderBy, where, getDoc, getDocs, writeBatch, serverTimestamp } from "firebase/firestore";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 

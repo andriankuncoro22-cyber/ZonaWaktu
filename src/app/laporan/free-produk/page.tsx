@@ -20,16 +20,8 @@ import {
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useFirestore, useCollection, useMemoFirebase, useDoc } from "@/firebase";
-import { 
-  collection, 
-  query, 
-  doc, 
-  deleteDoc, 
-  getDocs,
-  where,
-  orderBy 
-} from "firebase/firestore";
+import { useFirestore, useCollection, useMemoFirebase, useDoc, collection, doc } from "@/firebase";
+import { query, deleteDoc, getDocs, where, orderBy } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";

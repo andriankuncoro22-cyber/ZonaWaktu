@@ -5,16 +5,8 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import {
-  collection,
-  addDoc,
-  serverTimestamp,
-  query,
-  where,
-  doc,
-  deleteDoc,
-} from "firebase/firestore";
+import { useFirestore, useCollection, useMemoFirebase, collection, doc } from "@/firebase";
+import { addDoc, serverTimestamp, query, where, deleteDoc } from "firebase/firestore";
 import { CalendarDays, Coins, Loader2, Save, Trash2, Wallet2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";

@@ -20,21 +20,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { 
-  collection, 
-  serverTimestamp, 
-  query, 
-  orderBy, 
-  limit, 
-  deleteDoc, 
-  doc, 
-  where, 
-  getDocs, 
-  writeBatch,
-  getDoc,
-  increment
-} from "firebase/firestore";
+import { useFirestore, useCollection, useMemoFirebase, collection, doc } from "@/firebase";
+import { serverTimestamp, query, orderBy, limit, deleteDoc, where, getDocs, writeBatch, getDoc, increment } from "firebase/firestore";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
 import { useToast } from "@/hooks/use-toast";

@@ -17,8 +17,8 @@ import {
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
-import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { collection, query, orderBy } from "firebase/firestore";
+import { useFirestore, useCollection, useMemoFirebase, collection } from "@/firebase";
+import { query, orderBy } from "firebase/firestore";
 import { 
   Search, 
   Boxes, 

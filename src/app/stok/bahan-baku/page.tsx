@@ -16,8 +16,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { useFirestore, useCollection, useMemoFirebase, useDoc } from "@/firebase";
-import { collection, query, orderBy, doc, writeBatch, increment, updateDoc } from "firebase/firestore";
+import { useFirestore, useCollection, useMemoFirebase, useDoc, collection, doc } from "@/firebase";
+import { query, orderBy, writeBatch, increment, updateDoc } from "firebase/firestore";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,

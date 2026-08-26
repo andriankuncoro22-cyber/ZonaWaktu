@@ -24,8 +24,8 @@ import {
   Tooltip,
   Cell,
 } from "recharts";
-import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { collection, query, orderBy, limit, where } from "firebase/firestore";
+import { useFirestore, useCollection, useMemoFirebase, collection } from "@/firebase";
+import { query, orderBy, limit, where } from "firebase/firestore";
 import Link from "next/link";
 
 export default function DashboardPage() {

@@ -13,6 +13,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const isStandalonePage =
     pathname === "/" ||
+    pathname === "/zona_gdm" ||
+    pathname.startsWith("/zona_gdm") ||
+    pathname === "/zona_kedungreja" ||
+    pathname.startsWith("/zona_kedungreja") ||
     pathname === "/absensi" ||
     pathname === "/owner-login" ||
     pathname === "/admin-login" ||

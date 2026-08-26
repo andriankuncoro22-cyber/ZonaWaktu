@@ -8,9 +8,9 @@ import {
   Home, 
   CheckCircle2, 
   XCircle, 
-  RefreshCw,
-  CalendarDays,
-  User
+  RefreshCw, 
+  CalendarDays, 
+  User 
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -30,6 +30,7 @@ interface KaryawanUser {
   username: string;
   status?: string;
   shift?: string;
+  cabang?: string;
   [key: string]: unknown;
 }
 
@@ -41,6 +42,7 @@ interface AttendanceLog {
   jamMasuk: string;
   jamPulang: string;
   selfieUrl?: string;
+  cabang?: string;
   [key: string]: unknown;
 }
 
@@ -55,9 +57,9 @@ interface AbsensiConfig {
   [key: string]: unknown;
 }
 
-// Fungsi untuk menghitung jarak antara dua koordinat (meter)
+// Function to calculate distance between coordinates (meters)
 function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const R = 6371e3; // Jari-jari bumi dalam meter
+  const R = 6371e3; // Earth radius in meters
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = 
@@ -68,7 +70,7 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   return R * c;
 }
 
-export default function AbsensiKaryawanPage() {
+export default function KedungrejaAbsensiPage() {
   const db = useFirestore();
   const [user, setUser] = useState<KaryawanUser | null>(null);
   const [loading, setLoading] = useState(false);
@@ -88,6 +90,14 @@ export default function AbsensiKaryawanPage() {
 
   const fetchConfig = useCallback(async () => {
     try {
+      // Check Kedungreja specific location first, then fallback
+      const kedungrejaDocRef = doc(db, "settings", "absensi_config_kedungreja");
+      const kedungrejaSnap = await getDoc(kedungrejaDocRef);
+      if (kedungrejaSnap.exists()) {
+        setConfig(kedungrejaSnap.data() as AbsensiConfig);
+        return;
+      }
+
       const docRef = doc(db, "settings", "absensi_config");
       const snap = await getDoc(docRef);
       if (snap.exists()) {
@@ -117,7 +127,7 @@ export default function AbsensiKaryawanPage() {
   const checkPersistedUser = useCallback(async () => {
     await Promise.resolve();
     try {
-      const saved = localStorage.getItem("absensi_user");
+      const saved = localStorage.getItem("absensi_user_kedungreja") || localStorage.getItem("absensi_user");
       if (saved) {
         const userData = JSON.parse(saved) as KaryawanUser;
         setUser(userData);
@@ -130,21 +140,17 @@ export default function AbsensiKaryawanPage() {
     }
   }, [fetchAttendanceData]);
 
-  // Clock tick — setState inside a callback, not the effect body directly
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // One-time initialization: restore session + load location config
   useEffect(() => {
     queueMicrotask(() => {
       checkPersistedUser();
       fetchConfig();
     });
   }, [checkPersistedUser, fetchConfig]);
-
-
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -162,8 +168,8 @@ export default function AbsensiKaryawanPage() {
       if (!snapshot.empty) {
         const userData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as KaryawanUser;
         setUser(userData);
-        localStorage.setItem("absensi_user", JSON.stringify(userData));
-        localStorage.setItem("current_branch", "gdm");
+        localStorage.setItem("absensi_user_kedungreja", JSON.stringify(userData));
+        localStorage.setItem("current_branch", "kedungreja");
         setLoginData({ username: "", password: "" }); 
         await fetchAttendanceData(userData.id);
       } else {
@@ -178,7 +184,7 @@ export default function AbsensiKaryawanPage() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("absensi_user");
+    localStorage.removeItem("absensi_user_kedungreja");
     setUser(null);
     setAttendanceToday(null);
     setHistory([]);
@@ -193,7 +199,7 @@ export default function AbsensiKaryawanPage() {
 
   const startCamera = async () => {
     if (!isWithinRadius) {
-      alert("Anda berada di luar radius kantor. Mendekat terlebih dahulu sebelum membuka kamera.");
+      alert("Anda berada di luar radius toko Kedungreja. Mendekat terlebih dahulu sebelum membuka kamera.");
       return;
     }
 
@@ -232,7 +238,7 @@ export default function AbsensiKaryawanPage() {
       ctx?.drawImage(video, 0, 0, canvas.width, canvas.height);
       const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
       const blob = await (await fetch(dataUrl)).blob();
-      const file = new File([blob], `selfie-${Date.now()}.jpg`, { type: "image/jpeg" });
+      const file = new File([blob], `selfie-kedungreja-${Date.now()}.jpg`, { type: "image/jpeg" });
       const uploadedUrl = await uploadToCloudinary(file, config);
       setSelfiePreview(uploadedUrl);
       return uploadedUrl;
@@ -246,7 +252,7 @@ export default function AbsensiKaryawanPage() {
 
   const handleAbsen = async (type: 'masuk' | 'pulang') => {
     if (!isWithinRadius) {
-      alert("Anda berada di luar jangkauan lokasi kantor. Silakan mendekat ke area toko.");
+      alert("Anda berada di luar jangkauan lokasi outlet Kedungreja. Silakan mendekat ke area toko.");
       return;
     }
 
@@ -264,20 +270,33 @@ export default function AbsensiKaryawanPage() {
     try {
       if (type === 'masuk') {
         await addDoc(collection(db, "absensi_logs"), {
-          karyawanId: user.id,
-          nama: user.nama,
-          shift: user.shift || 'default',
+          karyawanId: user?.id,
+          nama: user?.nama,
+          shift: user?.shift || 'default',
+          cabang: "kedungreja",
+          cabangName: "Cabang Kedungreja",
           tanggal: today,
           jamMasuk: time,
           jamPulang: "-",
           selfieUrl: selfiePreview,
           timestamp: serverTimestamp()
         });
-        setAttendanceToday({ id: "", karyawanId: user.id, nama: user.nama, tanggal: today, jamMasuk: time, jamPulang: "-", selfieUrl: selfiePreview ?? undefined });
+        setAttendanceToday({ 
+          id: "", 
+          karyawanId: user?.id || "", 
+          nama: user?.nama || "", 
+          tanggal: today, 
+          jamMasuk: time, 
+          jamPulang: "-", 
+          selfieUrl: selfiePreview ?? undefined,
+          cabang: "kedungreja"
+        });
       } else {
         alert("Sesi Absen Pulang Tercatat.");
       }
-      await fetchAttendanceData(user.id);
+      if (user?.id) {
+        await fetchAttendanceData(user.id);
+      }
       stopCamera();
     } catch (e) {
       console.error("Absen failed", e);
@@ -342,7 +361,7 @@ export default function AbsensiKaryawanPage() {
               <User className="h-10 w-10 text-primary" />
             </div>
             <h1 className="text-3xl font-black text-slate-900 uppercase italic tracking-tighter">Portal Absensi</h1>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">Zona Waktu Coffee & Teh Bakar</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">Cabang Kedungreja &bull; Coffee & Teh Bakar</p>
           </div>
           <form onSubmit={handleLogin} className="space-y-6">
             <div className="space-y-2">
@@ -371,11 +390,11 @@ export default function AbsensiKaryawanPage() {
               disabled={loading} 
               className="w-full h-16 rounded-[1.5rem] bg-primary hover:bg-primary/90 text-white font-black uppercase tracking-widest text-[11px] shadow-xl shadow-primary/20"
             >
-              {loading ? "Mengecek Akses..." : "Masuk Ke Portal"}
+              {loading ? "Mengecek Akses..." : "Masuk Ke Portal Kedungreja"}
             </Button>
           </form>
           <div className="mt-10 text-center">
-             <Link href="/zona_gdm" className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-primary transition-colors">Kembali Ke Beranda Toko</Link>
+             <Link href="/zona_kedungreja" className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-primary transition-colors">Kembali Ke Beranda Cabang</Link>
           </div>
         </Card>
       </div>
@@ -391,11 +410,13 @@ export default function AbsensiKaryawanPage() {
           </div>
           <div>
             <h2 className="text-xl font-black text-primary uppercase italic leading-none">{user.nama}</h2>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Status: {user.status || 'Aktif'}</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">
+              Cabang Kedungreja &bull; Status: {user.status || 'Aktif'}
+            </p>
           </div>
         </div>
         <div className="flex gap-2">
-          <Link href="/zona_gdm">
+          <Link href="/zona_kedungreja">
             <Button variant="ghost" size="icon" className="h-12 w-12 rounded-2xl bg-white shadow-sm hover:bg-slate-50 border border-slate-100">
               <Home className="h-5 w-5 text-slate-400" />
             </Button>
@@ -427,13 +448,13 @@ export default function AbsensiKaryawanPage() {
             )}>
               <MapPin className="h-3 w-3" />
               <span className="text-[9px] font-black uppercase tracking-widest">
-                {isWithinRadius ? 'Dalam Area Kantor' : `Luar Radius (${distance}m)`}
+                {isWithinRadius ? 'Dalam Area Kedungreja' : `Luar Radius (${distance}m)`}
               </span>
             </div>
             <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md px-4 py-2 rounded-xl border border-white/20">
               <Clock className="h-3 w-3" />
               <span className="text-[9px] font-black uppercase tracking-widest">
-                ZONA WAKTU AKTIF
+                ZONA KEDUNGREJA AKTIF
               </span>
             </div>
           </div>
@@ -446,7 +467,7 @@ export default function AbsensiKaryawanPage() {
       <Card className="w-full max-w-2xl rounded-[2rem] bg-white p-6 border-none shadow-sm mb-6">
         <div className="flex items-center justify-between gap-4 mb-4">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Selfie Absensi</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Selfie Absensi Kedungreja</p>
             <p className="text-sm font-black text-slate-800">Foto wajib diambil langsung dari kamera</p>
           </div>
           <Button onClick={startCamera} disabled={!isWithinRadius} className="rounded-xl bg-primary text-white h-10 px-4 text-[9px] font-black uppercase disabled:opacity-50 disabled:cursor-not-allowed">Buka Kamera</Button>
@@ -511,7 +532,7 @@ export default function AbsensiKaryawanPage() {
           <div className="h-10 w-10 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
             <CheckCircle2 className="h-6 w-6" />
           </div>
-          <p className="text-sm font-black uppercase tracking-[0.2em] text-emerald-700">SESI ABSEN TERVERIFIKASI</p>
+          <p className="text-sm font-black uppercase tracking-[0.2em] text-emerald-700">SESI ABSEN KEDUNGREJA TERVERIFIKASI</p>
         </Card>
       )}
 
@@ -522,7 +543,7 @@ export default function AbsensiKaryawanPage() {
               <XCircle className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-[10px] font-black text-rose-700 uppercase tracking-widest">LUAR RADIUS TOKO</p>
+              <p className="text-[10px] font-black text-rose-700 uppercase tracking-widest">LUAR RADIUS TOKO KEDUNGREJA</p>
               <p className="text-[8px] font-bold text-rose-400 uppercase">
                 Jarak Anda: {distance !== null ? `${distance} meter` : "Mengecek..."}
               </p>
@@ -542,7 +563,7 @@ export default function AbsensiKaryawanPage() {
       <div className="w-full max-w-2xl">
         <div className="flex items-center gap-3 mb-6 px-4">
           <CalendarDays className="h-5 w-5 text-primary" />
-          <h3 className="text-sm font-black uppercase tracking-widest text-primary">Riwayat Kehadiran</h3>
+          <h3 className="text-sm font-black uppercase tracking-widest text-primary">Riwayat Kehadiran Kedungreja</h3>
         </div>
         <div className="space-y-3">
           {history.length > 0 ? history.map((log) => (

@@ -19,9 +19,9 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
+import { useFirestore, useCollection, useMemoFirebase, collection } from "@/firebase";
 import { cn } from "@/lib/utils";
-import { collection, query, where } from "firebase/firestore";
+import { query, where } from "firebase/firestore";
 import {
   Dialog,
   DialogContent,

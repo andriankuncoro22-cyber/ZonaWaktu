@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useFirestore, useCollection, useMemoFirebase } from "@/firebase";
-import { addDoc, collection, deleteDoc, doc, orderBy, query, serverTimestamp, updateDoc } from "firebase/firestore";
+import { useFirestore, useCollection, useMemoFirebase, collection, doc } from "@/firebase";
+import { addDoc, deleteDoc, orderBy, query, serverTimestamp, updateDoc } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 
 interface Category {
