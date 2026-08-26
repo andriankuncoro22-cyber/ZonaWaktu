@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import { Search, Bell, Coffee, ChevronDown, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -84,12 +85,12 @@ export function Header() {
                   {isKedungreja ? "ZW-02 • Aktif" : "ZW-01 • Pusat"}
                 </p>
               </div>
-              <a 
+              <Link 
                 href="/" 
                 className="ml-1 text-[8px] font-black uppercase text-primary hover:underline pl-1 border-l border-slate-200"
               >
                 Ganti
-              </a>
+              </Link>
             </div>
           );
         })()}
