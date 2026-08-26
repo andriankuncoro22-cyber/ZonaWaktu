@@ -62,14 +62,18 @@ export function setActiveBranch(branch: BranchId) {
   }
 }
 
+const GLOBAL_COLLECTIONS = new Set(['settings', 'users']);
+
 /**
  * Scope collection name based on current active branch
  * GDM uses standard collections (preserving all existing data)
  * Kedungreja uses '_kdrj' collections (starting 100% clean & completely isolated)
  */
 export function getBranchScopedCollectionName(name: string, explicitBranch?: BranchId): string {
+  if (!name) return name;
   const branch = explicitBranch || getActiveBranch();
   if (branch === 'kedungreja') {
+    if (GLOBAL_COLLECTIONS.has(name)) return name;
     if (name.endsWith('_kdrj') || name.endsWith('_kedungreja')) return name;
     return `${name}_kdrj`;
   }
@@ -79,19 +83,41 @@ export function getBranchScopedCollectionName(name: string, explicitBranch?: Bra
 /**
  * Branch-scoped collection() helper
  */
-export function branchCollection(firestoreOrRef: Firestore | DocumentReference, path: string, ...pathSegments: string[]): CollectionReference<DocumentData> {
+export function branchCollection(
+  firestoreOrRef: Firestore | DocumentReference, 
+  path: string, 
+  ...pathSegments: string[]
+): CollectionReference<DocumentData> {
   const scopedPath = getBranchScopedCollectionName(path);
-  return (fsCollection as any)(firestoreOrRef, scopedPath, ...pathSegments);
+  if (pathSegments.length > 0) {
+    return (fsCollection as any)(firestoreOrRef, scopedPath, ...pathSegments);
+  }
+  return (fsCollection as any)(firestoreOrRef, scopedPath);
 }
 
 /**
  * Branch-scoped doc() helper
  */
-export function branchDoc(firestoreOrRefOrCol: Firestore | CollectionReference | DocumentReference, path?: string, ...pathSegments: string[]): DocumentReference<DocumentData> {
+export function branchDoc(
+  firestoreOrRefOrCol: Firestore | CollectionReference | DocumentReference, 
+  path?: string, 
+  ...pathSegments: string[]
+): DocumentReference<DocumentData> {
+  // If called without path (e.g. doc(collectionRef) for generating an auto ID)
+  if (path === undefined) {
+    return (fsDoc as any)(firestoreOrRefOrCol);
+  }
+
+  // If path is a string
   if (typeof path === 'string') {
     const parts = path.split('/');
     parts[0] = getBranchScopedCollectionName(parts[0]);
-    return (fsDoc as any)(firestoreOrRefOrCol, parts.join('/'), ...pathSegments);
+    const fullPath = parts.join('/');
+    if (pathSegments.length > 0) {
+      return (fsDoc as any)(firestoreOrRefOrCol, fullPath, ...pathSegments);
+    }
+    return (fsDoc as any)(firestoreOrRefOrCol, fullPath);
   }
+
   return (fsDoc as any)(firestoreOrRefOrCol, path, ...pathSegments);
 }

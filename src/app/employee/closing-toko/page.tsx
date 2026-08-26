@@ -364,9 +364,11 @@ export default function EmployeeClosingTokoPage({
       ]);
 
       const productCodeMap: { [key: string]: string } = {};
+      const productNameMap: { [key: string]: string } = {};
       productsSnap.forEach(d => {
         const p = d.data();
-        if (p.code) productCodeMap[p.code] = d.id;
+        if (p.code) productCodeMap[String(p.code).trim().toUpperCase()] = d.id;
+        if (p.name) productNameMap[String(p.name).trim().toLowerCase()] = d.id;
       });
 
       const recipeMap: { [key: string]: any } = {};
@@ -411,7 +413,9 @@ export default function EmployeeClosingTokoPage({
 
       const totalDeductions: { [key: string]: number } = {};
       items.forEach((item) => {
-        const productId = productCodeMap[item.code];
+        const codeKey = item.code ? String(item.code).trim().toUpperCase() : "";
+        const nameKey = item.name ? String(item.name).trim().toLowerCase() : "";
+        const productId = (codeKey && productCodeMap[codeKey]) || (nameKey && productNameMap[nameKey]);
         if (productId && recipeMap[productId]) {
           recipeMap[productId].forEach((ing: any) => {
             const deduction = ing.jumlah * item.total;
@@ -450,11 +454,11 @@ export default function EmployeeClosingTokoPage({
       });
       
     } catch (e: any) {
-      console.error(e);
+      console.error("Error saving closing report:", e);
       toast({
         variant: "destructive",
         title: "Gagal Menyimpan",
-        description: "Terjadi kesalahan saat memproses data.",
+        description: e.message || "Terjadi kesalahan saat memproses data.",
       });
     } finally {
       setSaving(false);
