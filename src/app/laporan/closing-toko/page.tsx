@@ -135,6 +135,7 @@ export default function LaporanClosingTokoPage() {
     return shift1Log?.difference || 0;
   }, [keuanganLogs]);
   const modalTambahan = keuanganData?.modalTambahan || 0;
+  const diambilOwner = Number(keuanganData?.diambilOwner || 0);
   const uangDiPegang = keuanganData?.cashOnHand || 0;
 
   const sisaUangDisetor = useMemo(() => {
@@ -148,10 +149,11 @@ export default function LaporanClosingTokoPage() {
     const ops = Number(totalOperasional || 0);
     const bel = Number(totalBelanja || 0);
     const free = Number(totalFree || 0);
+    const dOwner = Number(diambilOwner || 0);
 
-    const calculated = cashSales + mAwal + mTambahan + s1Diff - ops - bel - free;
+    const calculated = cashSales + mAwal + mTambahan + s1Diff - ops - bel - free - dOwner;
     return (cashSales > 0 || mAwal > 0 || mTambahan > 0) ? calculated : Number(keuanganData.expectedCashToSettle || 0);
-  }, [keuanganData, isShift1, modalAwal, modalTambahan, shift1Difference, totalOperasional, totalBelanja, totalFree]);
+  }, [keuanganData, isShift1, modalAwal, modalTambahan, shift1Difference, totalOperasional, totalBelanja, totalFree, diambilOwner]);
 
   const selisihKeuangan = useMemo(() => {
     if (!keuanganData) return 0;
@@ -615,6 +617,13 @@ export default function LaporanClosingTokoPage() {
                         </span>
                       </div>
                     )}
+
+                    <div className="flex flex-col justify-between p-3 rounded-2xl border border-orange-100 bg-orange-50/50 h-20 md:h-auto md:flex-row md:items-center md:px-5 md:py-4 col-span-2 md:col-span-1">
+                      <span className="text-[9px] md:text-xs font-black uppercase text-orange-700 leading-snug">
+                        {selectedShift === 1 ? "Diambil Owner" : "Diambil Owner (S1 + S2)"}
+                      </span>
+                      <span className="text-sm md:text-base font-black text-orange-950 tabular-nums mt-1 md:mt-0">{formatCurrency(diambilOwner)}</span>
+                    </div>
 
                     <div className="flex flex-col justify-between p-3 rounded-2xl border border-emerald-200 bg-emerald-50 h-20 md:h-auto md:flex-row md:items-center md:px-5 md:py-4 col-span-2 md:col-span-1">
                       <span className="text-[9px] md:text-xs font-black uppercase text-emerald-700 leading-snug">Wajib Setor</span>

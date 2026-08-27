@@ -40,6 +40,7 @@ export default function EmployeeKeuanganKontainerPage() {
   const [manualQrisSales, setManualQrisSales] = useState("");
   const [modalAwal, setModalAwal] = useState("");
   const [modalTambahan, setModalTambahan] = useState("");
+  const [diambilOwner, setDiambilOwner] = useState("");
   const [cashOnHand, setCashOnHand] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
@@ -57,6 +58,7 @@ export default function EmployeeKeuanganKontainerPage() {
     setManualQrisSales("");
     setModalAwal("");
     setModalTambahan("");
+    setDiambilOwner("");
   };
 
   const closingQuery = useMemoFirebase(
@@ -153,17 +155,21 @@ export default function EmployeeKeuanganKontainerPage() {
       const totalShift1ModalAwal = Number(shift1Log?.modalAwal || 0);
       const totalShift1ModalTambahan = Number(shift1Log?.modalTambahan || 0);
       const shift1Difference = Number(shift1Log?.difference || 0);
+      const shift1DiambilOwner = Number(shift1Log?.diambilOwner || 0);
       const shift2ModalTambahan = Number(modalTambahan || 0);
+      const shift2DiambilOwner = Number(diambilOwner || 0);
+      const totalDiambilOwner = shift1DiambilOwner + shift2DiambilOwner;
 
-      return cashFromSales + totalShift1ModalAwal + totalShift1ModalTambahan + shift2ModalTambahan + shift1Difference - pureOperationalTotal - purchaseTotal - freeTotal;
+      return cashFromSales + totalShift1ModalAwal + totalShift1ModalTambahan + shift2ModalTambahan + shift1Difference - pureOperationalTotal - purchaseTotal - freeTotal - totalDiambilOwner;
     } else {
       const cashFromSales = Number(manualCashSales || 0);
       const shift1ModalAwal = Number(modalAwal || 0);
       const shift1ModalTambahan = Number(modalTambahan || 0);
+      const shift1DiambilOwner = Number(diambilOwner || 0);
 
-      return cashFromSales + shift1ModalAwal + shift1ModalTambahan - pureOperationalTotal - purchaseTotal - freeTotal;
+      return cashFromSales + shift1ModalAwal + shift1ModalTambahan - pureOperationalTotal - purchaseTotal - freeTotal - shift1DiambilOwner;
     }
-  }, [shift, dailyClosing, pureOperationalTotal, purchaseTotal, freeTotal, manualCashSales, modalAwal, modalTambahan, shift1Log]);
+  }, [shift, dailyClosing, pureOperationalTotal, purchaseTotal, freeTotal, manualCashSales, modalAwal, modalTambahan, diambilOwner, shift1Log]);
 
   const difference = useMemo(() => {
     const actual = Number(cashOnHand || 0);
@@ -175,6 +181,7 @@ export default function EmployeeKeuanganKontainerPage() {
       const totalShift1ModalAwal = shift1Log?.modalAwal || 0;
       const totalShift1ModalTambahan = shift1Log?.modalTambahan || 0;
       const shift1Difference = shift1Log?.difference || 0;
+      const totalDiambilOwner = Number(shift1Log?.diambilOwner || 0) + Number(diambilOwner || 0);
       return [
         { 
           label: "Total penjualan dari closing", 
@@ -233,6 +240,13 @@ export default function EmployeeKeuanganKontainerPage() {
           valueClass: "text-pink-900" 
         },
         { 
+          label: "Diambil Owner (S1 + S2)", 
+          value: totalDiambilOwner, 
+          bgClass: "bg-orange-50/50 border-orange-100", 
+          labelClass: "text-orange-600 font-bold", 
+          valueClass: "text-orange-900 font-black" 
+        },
+        { 
           label: "Selisih Shift 1", 
           value: shift1Difference, 
           bgClass: shift1Difference === 0 
@@ -252,7 +266,7 @@ export default function EmployeeKeuanganKontainerPage() {
               : "text-rose-900" 
         },
         { 
-          label: "Cash Seharusnya di Laci", 
+          label: "Cash Seharusnya di Laci (Dipegang Kasir)", 
           value: currentExpectedCashToSettle, 
           bgClass: "bg-emerald-50 border-emerald-200 shadow-sm", 
           labelClass: "text-emerald-700 font-bold", 
@@ -263,6 +277,7 @@ export default function EmployeeKeuanganKontainerPage() {
       const manualCashSalesVal = manualCashSales;
       const manualQrisSalesVal = Number(manualQrisSales || 0);
       const manualTotalSalesVal = Number(manualTotalSales || 0);
+      const diambilOwnerVal = Number(diambilOwner || 0);
       return [
         { 
           label: "Total penjualan (Input)", 
@@ -321,7 +336,14 @@ export default function EmployeeKeuanganKontainerPage() {
           valueClass: "text-pink-900" 
         },
         { 
-          label: "Cash Seharusnya di Laci", 
+          label: "Diambil Owner Sebagian", 
+          value: diambilOwnerVal, 
+          bgClass: "bg-orange-50/50 border-orange-100", 
+          labelClass: "text-orange-600 font-bold", 
+          valueClass: "text-orange-900 font-black" 
+        },
+        { 
+          label: "Cash Seharusnya di Laci (Dipegang Kasir)", 
           value: currentExpectedCashToSettle, 
           bgClass: "bg-emerald-50 border-emerald-200 shadow-sm", 
           labelClass: "text-emerald-700 font-bold", 
@@ -329,7 +351,7 @@ export default function EmployeeKeuanganKontainerPage() {
         },
       ];
     }
-  }, [shift, dailyClosing, pureOperationalTotal, purchaseTotal, freeTotal, manualTotalSales, manualQrisSales, manualCashSales, modalAwal, modalTambahan, currentExpectedCashToSettle, shift1Log]);
+  }, [shift, dailyClosing, pureOperationalTotal, purchaseTotal, freeTotal, manualTotalSales, manualQrisSales, manualCashSales, modalAwal, modalTambahan, diambilOwner, currentExpectedCashToSettle, shift1Log]);
 
   const handleSave = async () => {
     if (cashOnHand.trim() === "") {
@@ -397,12 +419,15 @@ export default function EmployeeKeuanganKontainerPage() {
         dataToSave.modalAwal = Number(shift1Log?.modalAwal || 0);
         dataToSave.modalTambahan = Number(modalTambahan || 0) + Number(shift1Log?.modalTambahan || 0);
         dataToSave.shift1Difference = Number(shift1Log?.difference || 0);
+        dataToSave.diambilOwner = Number(diambilOwner || 0) + Number(shift1Log?.diambilOwner || 0);
+        dataToSave.shift2DiambilOwner = Number(diambilOwner || 0);
         dataToSave.cashFromClosing = Number(dailyClosing?.transactionReport?.cashTotal || 0);
         dataToSave.qrisFromClosing = Number(dailyClosing?.transactionReport?.qrisTotal || 0);
         dataToSave.totalFromClosing = Number(dailyClosing?.total || 0);
       } else {
         dataToSave.modalAwal = Number(modalAwal || 0);
         dataToSave.modalTambahan = Number(modalTambahan || 0);
+        dataToSave.diambilOwner = Number(diambilOwner || 0);
         dataToSave.cashSales = manualCashSales;
         dataToSave.qrisSales = Number(manualQrisSales || 0);
         dataToSave.totalSales = Number(manualTotalSales || 0);
@@ -445,11 +470,12 @@ export default function EmployeeKeuanganKontainerPage() {
     const modalAwal = Number(currentShiftLog.modalAwal || 0);
     const modalTambahan = Number(currentShiftLog.modalTambahan || 0);
     const shift1Diff = isShift2 ? Number(currentShiftLog.shift1Difference || 0) : 0;
+    const diambilOwnerVal = Number(currentShiftLog.diambilOwner || 0);
     const ops = Number(currentShiftLog.operationalTotal || 0);
     const purchase = Number(currentShiftLog.purchaseTotal || 0);
     const free = Number(currentShiftLog.freeTotal || 0);
 
-    const calculatedExpected = cashSales + modalAwal + modalTambahan + shift1Diff - ops - purchase - free;
+    const calculatedExpected = cashSales + modalAwal + modalTambahan + shift1Diff - ops - purchase - free - diambilOwnerVal;
     const expectedCashToSettle = (cashSales > 0 || modalAwal > 0 || modalTambahan > 0)
       ? calculatedExpected
       : Number(currentShiftLog.expectedCashToSettle || 0);
@@ -466,6 +492,7 @@ export default function EmployeeKeuanganKontainerPage() {
       difference,
       modalAwal,
       modalTambahan,
+      diambilOwner: diambilOwnerVal,
       note: currentShiftLog.note || ""
     };
   }, [currentShiftLog]);
@@ -605,7 +632,7 @@ export default function EmployeeKeuanganKontainerPage() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
               {shift === 1 && (
                 <div className="rounded-xl border border-slate-100 p-4 bg-slate-50/30">
                   <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Modal Awal</span>
@@ -615,6 +642,10 @@ export default function EmployeeKeuanganKontainerPage() {
               <div className="rounded-xl border border-slate-100 p-4 bg-slate-50/30">
                 <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Modal Tambahan</span>
                 <p className="text-base font-black text-slate-900 mt-1">{formatCurrency(rekapValues?.modalTambahan || 0)}</p>
+              </div>
+              <div className="rounded-xl border border-orange-100 p-4 bg-orange-50/40">
+                <span className="text-[9px] font-black uppercase tracking-wider text-orange-600">Diambil Owner</span>
+                <p className="text-base font-black text-orange-950 mt-1">{formatCurrency(rekapValues?.diambilOwner || 0)}</p>
               </div>
             </div>
 
@@ -720,21 +751,57 @@ export default function EmployeeKeuanganKontainerPage() {
                           className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-800"
                         />
                       </div>
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-700 flex items-center justify-between">
+                          <span>Diambil Owner Sebagian (Opsional)</span>
+                          <span className="text-[8px] font-bold text-orange-600 bg-orange-100 px-2 py-0.5 rounded">Mengurangi Kas Kasir</span>
+                        </Label>
+                        <Input
+                          type="text"
+                          inputMode="numeric"
+                          value={diambilOwner === "" ? "" : formatThousand(diambilOwner)}
+                          onChange={(e) => setDiambilOwner(e.target.value.replace(/\D/g, ""))}
+                          placeholder="0"
+                          className="h-12 rounded-xl border border-orange-200 bg-orange-50/40 shadow-sm font-black text-slate-800 focus:ring-2 focus:ring-orange-400"
+                        />
+                        <p className="text-[9px] text-slate-400 font-medium">
+                          *Jika ada uang tunai yang diserahkan/diambil owner pada Shift 1, masukkan di sini agar otomatis memotong uang yang wajib dipegang kasir.
+                        </p>
+                      </div>
                     </div>
                   )}
 
-                  {/* Shift 2 (Malam) Modal Tambahan Input */}
+                  {/* Shift 2 (Malam) Modal Tambahan & Diambil Owner Inputs */}
                   {shift === 2 && (
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Modal Tambahan (Opsional)</Label>
-                      <Input
-                        type="text"
-                        inputMode="numeric"
-                        value={modalTambahan === "" ? "" : formatThousand(modalTambahan)}
-                        onChange={(e) => setModalTambahan(e.target.value.replace(/\D/g, ""))}
-                        placeholder="0"
-                        className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-800"
-                      />
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Modal Tambahan (Opsional)</Label>
+                        <Input
+                          type="text"
+                          inputMode="numeric"
+                          value={modalTambahan === "" ? "" : formatThousand(modalTambahan)}
+                          onChange={(e) => setModalTambahan(e.target.value.replace(/\D/g, ""))}
+                          placeholder="0"
+                          className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-800"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-700 flex items-center justify-between">
+                          <span>Diambil Owner Sebagian (Opsional)</span>
+                          <span className="text-[8px] font-bold text-orange-600 bg-orange-100 px-2 py-0.5 rounded">Mengurangi Kas Kasir</span>
+                        </Label>
+                        <Input
+                          type="text"
+                          inputMode="numeric"
+                          value={diambilOwner === "" ? "" : formatThousand(diambilOwner)}
+                          onChange={(e) => setDiambilOwner(e.target.value.replace(/\D/g, ""))}
+                          placeholder="0"
+                          className="h-12 rounded-xl border border-orange-200 bg-orange-50/40 shadow-sm font-black text-slate-800 focus:ring-2 focus:ring-orange-400"
+                        />
+                        <p className="text-[9px] text-slate-400 font-medium">
+                          *Jika ada uang tunai yang diserahkan/diambil owner pada Shift 2, masukkan di sini agar otomatis memotong uang yang wajib dipegang kasir.
+                        </p>
+                      </div>
                     </div>
                   )}
                 </div>
