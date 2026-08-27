@@ -2,10 +2,11 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { Search, Bell, Coffee, ChevronDown, Menu } from "lucide-react";
+import { Search, Bell, Coffee, ChevronDown, Menu, CupSoda } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useFirestore, useDoc, useMemoFirebase, doc } from "@/firebase";
+import { useActiveBranch, getStoreConfigDocId, getDefaultStoreIdentity, BRANCH_LIST } from "@/lib/branch-helper";
 
 import Image from "next/image";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -13,9 +14,22 @@ import { Sidebar } from "./sidebar";
 
 export function Header() {
   const db = useFirestore();
-  const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
+  const activeBranch = useActiveBranch();
+  const defaultIdentity = getDefaultStoreIdentity(activeBranch);
+
+  const settingsRef = useMemoFirebase(
+    () => doc(db, "settings", getStoreConfigDocId(activeBranch)), 
+    [db, activeBranch]
+  );
   const { data: settings } = useDoc(settingsRef);
   const [isOpen, setIsOpen] = useState(false);
+
+  const storeName = settings?.name || defaultIdentity.name;
+  const logoHeader = settings?.logoHeader;
+  const isTehWarga = activeBranch === "tehwarga";
+  const isKedungreja = activeBranch === "kedungreja";
+
+  const branchInfo = BRANCH_LIST[activeBranch] || BRANCH_LIST.gdm;
 
   return (
     <header className="h-20 md:h-24 bg-transparent flex items-center justify-between px-4 md:px-8 z-40">
@@ -34,27 +48,42 @@ export function Header() {
           </Sheet>
         </div>
 
-        <div className="flex items-center">
-          {settings?.logoHeader ? (
+        <div className="flex items-center" suppressHydrationWarning>
+          {logoHeader ? (
             <div className="relative h-10 w-40 md:h-14 md:w-56 transition-transform hover:scale-[1.02]">
               <Image 
-                src={settings.logoHeader} 
-                alt={settings.name || "Logo"} 
+                src={logoHeader} 
+                alt={storeName} 
                 fill 
                 className="object-contain object-left" 
                 priority
               />
             </div>
           ) : (
-            <div className="flex items-center gap-2 md:gap-3">
-              <div className="h-8 w-8 md:h-10 md:w-10 rounded-xl md:rounded-2xl bg-primary flex items-center justify-center shadow-lg shadow-primary/20">
-                <Coffee className="h-4 w-4 md:h-5 md:w-5 text-white" />
+            <div className="flex items-center gap-2 md:gap-3" suppressHydrationWarning>
+              <div 
+                suppressHydrationWarning
+                className={`h-8 w-8 md:h-10 md:w-10 rounded-xl md:rounded-2xl ${isTehWarga ? 'bg-emerald-600' : isKedungreja ? 'bg-cyan-600' : 'bg-primary'} flex items-center justify-center shadow-lg shadow-primary/20`}
+              >
+                {isTehWarga ? (
+                  <CupSoda className="h-4 w-4 md:h-5 md:w-5 text-white" />
+                ) : (
+                  <Coffee className="h-4 w-4 md:h-5 md:w-5 text-white" />
+                )}
               </div>
-              <div className="hidden xs:block">
-                <span className="text-sm md:text-xl font-black tracking-tighter text-slate-900 uppercase italic leading-none block">
-                  {settings?.name || "ZONA WAKTU"}
+              <div className="hidden xs:block" suppressHydrationWarning>
+                <span 
+                  suppressHydrationWarning
+                  className="text-sm md:text-xl font-black tracking-tighter text-slate-900 uppercase italic leading-none block"
+                >
+                  {storeName}
                 </span>
-                <span className="text-[7px] md:text-[9px] font-bold text-slate-600 tracking-[0.2em] uppercase">Management System</span>
+                <span 
+                  suppressHydrationWarning
+                  className="text-[7px] md:text-[9px] font-bold text-slate-600 tracking-[0.2em] uppercase"
+                >
+                  {branchInfo.code} &bull; Management System
+                </span>
               </div>
             </div>
           )}
@@ -72,28 +101,26 @@ export function Header() {
 
       <div className="flex items-center gap-2 md:gap-4">
         {/* Active Store Branch Badge */}
-        {(() => {
-          const isKedungreja = typeof window !== "undefined" && localStorage.getItem("current_branch") === "kedungreja";
-          return (
-            <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white border border-slate-100 shadow-sm">
-              <span className={`h-2 w-2 rounded-full animate-pulse ${isKedungreja ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-              <div className="text-left">
-                <p className="text-[9px] font-black uppercase text-slate-800 leading-none">
-                  {isKedungreja ? "Outlet Kedungreja" : "Outlet Gandrungmangu"}
-                </p>
-                <p className="text-[7px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">
-                  {isKedungreja ? "ZW-02 • Aktif" : "ZW-01 • Pusat"}
-                </p>
-              </div>
-              <Link 
-                href="/" 
-                className="ml-1 text-[8px] font-black uppercase text-primary hover:underline pl-1 border-l border-slate-200"
-              >
-                Ganti
-              </Link>
-            </div>
-          );
-        })()}
+        <div 
+          suppressHydrationWarning
+          className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white border shadow-sm ${isTehWarga ? 'border-emerald-200 bg-emerald-50/40' : isKedungreja ? 'border-cyan-200 bg-cyan-50/40' : 'border-slate-100'}`}
+        >
+          <span className={`h-2 w-2 rounded-full animate-pulse ${isTehWarga ? 'bg-emerald-600' : isKedungreja ? 'bg-cyan-500' : 'bg-emerald-500'}`} />
+          <div className="text-left" suppressHydrationWarning>
+            <p className="text-[9px] font-black uppercase text-slate-800 leading-none">
+              {isTehWarga ? "Teh Warga GDM" : isKedungreja ? "Outlet Kedungreja" : "Outlet Gandrungmangu"}
+            </p>
+            <p className={`text-[7px] font-bold uppercase tracking-widest mt-0.5 ${isTehWarga ? 'text-emerald-700' : isKedungreja ? 'text-cyan-700' : 'text-slate-400'}`}>
+              {isTehWarga ? "TW-01 • Spesialis Teh" : isKedungreja ? "ZW-02 • Aktif" : "ZW-01 • Pusat"}
+            </p>
+          </div>
+          <Link 
+            href="/" 
+            className="ml-1 text-[8px] font-black uppercase text-primary hover:underline pl-1 border-l border-slate-200"
+          >
+            Ganti
+          </Link>
+        </div>
 
         <Button variant="ghost" size="icon" className="rounded-xl md:rounded-2xl text-slate-600 relative bg-white shadow-sm hover:bg-slate-50 border border-slate-100 h-10 w-10">
           <Bell className="h-5 w-5" />
@@ -110,7 +137,7 @@ export function Header() {
           <div className="text-left hidden sm:block">
             <p className="text-[9px] md:text-[10px] font-black text-slate-900 leading-none uppercase italic">Admin Zona</p>
             <p className="text-[7px] md:text-[8px] text-slate-400 font-bold uppercase tracking-widest mt-1">
-              {typeof window !== "undefined" && localStorage.getItem("current_branch") === "kedungreja" ? "Cabang Kedungreja" : "Cabang Gandrungmangu"}
+              {branchInfo.shortName}
             </p>
           </div>
           <ChevronDown className="h-3 w-3 text-slate-400 ml-0 md:ml-1" />

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useState, useEffect } from "react";
 import { 
@@ -27,6 +27,8 @@ import { useToast } from "@/hooks/use-toast";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 
+import { useActiveBranch, getStoreConfigDocId, getDefaultStoreIdentity, BRANCH_LIST, BranchId } from "@/lib/branch-helper";
+
 interface EmployeeCredential {
   username: string;
   password: string;
@@ -38,8 +40,16 @@ export default function PengaturanPage() {
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   
-  // Store settings
-  const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
+  // Branch-isolated Store Settings
+  const activeBranch = useActiveBranch();
+  const [selectedBranch, setSelectedBranch] = useState<BranchId>(activeBranch);
+
+  useEffect(() => {
+    setSelectedBranch(activeBranch);
+  }, [activeBranch]);
+
+  const configDocId = getStoreConfigDocId(selectedBranch);
+  const settingsRef = useMemoFirebase(() => doc(db, "settings", configDocId), [db, configDocId]);
   const { data: storeSettings } = useDoc(settingsRef);
 
   // Employee credentials
@@ -145,17 +155,23 @@ export default function PengaturanPage() {
   });
 
   useEffect(() => {
+    const defaults = getDefaultStoreIdentity(selectedBranch);
     if (storeSettings) {
-      queueMicrotask(() => {
-        setFormData({
-          name: storeSettings.name || "Zona Waktu",
-          tagline: storeSettings.tagline || "Coffee & Teh Bakar Autentik",
-          logoLanding: storeSettings.logoLanding || "",
-          logoHeader: storeSettings.logoHeader || ""
-        });
+      setFormData({
+        name: storeSettings.name || defaults.name,
+        tagline: storeSettings.tagline || defaults.tagline,
+        logoLanding: storeSettings.logoLanding || "",
+        logoHeader: storeSettings.logoHeader || ""
+      });
+    } else {
+      setFormData({
+        name: defaults.name,
+        tagline: defaults.tagline,
+        logoLanding: "",
+        logoHeader: ""
       });
     }
-  }, [storeSettings]);
+  }, [storeSettings, selectedBranch]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'logoLanding' | 'logoHeader') => {
     const file = e.target.files?.[0];
@@ -177,14 +193,18 @@ export default function PengaturanPage() {
   const handleSaveSettings = async () => {
     setLoading(true);
     try {
-      await setDoc(settingsRef, {
+      const docRef = doc(db, "settings", getStoreConfigDocId(selectedBranch));
+      await setDoc(docRef, {
         name: formData.name,
         tagline: formData.tagline,
         logoLanding: formData.logoLanding,
         logoHeader: formData.logoHeader,
         updatedAt: serverTimestamp(),
       }, { merge: true });
-      toast({ title: "Pengaturan Tersimpan", description: "Data toko berhasil disimpan ke Firestore." });
+      toast({ 
+        title: "Identitas Toko Tersimpan", 
+        description: `Identitas bisnis untuk ${BRANCH_LIST[selectedBranch]?.name || "Toko"} berhasil diperbarui.` 
+      });
     } catch (error) {
       console.error(error);
       toast({ variant: "destructive", title: "Gagal Menyimpan", description: "Pengaturan toko gagal disimpan." });
@@ -534,19 +554,72 @@ export default function PengaturanPage() {
     );
   }
   if (activeSection === "toko") {
+    const currentBranchInfo = BRANCH_LIST[selectedBranch] || BRANCH_LIST.gdm;
+
     return (
       <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => setActiveSection(null)} className="rounded-2xl">
-            <ChevronLeft className="h-6 w-6" />
-          </Button>
-          <div>
-            <h1 className="text-4xl font-black tracking-tighter text-slate-900 uppercase italic">Identitas Bisnis</h1>
-            <p className="text-xs text-slate-600 font-black uppercase tracking-[0.2em] mt-1">Kelola nama, tagline, dan logo visual sistem</p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="icon" onClick={() => setActiveSection(null)} className="rounded-2xl">
+              <ChevronLeft className="h-6 w-6" />
+            </Button>
+            <div>
+              <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-slate-900 uppercase italic">Identitas Bisnis</h1>
+              <p className="text-xs text-slate-600 font-black uppercase tracking-[0.2em] mt-1">Kelola nama, tagline, dan logo visual sistem per masing-masing toko</p>
+            </div>
+          </div>
+
+          {/* Active Branch Indicator */}
+          <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-white border border-slate-200/80 shadow-sm">
+            <span className={`h-2.5 w-2.5 rounded-full animate-pulse ${selectedBranch === 'tehwarga' ? 'bg-emerald-500' : selectedBranch === 'kedungreja' ? 'bg-cyan-500' : 'bg-red-500'}`} />
+            <div className="text-left">
+              <p className="text-[10px] font-black uppercase text-slate-900 leading-none">{currentBranchInfo.shortName}</p>
+              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{currentBranchInfo.code} &bull; Terisolasi</p>
+            </div>
           </div>
         </div>
 
-        <Card className="rounded-[3rem] border-none shadow-sm bg-white p-10 space-y-8">
+        {/* Branch Switcher Tabs */}
+        <div className="bg-white p-2 sm:p-2.5 rounded-[2rem] border border-slate-200/80 shadow-sm flex flex-wrap items-center gap-2">
+          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 px-3 py-2">
+            Pilih Toko:
+          </span>
+          {(['gdm', 'kedungreja', 'tehwarga'] as BranchId[]).map((bId) => {
+            const isSelected = selectedBranch === bId;
+            const bInfo = BRANCH_LIST[bId];
+            return (
+              <button
+                key={bId}
+                type="button"
+                onClick={() => setSelectedBranch(bId)}
+                className={`flex items-center gap-2.5 px-5 py-3 rounded-2xl font-black text-xs uppercase tracking-wider transition-all duration-200 ${
+                  isSelected 
+                    ? bId === 'tehwarga' 
+                      ? 'bg-emerald-700 text-white shadow-md shadow-emerald-900/20 scale-[1.02]' 
+                      : bId === 'kedungreja'
+                      ? 'bg-cyan-700 text-white shadow-md shadow-cyan-900/20 scale-[1.02]'
+                      : 'bg-slate-900 text-white shadow-md shadow-slate-900/20 scale-[1.02]'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-100'
+                }`}
+              >
+                <span className={`h-2 w-2 rounded-full ${isSelected ? 'bg-white' : bId === 'tehwarga' ? 'bg-emerald-500' : bId === 'kedungreja' ? 'bg-cyan-500' : 'bg-red-500'}`} />
+                <span>{bInfo.shortName}</span>
+                <span className={`text-[9px] px-1.5 py-0.5 rounded-md ${isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                  {bInfo.code}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <Card className="rounded-[3rem] border-none shadow-sm bg-white p-6 sm:p-10 space-y-8">
+          <div className="flex items-center gap-3 p-4 rounded-2xl bg-amber-50 border border-amber-200/60 text-amber-900">
+            <Sparkles className="h-5 w-5 shrink-0 text-amber-600" />
+            <p className="text-xs font-bold leading-relaxed">
+              Anda sedang mengonfigurasi identitas untuk <strong className="font-black underline">{currentBranchInfo.name}</strong>. Logo dan nama yang Anda ubah di sini hanya akan berlaku untuk outlet ini dan tidak akan bersinggungan dengan toko lain.
+            </p>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
               <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nama Bisnis / Brand</Label>
@@ -576,8 +649,8 @@ export default function PengaturanPage() {
                     <Image src={formData.logoLanding} alt="Logo Landing" fill className="object-contain" />
                   </div>
                 ) : (
-                  <div className="h-24 w-48 flex items-center justify-center bg-slate-100 rounded-2xl text-[10px] font-black uppercase text-slate-400 tracking-widest">
-                    Belum Ada Logo
+                  <div className="h-24 w-48 flex items-center justify-center bg-slate-100 rounded-2xl text-[10px] font-black uppercase text-slate-400 tracking-widest text-center px-4">
+                    Belum Ada Logo Landing
                   </div>
                 )}
                 <label className="cursor-pointer">
@@ -598,8 +671,8 @@ export default function PengaturanPage() {
                     <Image src={formData.logoHeader} alt="Logo Header" fill className="object-contain" />
                   </div>
                 ) : (
-                  <div className="h-24 w-48 flex items-center justify-center bg-slate-100 rounded-2xl text-[10px] font-black uppercase text-slate-400 tracking-widest">
-                    Belum Ada Logo
+                  <div className="h-24 w-48 flex items-center justify-center bg-slate-100 rounded-2xl text-[10px] font-black uppercase text-slate-400 tracking-widest text-center px-4">
+                    Belum Ada Logo Header
                   </div>
                 )}
                 <label className="cursor-pointer">
@@ -619,7 +692,7 @@ export default function PengaturanPage() {
               className="h-14 rounded-2xl bg-primary px-10 font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 hover:bg-primary/90 text-white gap-2"
             >
               {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}
-              Simpan Identitas
+              Simpan Identitas ({currentBranchInfo.shortName})
             </Button>
           </div>
         </Card>

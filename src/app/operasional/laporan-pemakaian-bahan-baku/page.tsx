@@ -1,5 +1,7 @@
 "use client";
 
+import { getStoreConfigDocId } from "@/lib/branch-helper";
+
 import React, { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -51,7 +53,7 @@ export default function LaporanPemakaianBahanBakuPage() {
   const [bulanRows, setBulanRows] = useState<BahanRow[] | null>(null);
 
   // Settings (for PDF header)
-  const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
+  const settingsRef = useMemoFirebase(() => doc(db, "settings", getStoreConfigDocId()), [db]);
   const { data: settings } = useDoc(settingsRef);
 
   /* ── Fetch & compute ── */

@@ -268,17 +268,12 @@ export default function EmployeeClosingTokoPage({
         });
 
         // Add produced mixtures/pelengkap to the container stock
-        const nameNormalized = resep.namaPelengkap?.trim().toLowerCase();
-        if (nameNormalized === "creamy foam") {
-          const creamyFoamMat = Object.values(materialMap).find((m: any) => m.code?.trim().toUpperCase() === "BB065");
-          if (creamyFoamMat) {
-            totalAdditions[creamyFoamMat.id] = (totalAdditions[creamyFoamMat.id] || 0) + item.qty;
-          }
-        } else if (nameNormalized === "teh tarik") {
-          const tehTarikMat = Object.values(materialMap).find((m: any) => m.code?.trim().toUpperCase() === "BB064");
-          if (tehTarikMat) {
-            totalAdditions[tehTarikMat.id] = (totalAdditions[tehTarikMat.id] || 0) + item.qty;
-          }
+        const targetMat = Object.values(materialMap).find(
+          (m: any) => m.id === resep.bahanBakuId || (!resep.bahanBakuId && m.nama?.trim().toLowerCase() === resep.namaPelengkap?.trim().toLowerCase())
+        ) as any;
+
+        if (targetMat) {
+          totalAdditions[targetMat.id] = (totalAdditions[targetMat.id] || 0) + item.qty;
         }
       }
 

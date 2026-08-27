@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useFirestore, useCollection, useMemoFirebase, useDoc, collection, doc } from "@/firebase";
+import { getStoreConfigDocId } from "@/lib/branch-helper";
 import { query, orderBy, writeBatch, increment, updateDoc } from "firebase/firestore";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -296,7 +297,7 @@ export default function StokBahanBakuPage() {
   
   const { data: materials, loading } = useCollection(materialsQuery);
 
-  const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
+  const settingsRef = useMemoFirebase(() => doc(db, "settings", getStoreConfigDocId()), [db]);
   const { data: settings } = useDoc(settingsRef);
 
   const filteredMaterials = (materials as BahanBaku[])?.filter(item => 

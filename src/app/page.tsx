@@ -133,39 +133,39 @@ const DEFAULT_BRANCHES: StoreBranch[] = [
     }
   },
   {
-    id: "cabang-03",
-    code: "ZW-03",
-    region: "EXPRESS POINT",
-    name: "Zona Waktu - Express Point",
-    tagline: "Quick Service & Grab & Go",
-    address: "Jl. Protokol Utama - Lokasi Baru",
-    hours: "07.00 - 21.00 WIB",
-    status: "coming_soon",
-    branchNumber: "CABANG 03 • SEGERA",
-    route: "/zona_gdm",
-    ownerLoginRoute: "/owner-login",
-    adminLoginRoute: "/admin-login",
-    employeeLoginRoute: "/employee-login",
-    absensiRoute: "/absensi",
-    features: ["Express Tea Station", "Takeaway Fast Lane"],
+    id: "tehwarga",
+    code: "TW-01",
+    region: "TEH WARGA GDM",
+    name: "Teh Warga - Gandrungmangu",
+    tagline: "Spesialis Racikan Varian Teh Segar & Teh Warga Autentik",
+    address: "Area Gandrungmangu - Outlet Spesialis Varian Teh",
+    hours: "08.00 - 22.00 WIB",
+    status: "active",
+    branchNumber: "CABANG 03 • SPESIALIS TEH",
+    route: "/teh_warga_gdm",
+    ownerLoginRoute: "/teh_warga_gdm/owner-login",
+    adminLoginRoute: "/teh_warga_gdm/admin-login",
+    employeeLoginRoute: "/teh_warga_gdm/employee-login",
+    absensiRoute: "/teh_warga_gdm/absensi",
+    features: ["Varian Teh Spesialis", "Kasir POS", "Sistem Karyawan", "Absensi GPS"],
     theme: {
-      cardBg: "bg-gradient-to-b from-slate-900/90 via-slate-950/95 to-black/95",
-      cardBorder: "border-white/10 hover:border-white/20 shadow-xl",
-      glowColor: "bg-purple-500/10",
-      regionTextColor: "text-slate-300",
+      cardBg: "bg-gradient-to-b from-[#064e3b] via-[#043e30] to-[#022c22]",
+      cardBorder: "border-emerald-400/60 hover:border-emerald-300 shadow-2xl shadow-emerald-950/80",
+      glowColor: "bg-emerald-400/25",
+      regionTextColor: "text-transparent bg-clip-text bg-gradient-to-r from-emerald-200 via-green-300 to-lime-200",
       textColor: "text-white",
-      subtextColor: "text-white/60",
-      infoBorderColor: "border-white/10",
-      featureBg: "bg-white/5 border-white/10 text-white/50",
-      badgeBg: "bg-white/10",
-      badgeText: "text-white/60",
-      badgeBorder: "border-white/10",
-      tagBg: "bg-white/5 border-white/10 text-white/50",
-      tagText: "text-white/50",
-      btnBg: "bg-white/10",
-      btnText: "text-white/40",
-      btnHover: "cursor-not-allowed",
-      accentLine: "bg-slate-700",
+      subtextColor: "text-emerald-100/80",
+      infoBorderColor: "border-emerald-500/20",
+      featureBg: "bg-emerald-800/50 text-emerald-200 border-emerald-600/50 font-bold",
+      badgeBg: "bg-emerald-500/20",
+      badgeText: "text-emerald-300",
+      badgeBorder: "border-emerald-400/40",
+      tagBg: "bg-black/30 border-emerald-500/30 text-emerald-200",
+      tagText: "text-emerald-300",
+      btnBg: "bg-gradient-to-r from-emerald-400 to-lime-300",
+      btnText: "text-[#022c22]",
+      btnHover: "hover:from-emerald-300 hover:to-lime-200 hover:shadow-xl hover:shadow-emerald-500/20",
+      accentLine: "bg-gradient-to-r from-emerald-400 via-lime-400 to-transparent",
     }
   }
 ];
@@ -266,7 +266,7 @@ export default function MultiStoreLandingPage() {
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Cari Gandrungmangu / Kedungreja..."
+                placeholder="Cari Gandrungmangu / Kedungreja / Teh Warga..."
                 className="w-full pl-10 sm:pl-11 pr-4 h-11 sm:h-12 rounded-2xl bg-white/10 border-white/20 text-white placeholder:text-white/40 text-xs sm:text-sm font-medium backdrop-blur-md focus:border-white focus:ring-0"
               />
             </div>
@@ -286,14 +286,6 @@ export default function MultiStoreLandingPage() {
                 className={`rounded-xl text-[10px] sm:text-[11px] font-bold h-10 sm:h-11 px-3 uppercase ${filterStatus === "active" ? "bg-white text-[#7c1515]" : "text-white/80 hover:bg-white/10 border border-white/10"}`}
               >
                 Aktif
-              </Button>
-              <Button
-                variant={filterStatus === "coming_soon" ? "secondary" : "ghost"}
-                size="sm"
-                onClick={() => setFilterStatus("coming_soon")}
-                className={`rounded-xl text-[10px] sm:text-[11px] font-bold h-10 sm:h-11 px-3 uppercase ${filterStatus === "coming_soon" ? "bg-white text-[#7c1515]" : "text-white/80 hover:bg-white/10 border border-white/10"}`}
-              >
-                Segera
               </Button>
             </div>
           </div>
@@ -347,7 +339,7 @@ export default function MultiStoreLandingPage() {
                     {/* Prominent Region Title - NEVER Truncated */}
                     <div className="mb-4 sm:mb-5">
                       <span className={`text-[10px] sm:text-[11px] font-black tracking-[0.25em] uppercase block ${branch.theme.subtextColor}`}>
-                        ZONA WAKTU
+                        {branch.id === 'tehwarga' ? 'TEH WARGA' : 'ZONA WAKTU'}
                       </span>
                       <h2 className={`text-2xl sm:text-3xl lg:text-2xl xl:text-3xl font-black italic tracking-tight leading-tight uppercase mt-1 mb-2 ${branch.theme.regionTextColor} drop-shadow-sm break-words`}>
                         {branch.region}
@@ -412,7 +404,7 @@ export default function MultiStoreLandingPage() {
           <div className="text-center py-12 sm:py-16 bg-white/5 rounded-3xl border border-white/10 max-w-md mx-auto px-4">
             <Store className="h-10 w-10 mx-auto text-white/30 mb-3" />
             <p className="text-sm font-bold text-white uppercase tracking-wider">Cabang tidak ditemukan</p>
-            <p className="text-xs text-white/60 mt-1">Coba kata kunci &apos;Gandrungmangu&apos; atau &apos;Kedungreja&apos;.</p>
+            <p className="text-xs text-white/60 mt-1">Coba kata kunci &apos;Gandrungmangu&apos;, &apos;Kedungreja&apos;, atau &apos;Teh Warga&apos;.</p>
           </div>
         )}
 
@@ -420,7 +412,7 @@ export default function MultiStoreLandingPage() {
         <div className="mt-8 sm:mt-12 pt-6 sm:pt-8 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-white/70 text-center sm:text-left">
           <div className="flex items-center gap-2 justify-center">
             <Sparkles className="h-4 w-4 text-amber-300 shrink-0" />
-            <span className="font-semibold text-[11px] sm:text-xs">Zona Waktu Coffee & Teh Bakar Multi-Store</span>
+            <span className="font-semibold text-[11px] sm:text-xs">Zona Waktu Coffee & Teh Bakar &bull; Multi-Branch Portal</span>
           </div>
           <div className="flex items-center gap-4 sm:gap-6 flex-wrap justify-center text-[11px] sm:text-xs">
             <Link href="/zona_gdm" className="hover:text-amber-300 transition-colors font-bold underline-offset-4 hover:underline">
@@ -428,6 +420,9 @@ export default function MultiStoreLandingPage() {
             </Link>
             <Link href="/zona_kedungreja" className="hover:text-cyan-300 transition-colors font-bold underline-offset-4 hover:underline">
               Kedungreja &rarr;
+            </Link>
+            <Link href="/teh_warga_gdm" className="hover:text-emerald-300 transition-colors font-bold underline-offset-4 hover:underline">
+              Teh Warga GDM &rarr;
             </Link>
             <Link href="/absensi" className="hover:text-white transition-colors underline-offset-4 hover:underline">
               Portal Absensi &rarr;
@@ -439,7 +434,7 @@ export default function MultiStoreLandingPage() {
       {/* Footer Branding */}
       <footer className="relative z-20 px-4 sm:px-6 py-5 sm:py-6 max-w-7xl mx-auto w-full text-center border-t border-white/10 opacity-60">
         <p className="text-[8px] sm:text-[9px] md:text-[10px] font-bold text-white uppercase tracking-[0.4em] sm:tracking-[0.6em]">
-          &copy; {new Date().getFullYear()} ZONA WAKTU COFFEE & TEH BAKAR &bull; MULTI-BRANCH SYSTEM
+          &copy; {new Date().getFullYear()} ZONA WAKTU &bull; TEH WARGA GANDRUNGMANGU &bull; MULTI-BRANCH SYSTEM
         </p>
       </footer>
     </div>

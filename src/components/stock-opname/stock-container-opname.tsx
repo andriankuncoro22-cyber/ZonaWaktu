@@ -1,4 +1,6 @@
-﻿"use client";
+"use client";
+
+import { getStoreConfigDocId } from "@/lib/branch-helper";
 
 import React, { useState } from "react";
 import {
@@ -58,7 +60,7 @@ export function StockContainerOpnameView({
   );
 
   const { data: materials, loading } = useCollection(materialsQuery);
-  const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
+  const settingsRef = useMemoFirebase(() => doc(db, "settings", getStoreConfigDocId()), [db]);
   const { data: settings } = useDoc(settingsRef);
 
   const cleanNumber = (val: any): number => {

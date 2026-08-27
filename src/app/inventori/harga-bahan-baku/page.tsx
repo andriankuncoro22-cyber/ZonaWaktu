@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { useFirestore, useCollection, useMemoFirebase, collection, doc } from "@/firebase";
 import { query, orderBy, serverTimestamp, writeBatch } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
-import { Search, Save, Package, RefreshCw, ShoppingBag, Truck } from "lucide-react";
+import { Search, Save, Package, RefreshCw, ShoppingBag, Truck, ChefHat } from "lucide-react";
 import { applyPriceUpdate } from "@/lib/hpp";
 import { cn } from "@/lib/utils";
 
@@ -192,11 +192,17 @@ export default function HargaBahanBakuPage() {
                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Bahan Terpilih</span>
                     <span className={cn(
                       "inline-flex items-center px-2.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-tight",
-                      selectedMaterial.metodePembelian === "Beli Sendiri" 
-                        ? "bg-amber-100 text-amber-800 border border-amber-200" 
-                        : "bg-blue-100 text-blue-800 border border-blue-200"
+                      selectedMaterial.metodePembelian === "Pembuatan Sendiri"
+                        ? "bg-purple-100 text-purple-800 border border-purple-200"
+                        : selectedMaterial.metodePembelian === "Beli Sendiri" 
+                          ? "bg-amber-100 text-amber-800 border border-amber-200" 
+                          : "bg-blue-100 text-blue-800 border border-blue-200"
                     )}>
-                      {selectedMaterial.metodePembelian === "Beli Sendiri" ? "2. Beli Sendiri" : "1. Supliyer"}
+                      {selectedMaterial.metodePembelian === "Pembuatan Sendiri"
+                        ? "3. Pembuatan Sendiri"
+                        : selectedMaterial.metodePembelian === "Beli Sendiri" 
+                          ? "2. Beli Sendiri" 
+                          : "1. Supliyer"}
                     </span>
                   </div>
                   <h2 className="text-2xl font-black text-slate-900">{selectedMaterial.nama}</h2>
@@ -227,12 +233,19 @@ export default function HargaBahanBakuPage() {
               {/* Redaksi Metode Pembelian Context */}
               <div className={cn(
                 "rounded-2xl p-4 border text-xs space-y-1.5",
-                selectedMaterial.metodePembelian === "Beli Sendiri" 
-                  ? "bg-amber-50/50 border-amber-200/70 text-amber-900" 
-                  : "bg-blue-50/50 border-blue-200/70 text-blue-900"
+                selectedMaterial.metodePembelian === "Pembuatan Sendiri"
+                  ? "bg-purple-50/50 border-purple-200/70 text-purple-900"
+                  : selectedMaterial.metodePembelian === "Beli Sendiri" 
+                    ? "bg-amber-50/50 border-amber-200/70 text-amber-900" 
+                    : "bg-blue-50/50 border-blue-200/70 text-blue-900"
               )}>
                 <div className="flex items-center gap-2 font-black uppercase text-[10px] tracking-wider">
-                  {selectedMaterial.metodePembelian === "Beli Sendiri" ? (
+                  {selectedMaterial.metodePembelian === "Pembuatan Sendiri" ? (
+                    <>
+                      <ChefHat className="h-4 w-4 text-purple-600" />
+                      Redaksi: Produksi Internal (Pembuatan Sendiri)
+                    </>
+                  ) : selectedMaterial.metodePembelian === "Beli Sendiri" ? (
                     <>
                       <ShoppingBag className="h-4 w-4 text-amber-600" />
                       Redaksi: Pembelian Fleksibel (Beli Sendiri)
@@ -245,9 +258,11 @@ export default function HargaBahanBakuPage() {
                   )}
                 </div>
                 <p className="text-[11px] leading-relaxed opacity-90 font-medium">
-                  {selectedMaterial.metodePembelian === "Beli Sendiri" 
-                    ? `Item ini dikategorikan "Beli Sendiri" (misal: belanja per pack/box/pcs dengan berat/isi yang bervariasi). Penginputan harga per satuan kecil (${selectedMaterial.satuanKecil || 'satuan kecil'}) akan menjadi acuan fleksibel saat input belanja langsung.`
-                    : `Item ini dikategorikan "Supliyer" dengan patokan baku paket/dus dari supliyer utama. Penghitungan konversi ke ${selectedMaterial.satuanKecil || 'satuan kecil'} terkalkulasi secara standar.`
+                  {selectedMaterial.metodePembelian === "Pembuatan Sendiri"
+                    ? `Item ini merupakan bahan/base hasil racikan atau pembuatan sendiri internal (misal: Base Kopi, Gula Cair, Creamyfoam). HPP dan biaya bahan dikalkulasikan dari komposisi resep pelengkap atau biaya modal bahan penyusunnya.`
+                    : selectedMaterial.metodePembelian === "Beli Sendiri" 
+                      ? `Item ini dikategorikan "Beli Sendiri" (misal: belanja per pack/box/pcs dengan berat/isi yang bervariasi). Penginputan harga per satuan kecil (${selectedMaterial.satuanKecil || 'satuan kecil'}) akan menjadi acuan fleksibel saat input belanja langsung.`
+                      : `Item ini dikategorikan "Supliyer" dengan patokan baku paket/dus dari supliyer utama. Penghitungan konversi ke ${selectedMaterial.satuanKecil || 'satuan kecil'} terkalkulasi secara standar.`
                   }
                 </p>
               </div>

@@ -40,13 +40,15 @@ interface Product {
   hargaDasar: number;
 }
 
+import { getStoreConfigDocId } from "@/lib/branch-helper";
+
 export default function ProdukPage() {
   const db = useFirestore();
   
   const productsQuery = useMemoFirebase(() => collection(db, "produk"), [db]);
   const { data: products, loading } = useCollection(productsQuery);
   
-  const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
+  const settingsRef = useMemoFirebase(() => doc(db, "settings", getStoreConfigDocId()), [db]);
   const { data: settings } = useDoc(settingsRef);
 
   const [searchTerm, setSearchTerm] = useState("");

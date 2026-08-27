@@ -1,6 +1,7 @@
-﻿"use client";
+"use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
+import Link from "next/link";
 import { 
   Plus, 
   Search, 
@@ -15,12 +16,16 @@ import {
   CheckCircle2,
   FileSpreadsheet,
   FileText,
-  Download
+  Download,
+  Upload,
+  Loader2,
+  ChefHat,
+  Sparkles
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useFirestore, useCollection, useMemoFirebase, collection, doc } from "@/firebase";
-import { deleteDoc, setDoc } from "firebase/firestore";
+import { deleteDoc, setDoc, getDocs, writeBatch, serverTimestamp } from "firebase/firestore";
 import { errorEmitter } from "@/firebase/error-emitter";
 import { FirestorePermissionError, type SecurityRuleContext } from "@/firebase/errors";
 import { cn } from "@/lib/utils";
@@ -51,7 +56,9 @@ interface Ingredient {
 interface Recipe {
   id: string;
   produkId?: string;
+  bahanBakuId?: string;
   namaPelengkap?: string;
+  kodePelengkap?: string;
   type?: 'produk' | 'pelengkap';
   komposisi: Ingredient[];
 }
@@ -64,7 +71,7 @@ const CATEGORY_STYLES: { [key: string]: string } = {
   "Hot Variant": "border-l-[6px] border-l-rose-500 bg-rose-50/20",
   "Matcha Premium": "border-l-[6px] border-l-green-600 bg-green-50/20",
   "default": "border-l-[6px] border-l-slate-200 bg-slate-50/30",
-  "pelengkap": "border-l-[6px] border-l-slate-900 bg-slate-50/50"
+  "pelengkap": "border-l-[6px] border-l-purple-600 bg-purple-50/20"
 };
 
 export default function ResepProdukPage() {
@@ -84,9 +91,12 @@ export default function ResepProdukPage() {
   const [selectedMaterialId, setSelectedMaterialId] = useState("all");
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [localRecipes, setLocalRecipes] = useState<Recipe[]>([]);
   
   const [selectedProductId, setSelectedProductId] = useState("");
+  const [selectedBahanBakuPelengkapId, setSelectedBahanBakuPelengkapId] = useState("");
   const [namaPelengkap, setNamaPelengkap] = useState("");
   const [composition, setComposition] = useState<Ingredient[]>([{ bahanBakuId: "", jumlah: 0 }]);
 
@@ -98,6 +108,14 @@ export default function ResepProdukPage() {
   const sortedMaterialsForSelect = useMemo(() => {
     if (!materials) return [];
     return [...materials].sort((a: any, b: any) => (a.nama || "").localeCompare(b.nama || ""));
+  }, [materials]);
+
+  // Bahan baku dengan Metode Pembelian: 3. Pembuatan Sendiri
+  const selfMadeMaterials = useMemo(() => {
+    if (!materials) return [];
+    return (materials as any[])
+      .filter((m) => m.metodePembelian === "Pembuatan Sendiri")
+      .sort((a, b) => (a.code || "").localeCompare(b.code || "", undefined, { numeric: true }));
   }, [materials]);
 
   useEffect(() => {
@@ -130,12 +148,45 @@ export default function ResepProdukPage() {
       // Search term
       if (searchTerm.trim()) {
         const search = searchTerm.toLowerCase();
-        return r.namaPelengkap?.toLowerCase().includes(search);
+        return (
+          r.namaPelengkap?.toLowerCase().includes(search) ||
+          (r.kodePelengkap && r.kodePelengkap.toLowerCase().includes(search))
+        );
       }
 
       return true;
     });
   }, [recipeList, searchTerm, selectedMaterialId]);
+
+  // List Bahan di Luar Resep (Tab 3) - Bahan yang tidak digunakan dalam resep produk maupun pelengkap
+  const materialsOutsideRecipe = useMemo(() => {
+    if (!materials) return [];
+    
+    // Kumpulkan semua ID bahan baku yang terdaftar di seluruh resep
+    const usedMaterialIds = new Set<string>();
+    recipeList.forEach((r) => {
+      r.komposisi?.forEach((c) => {
+        if (c.bahanBakuId) usedMaterialIds.add(c.bahanBakuId);
+      });
+    });
+
+    return (materials as any[])
+      .filter((mat) => {
+        // Jangan masukkan bahan yang merupakan bahan racikan/pembuatan sendiri jika sudah punya resep
+        const isNotUsedInRecipe = !usedMaterialIds.has(mat.id);
+        if (!isNotUsedInRecipe) return false;
+
+        // Filter search term
+        if (searchTerm.trim()) {
+          const search = searchTerm.toLowerCase();
+          const matches = (mat.nama || "").toLowerCase().includes(search) || (mat.code || "").toLowerCase().includes(search);
+          if (!matches) return false;
+        }
+
+        return true;
+      })
+      .sort((a, b) => (a.code || "").localeCompare(b.code || "", undefined, { numeric: true, sensitivity: 'base' }));
+  }, [materials, recipeList, searchTerm]);
 
   // List Produk untuk Tab 1 (Resep Produk) terfilter berdasarkan search & bahan baku
   const sortedAndFilteredProducts = useMemo(() => {
@@ -200,18 +251,26 @@ export default function ResepProdukPage() {
 
     const data: any = {
       type: formType,
-      komposisi: normalizedComposition
+      komposisi: normalizedComposition,
+      updatedAt: serverTimestamp()
     };
 
+    let linkedMaterial: any = null;
     if (formType === 'produk') {
       data.produkId = selectedProductId;
       delete data.namaPelengkap;
+      delete data.bahanBakuId;
+      delete data.kodePelengkap;
     } else {
-      data.namaPelengkap = namaPelengkap.trim();
+      linkedMaterial = getMaterialDetail(selectedBahanBakuPelengkapId);
+      data.bahanBakuId = selectedBahanBakuPelengkapId || "";
+      data.namaPelengkap = linkedMaterial?.nama || namaPelengkap.trim();
+      data.kodePelengkap = linkedMaterial?.code || "";
       delete data.produkId;
     }
 
     try {
+      let savedRecipeId = editingRecipe?.id;
       if (editingRecipe) {
         const docRef = doc(db, "resep", editingRecipe.id);
         await setDoc(docRef, data, { merge: true });
@@ -221,14 +280,40 @@ export default function ResepProdukPage() {
         toast({ title: "Resep diperbarui", description: "Perubahan resep telah disimpan." });
       } else {
         const docRef = doc(collection(db, "resep"));
+        savedRecipeId = docRef.id;
         await setDoc(docRef, data);
         setLocalRecipes(prev => [{ ...data, id: docRef.id } as Recipe, ...prev]);
         toast({ title: "Resep dibuat", description: "Resep baru telah berhasil ditambahkan." });
       }
 
+      // SINKRONISASI HPP OTOMATIS: Update harga modal pada Master Bahan Baku (Pembuatan Sendiri)
+      if (formType === 'pelengkap' && selectedBahanBakuPelengkapId && linkedMaterial) {
+        const totalBatchCost = normalizedComposition.reduce((sum, comp) => {
+          const ingMat = getMaterialDetail(comp.bahanBakuId);
+          return sum + (getPricePerSmallUnitGlobal(ingMat) * Number(comp.jumlah || 0));
+        }, 0);
+
+        const qtyKecil = Number(linkedMaterial.qtyKecil) || 1;
+        // Harga per cup/satuan kecil = total biaya pembuatan dibagi jumlah cup/satuan kecil
+        const hargaSatuanKecil = qtyKecil > 0 ? totalBatchCost / qtyKecil : totalBatchCost;
+        // Current price per pack/batch besar = total biaya pembuatan
+        const currentPrice = totalBatchCost;
+
+        const matRef = doc(db, "bahan-baku", selectedBahanBakuPelengkapId);
+        await setDoc(matRef, {
+          hargaSatuanKecil,
+          avgPriceKecil: hargaSatuanKecil,
+          currentPrice,
+          avgPrice: currentPrice,
+          hargaBeliSatuanBesar: currentPrice,
+          resepId: savedRecipeId,
+        }, { merge: true });
+      }
+
       setIsDialogOpen(false);
       resetForm();
     } catch (err) {
+      console.error(err);
       const targetPath = editingRecipe
         ? doc(db, "resep", editingRecipe.id).path
         : collection(db, "resep").path;
@@ -244,6 +329,7 @@ export default function ResepProdukPage() {
   const resetForm = () => {
     setEditingRecipe(null);
     setSelectedProductId("");
+    setSelectedBahanBakuPelengkapId("");
     setNamaPelengkap("");
     setComposition([{ bahanBakuId: "", jumlah: 0 }]);
   };
@@ -253,10 +339,17 @@ export default function ResepProdukPage() {
     setActiveTab(recipe.type === 'pelengkap' ? 'pelengkap' : 'produk');
 
     if (recipe.type === 'pelengkap') {
+      let matchedMatId = recipe.bahanBakuId || "";
+      if (!matchedMatId && recipe.namaPelengkap) {
+        const foundMat = selfMadeMaterials.find((m: any) => m.nama?.toLowerCase() === recipe.namaPelengkap?.toLowerCase());
+        if (foundMat) matchedMatId = foundMat.id;
+      }
+      setSelectedBahanBakuPelengkapId(matchedMatId);
       setNamaPelengkap(recipe.namaPelengkap || "");
       setSelectedProductId("");
     } else {
       setSelectedProductId(recipe.produkId || "");
+      setSelectedBahanBakuPelengkapId("");
       setNamaPelengkap("");
     }
 
@@ -291,8 +384,33 @@ export default function ResepProdukPage() {
 
   const getPricePerSmallUnitGlobal = (mat: any) => {
     if (!mat) return 0;
+
+    // 1. Jika bahan baku merupakan racikan base/pelengkap (Pembuatan Sendiri atau terdaftar di resep pelengkap)
+    const pelengkapRecipe = recipeList?.find(
+      (r) => r.type === "pelengkap" && (r.bahanBakuId === mat.id || (!r.bahanBakuId && r.namaPelengkap?.trim().toLowerCase() === mat.nama?.trim().toLowerCase()))
+    );
+
+    if (pelengkapRecipe && pelengkapRecipe.komposisi?.length) {
+      const totalBatchCost = pelengkapRecipe.komposisi.reduce((sum: number, comp: any) => {
+        const ingMat = (materials as any[])?.find((m: any) => m.id === comp.bahanBakuId);
+        if (!ingMat) return sum;
+        const ingConversion = Number(ingMat.qtyKecil) || 1;
+        const ingUnitPrice = Number(ingMat.currentPrice ?? ingMat.avgPrice ?? ingMat.hargaBeliSatuanBesar ?? 0);
+        const ingExplicit = Number(ingMat.hargaSatuanKecil || 0);
+        const ingPriceSmall = ingExplicit > 0 ? ingExplicit : (ingConversion > 0 ? ingUnitPrice / ingConversion : 0);
+        return sum + (ingPriceSmall * Number(comp.jumlah || 0));
+      }, 0);
+
+      const qtyCups = Number(mat.qtyKecil) || 1;
+      return qtyCups > 0 ? totalBatchCost / qtyCups : totalBatchCost;
+    }
+
+    // 2. Bahan baku reguler
     const explicitPriceKecil = Number(mat.hargaSatuanKecil || 0);
-    if (explicitPriceKecil > 0) return explicitPriceKecil;
+    if (explicitPriceKecil > 0 && mat.metodePembelian !== "Pembuatan Sendiri") {
+      return explicitPriceKecil;
+    }
+
     const conversionRate = Number(mat.qtyKecil || 1);
     const unitPrice = Number(mat.currentPrice ?? mat.avgPrice ?? mat.hargaBeliSatuanBesar ?? 0);
     return conversionRate > 0 ? unitPrice / conversionRate : 0;
@@ -422,6 +540,257 @@ export default function ResepProdukPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Resep Produk");
     XLSX.writeFile(wb, `Resep_Produk_ZonaWaktu_${new Date().toLocaleDateString("id-ID").replace(/\//g, "-")}.xlsx`);
+  };
+
+  const parseExcelNumber = (val: any, defaultVal = 0) => {
+    if (val === undefined || val === null || val === "") return defaultVal;
+    if (typeof val === "number") return isNaN(val) ? defaultVal : val;
+    const str = String(val).trim().replace(/\s/g, '').replace(',', '.');
+    const num = parseFloat(str);
+    return isNaN(num) ? defaultVal : num;
+  };
+
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        setIsImporting(true);
+        const XLSX = await import("xlsx");
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: "binary" });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data: any[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
+
+        if (!data || data.length === 0) {
+          toast({
+            title: "Import Gagal",
+            description: "File Excel kosong atau tidak memiliki data yang valid.",
+            variant: "destructive"
+          });
+          setIsImporting(false);
+          return;
+        }
+
+        // Group rows into recipes
+        interface ParsedGroup {
+          type: 'produk' | 'pelengkap';
+          code: string;
+          name: string;
+          category?: string;
+          ingredients: {
+            kodeBahan: string;
+            namaBahan: string;
+            qty: number;
+          }[];
+        }
+
+        const groups: ParsedGroup[] = [];
+        let currentGroup: ParsedGroup | null = null;
+
+        for (let i = 0; i < data.length; i++) {
+          const row = data[i];
+          const rawType = String(row["Tipe"] || row["tipe"] || row["TYPE"] || "").trim().toLowerCase();
+          const rawCode = String(row["Kode"] || row["kode"] || row["Code"] || row["KODE"] || "").trim();
+          const rawName = String(row["Nama Produk / Pelengkap"] || row["Nama Produk"] || row["Nama Pelengkap"] || row["nama"] || row["Nama"] || "").trim();
+          const rawCategory = String(row["Kategori"] || row["kategori"] || "").trim();
+
+          const kodeBahan = String(row["Kode Bahan"] || row["kodeBahan"] || row["Kode bahan"] || "").trim();
+          const namaBahan = String(row["Nama Bahan"] || row["namaBahan"] || row["Nama bahan"] || "").trim();
+          const qtyVal = parseExcelNumber(row["Qty"] ?? row["qty"] ?? row["Jumlah"] ?? row["jumlah"] ?? row["Quantity"], 0);
+
+          // Check if this row initiates a new product/pelengkap
+          const isNewPelengkap = rawType.includes("pelengkap") || rawCode.toUpperCase() === "PELENGKAP" || (rawName && !rawCode && rawType.includes("pelengkap"));
+          const isNewProduk = rawType.includes("produk") || (rawName && rawCode && rawCode.toUpperCase() !== "PELENGKAP") || (rawCode && rawCode !== "-" && !isNewPelengkap);
+
+          if (isNewPelengkap || isNewProduk || (rawName && rawName !== "-" && (rawCode || rawType))) {
+            if (currentGroup && (currentGroup.ingredients.length > 0 || currentGroup.name)) {
+              groups.push(currentGroup);
+            }
+            currentGroup = {
+              type: isNewPelengkap ? 'pelengkap' : 'produk',
+              code: rawCode,
+              name: rawName,
+              category: rawCategory,
+              ingredients: []
+            };
+          }
+
+          // Add ingredient if present
+          if (currentGroup && (kodeBahan || namaBahan)) {
+            const isPlaceholder = 
+              namaBahan.toLowerCase().includes("belum ada resep") || 
+              namaBahan.toLowerCase().includes("belum ada komposisi") ||
+              namaBahan === "-" ||
+              kodeBahan === "-";
+            
+            if (!isPlaceholder && qtyVal > 0) {
+              currentGroup.ingredients.push({
+                kodeBahan,
+                namaBahan,
+                qty: qtyVal
+              });
+            }
+          }
+        }
+
+        if (currentGroup && (currentGroup.ingredients.length > 0 || currentGroup.name)) {
+          groups.push(currentGroup);
+        }
+
+        if (groups.length === 0) {
+          toast({
+            title: "Import Gagal",
+            description: "Tidak ditemukan data resep produk atau pelengkap yang sesuai format.",
+            variant: "destructive"
+          });
+          setIsImporting(false);
+          return;
+        }
+
+        // Fetch materials and products for matching
+        const materialsList = (materials as any[]) || [];
+        const productsList = (products as any[]) || [];
+
+        // Create quick lookup maps
+        const materialCodeMap = new Map<string, any>();
+        const materialNameMap = new Map<string, any>();
+        materialsList.forEach(m => {
+          if (m.code) materialCodeMap.set(String(m.code).trim().toLowerCase(), m);
+          if (m.nama) materialNameMap.set(String(m.nama).trim().toLowerCase(), m);
+        });
+
+        const productCodeMap = new Map<string, any>();
+        const productNameMap = new Map<string, any>();
+        productsList.forEach(p => {
+          if (p.code) productCodeMap.set(String(p.code).trim().toLowerCase(), p);
+          if (p.nama) productNameMap.set(String(p.nama).trim().toLowerCase(), p);
+        });
+
+        // Existing recipes from Firestore
+        const recipesSnap = await getDocs(collection(db, "resep"));
+        const existingProductRecipes = new Map<string, any>(); // productId -> doc
+        const existingPelengkapRecipes = new Map<string, any>(); // namaPelengkap.toLowerCase() -> doc
+
+        recipesSnap.forEach(d => {
+          const rData = d.data();
+          if (rData.type === 'pelengkap' && rData.namaPelengkap) {
+            existingPelengkapRecipes.set(String(rData.namaPelengkap).trim().toLowerCase(), { id: d.id, ...rData });
+          } else if (rData.produkId) {
+            existingProductRecipes.set(String(rData.produkId).trim(), { id: d.id, ...rData });
+          }
+        });
+
+        const batch = writeBatch(db);
+        let successCount = 0;
+        let skippedCount = 0;
+        const newLocalRecipes: Recipe[] = [...((recipes as Recipe[]) || [])];
+
+        for (const group of groups) {
+          // Resolve ingredients
+          const resolvedComposition: Ingredient[] = [];
+          for (const ing of group.ingredients) {
+            let matchedMaterial = null;
+            if (ing.kodeBahan) {
+              matchedMaterial = materialCodeMap.get(ing.kodeBahan.toLowerCase());
+            }
+            if (!matchedMaterial && ing.namaBahan) {
+              matchedMaterial = materialNameMap.get(ing.namaBahan.toLowerCase());
+            }
+
+            if (matchedMaterial && ing.qty > 0) {
+              resolvedComposition.push({
+                bahanBakuId: matchedMaterial.id,
+                jumlah: ing.qty
+              });
+            }
+          }
+
+          if (group.type === 'produk') {
+            let matchedProduct = null;
+            if (group.code) {
+              matchedProduct = productCodeMap.get(group.code.toLowerCase());
+            }
+            if (!matchedProduct && group.name) {
+              matchedProduct = productNameMap.get(group.name.toLowerCase());
+            }
+
+            if (!matchedProduct) {
+              skippedCount++;
+              continue;
+            }
+
+            const existing = existingProductRecipes.get(matchedProduct.id);
+            const recipeData = {
+              type: 'produk' as const,
+              produkId: matchedProduct.id,
+              komposisi: resolvedComposition,
+              updatedAt: serverTimestamp()
+            };
+
+            if (existing) {
+              const docRef = doc(db, "resep", existing.id);
+              batch.set(docRef, recipeData, { merge: true });
+              const idx = newLocalRecipes.findIndex(r => r.id === existing.id);
+              if (idx >= 0) newLocalRecipes[idx] = { ...newLocalRecipes[idx], ...recipeData } as Recipe;
+            } else {
+              const docRef = doc(collection(db, "resep"));
+              batch.set(docRef, { ...recipeData, createdAt: serverTimestamp() });
+              newLocalRecipes.push({ id: docRef.id, ...recipeData } as any);
+            }
+            successCount++;
+          } else {
+            // Pelengkap
+            if (!group.name) {
+              skippedCount++;
+              continue;
+            }
+
+            const existing = existingPelengkapRecipes.get(group.name.toLowerCase());
+            const recipeData = {
+              type: 'pelengkap' as const,
+              namaPelengkap: group.name,
+              komposisi: resolvedComposition,
+              updatedAt: serverTimestamp()
+            };
+
+            if (existing) {
+              const docRef = doc(db, "resep", existing.id);
+              batch.set(docRef, recipeData, { merge: true });
+              const idx = newLocalRecipes.findIndex(r => r.id === existing.id);
+              if (idx >= 0) newLocalRecipes[idx] = { ...newLocalRecipes[idx], ...recipeData } as Recipe;
+            } else {
+              const docRef = doc(collection(db, "resep"));
+              batch.set(docRef, { ...recipeData, createdAt: serverTimestamp() });
+              newLocalRecipes.push({ id: docRef.id, ...recipeData } as any);
+            }
+            successCount++;
+          }
+        }
+
+        await batch.commit();
+        setLocalRecipes(newLocalRecipes);
+
+        toast({
+          title: "Import Resep Selesai",
+          description: `Berhasil mengimpor ${successCount} resep.${skippedCount > 0 ? ` (${skippedCount} resep dilewati karena nama produk/bahan tidak cocok)` : ''}`,
+        });
+      } catch (err: any) {
+        console.error("Error importing recipes", err);
+        toast({
+          title: "Gagal Import",
+          description: err?.message || "Terjadi kesalahan saat memproses file Excel.",
+          variant: "destructive"
+        });
+      } finally {
+        setIsImporting(false);
+        if (e.target) e.target.value = "";
+      }
+    };
+    reader.readAsBinaryString(file);
   };
 
   const handleDownloadPDF = async () => {
@@ -581,8 +950,30 @@ export default function ResepProdukPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {/* Download Buttons */}
+          {/* Hidden File Input for Excel Import */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleImportExcel}
+            accept=".xlsx, .xls, .csv"
+            className="hidden"
+          />
+
+          {/* Action & Download Buttons */}
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isImporting}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-200 transition-all duration-200 disabled:opacity-50"
+              title="Impor Resep dari File Excel"
+            >
+              {isImporting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Upload className="h-4 w-4" />
+              )}
+              {isImporting ? "Mengimpor..." : "Impor Excel"}
+            </button>
             <button
               onClick={handleDownloadExcel}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white text-[10px] font-black uppercase tracking-widest shadow-lg shadow-emerald-200 transition-all duration-200"
@@ -636,15 +1027,88 @@ export default function ResepProdukPage() {
                   </Select>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-700">Nama Resep Pelengkap</Label>
-                  <Input 
-                    value={namaPelengkap}
-                    onChange={(e) => setNamaPelengkap(e.target.value)}
-                    placeholder="Contoh: Base Gula Aren / Sirup Pandan"
-                    className="rounded-xl border-slate-200 h-12 font-medium"
-                    required
-                  />
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-700">
+                        Pilih Bahan Baku (Metode: 3. Pembuatan Sendiri) *
+                      </Label>
+                      <Link 
+                        href="/master/bahan-baku" 
+                        target="_blank"
+                        className="text-[9px] font-black text-primary hover:underline uppercase tracking-wider"
+                      >
+                        + Atur di Master Bahan Baku &rarr;
+                      </Link>
+                    </div>
+
+                    {selfMadeMaterials.length > 0 ? (
+                      <Select 
+                        value={selectedBahanBakuPelengkapId} 
+                        onValueChange={(val) => {
+                          setSelectedBahanBakuPelengkapId(val);
+                          const selectedMat = getMaterialDetail(val);
+                          if (selectedMat) {
+                            setNamaPelengkap(selectedMat.nama);
+                          }
+                        }} 
+                        required
+                      >
+                        <SelectTrigger className="rounded-xl border-slate-200 h-12 font-medium bg-white">
+                          <SelectValue placeholder="Pilih bahan baku pembuatan sendiri..." />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-2xl border-none shadow-xl">
+                          {selfMadeMaterials.map((m: any) => (
+                            <SelectItem key={m.id} value={m.id} className="rounded-lg">
+                              [{m.code || "NO CODE"}] {m.nama} — (1 {m.satuanBesar || 'Unit'} = {m.qtyKecil || 1} {m.satuanKecil || 'gr/ml'})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 space-y-2 text-xs">
+                        <p className="font-black uppercase text-[10px] tracking-wider text-amber-900 flex items-center gap-1.5">
+                          <ChefHat className="h-4 w-4 text-amber-700" /> Belum ada Bahan Baku "Pembuatan Sendiri"
+                        </p>
+                        <p className="text-[11px] text-amber-800 leading-relaxed font-medium">
+                          Buka menu <Link href="/master/bahan-baku" className="font-bold underline text-amber-900">Master Bahan Baku</Link>, lalu ubah Metode Beli bahan baku racikan Anda (contoh: Base Kopi, Gula Cair, Simple Syrup) menjadi <strong>3. Pembuatan Sendiri</strong>.
+                        </p>
+                        <div className="pt-2">
+                          <Label className="text-[9px] font-bold text-amber-900 uppercase">Atau Ketik Nama Manual:</Label>
+                          <Input 
+                            value={namaPelengkap}
+                            onChange={(e) => setNamaPelengkap(e.target.value)}
+                            placeholder="Contoh: Base Kopi / Gula Cair"
+                            className="rounded-xl border-amber-300 bg-white h-10 text-xs font-bold mt-1"
+                            required
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {selectedBahanBakuPelengkapId && (
+                    (() => {
+                      const mat = getMaterialDetail(selectedBahanBakuPelengkapId);
+                      if (!mat) return null;
+                      return (
+                        <div className="p-3.5 rounded-2xl bg-purple-50/80 border border-purple-200/80 flex items-center justify-between text-xs">
+                          <div className="space-y-0.5">
+                            <span className="text-[8px] font-black uppercase text-purple-700 tracking-wider flex items-center gap-1">
+                              <ChefHat className="h-3 w-3" /> Bahan Baku Terhubung:
+                            </span>
+                            <p className="font-black text-slate-900 uppercase italic">[{mat.code || "-"}] {mat.nama}</p>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[8px] font-bold text-slate-500 uppercase block">Konversi Satuan:</span>
+                            <span className="text-[10px] font-black text-purple-800">
+                              1 {mat.satuanBesar || 'Unit'} = {mat.qtyKecil || 1} {mat.satuanKecil || 'gr/ml'}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  )}
                 </div>
               )}
 
@@ -721,7 +1185,7 @@ export default function ResepProdukPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="bg-white p-1.5 rounded-2xl shadow-sm border border-slate-100 h-14 w-full max-w-md grid grid-cols-2 gap-2 mb-8">
+        <TabsList className="bg-white p-1.5 rounded-2xl shadow-sm border border-slate-100 h-14 w-full max-w-2xl grid grid-cols-3 gap-2 mb-8">
           <TabsTrigger 
             value="produk" 
             className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all"
@@ -734,6 +1198,12 @@ export default function ResepProdukPage() {
           >
             <Layers className="h-4 w-4 mr-2" /> Resep Pelengkap
           </TabsTrigger>
+          <TabsTrigger 
+            value="luar_resep" 
+            className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all"
+          >
+            <Boxes className="h-4 w-4 mr-2" /> Bahan di Luar Resep
+          </TabsTrigger>
         </TabsList>
 
         {/* Filter Controls: Search & Filter Bahan Baku */}
@@ -743,52 +1213,60 @@ export default function ResepProdukPage() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-primary transition-colors" />
             <input 
               type="text" 
-              placeholder={activeTab === 'produk' ? "Cari resep produk..." : "Cari resep pelengkap..."}
+              placeholder={
+                activeTab === 'produk' 
+                  ? "Cari resep produk..." 
+                  : activeTab === 'pelengkap' 
+                    ? "Cari resep pelengkap..." 
+                    : "Cari bahan di luar resep..."
+              }
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-11 pr-4 py-3 bg-white border-none shadow-sm rounded-2xl text-xs font-bold outline-none placeholder:text-slate-400 text-slate-900 focus:ring-1 focus:ring-primary/20 transition-all"
             />
           </div>
 
-          {/* Filter Bahan Baku Dropdown */}
-          <div className="flex items-center gap-2 w-full md:w-80 shrink-0">
-            <Select value={selectedMaterialId} onValueChange={setSelectedMaterialId}>
-              <SelectTrigger className="w-full h-11 bg-white border-none shadow-sm rounded-2xl text-xs font-bold text-slate-800">
-                <div className="flex items-center gap-2 truncate">
-                  <Boxes className="h-4 w-4 text-primary shrink-0" />
-                  <SelectValue placeholder="Semua Bahan Baku" />
-                </div>
-              </SelectTrigger>
-              <SelectContent className="rounded-2xl border-none shadow-2xl max-h-72">
-                <SelectItem value="all" className="rounded-xl font-bold text-xs">
-                  âœ¨ Semua Bahan Baku
-                </SelectItem>
-                {sortedMaterialsForSelect.map((m: any) => (
-                  <SelectItem key={m.id} value={m.id} className="rounded-xl font-medium text-xs">
-                    {m.code ? `[${m.code}] ` : ""}{m.nama}
+          {/* Filter Bahan Baku Dropdown (hanya relevan di tab resep produk/pelengkap) */}
+          {activeTab !== 'luar_resep' && (
+            <div className="flex items-center gap-2 w-full md:w-80 shrink-0">
+              <Select value={selectedMaterialId} onValueChange={setSelectedMaterialId}>
+                <SelectTrigger className="w-full h-11 bg-white border-none shadow-sm rounded-2xl text-xs font-bold text-slate-800">
+                  <div className="flex items-center gap-2 truncate">
+                    <Boxes className="h-4 w-4 text-primary shrink-0" />
+                    <SelectValue placeholder="Semua Bahan Baku" />
+                  </div>
+                </SelectTrigger>
+                <SelectContent className="rounded-2xl border-none shadow-2xl max-h-72">
+                  <SelectItem value="all" className="rounded-xl font-bold text-xs">
+                    ✨ Semua Bahan Baku
                   </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                  {sortedMaterialsForSelect.map((m: any) => (
+                    <SelectItem key={m.id} value={m.id} className="rounded-xl font-medium text-xs">
+                      {m.code ? `[${m.code}] ` : ""}{m.nama}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-            {(selectedMaterialId !== "all" || searchTerm) && (
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setSelectedMaterialId("all");
-                  setSearchTerm("");
-                }}
-                className="h-11 px-3 rounded-2xl text-rose-600 hover:bg-rose-50 font-bold text-xs shrink-0"
-                title="Reset filter"
-              >
-                <RotateCcw className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
+              {(selectedMaterialId !== "all" || searchTerm) && (
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setSelectedMaterialId("all");
+                    setSearchTerm("");
+                  }}
+                  className="h-11 px-3 rounded-2xl text-rose-600 hover:bg-rose-50 font-bold text-xs shrink-0"
+                  title="Reset filter"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Selected Filter Banner Indicator */}
-        {selectedMaterialDetail && (
+        {activeTab !== 'luar_resep' && selectedMaterialDetail && (
           <div className="mb-6 p-4 rounded-2xl bg-primary/10 border border-primary/20 text-primary flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <Boxes className="h-5 w-5 shrink-0" />
@@ -838,6 +1316,7 @@ export default function ResepProdukPage() {
                       setIsDialogOpen(true);
                     }}
                     getMaterialDetail={getMaterialDetail}
+                    getPricePerSmallUnitGlobal={getPricePerSmallUnitGlobal}
                     toTitleCase={toTitleCase}
                   />
                 );
@@ -848,32 +1327,206 @@ export default function ResepProdukPage() {
           </div>
         </TabsContent>
 
-        <TabsContent value="pelengkap" className="m-0">
+        <TabsContent value="pelengkap" className="m-0 space-y-6">
+          <div className="bg-purple-50/80 border border-purple-200/70 rounded-3xl p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <ChefHat className="h-6 w-6 text-purple-700 shrink-0" />
+              <div>
+                <h4 className="text-xs font-black uppercase tracking-wider text-purple-900">
+                  Resep Pelengkap & Racikan Internal (3. Pembuatan Sendiri)
+                </h4>
+                <p className="text-[11px] text-purple-800 font-medium mt-0.5">
+                  Daftar resep racikan internal untuk bahan dasar/base. Perhitungan HPP racikan akan otomatis menjadi harga modal bahan baku terkait.
+                </p>
+              </div>
+            </div>
+            <Link 
+              href="/master/bahan-baku"
+              className="text-[10px] font-black uppercase px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white shadow-md shadow-purple-200 shrink-0 transition-all"
+            >
+              + Master Bahan Baku
+            </Link>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {loadingRecipes ? (
               <div className="col-span-full py-20 text-center flex flex-col items-center gap-4 bg-white rounded-[2.5rem]">
                 <div className="h-8 w-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-                <p className="text-[10px] font-black text-slate-700 uppercase tracking-widest">Menyusun Resep...</p>
+                <p className="text-[10px] font-black text-slate-700 uppercase tracking-widest">Menyusun Resep Pelengkap...</p>
               </div>
-            ) : filteredPelengkapRecipes.length > 0 ? (
-              filteredPelengkapRecipes.map((recipe) => (
+            ) : (() => {
+              const list: any[] = [];
+              const matchedRecipeIds = new Set<string>();
+
+              selfMadeMaterials.forEach((mat) => {
+                const search = searchTerm.toLowerCase();
+                const matchesSearch = !searchTerm.trim() || 
+                  (mat.nama || "").toLowerCase().includes(search) ||
+                  (mat.code || "").toLowerCase().includes(search);
+
+                if (!matchesSearch) return;
+
+                const recipe = recipeList.find(
+                  (r) => r.type === "pelengkap" && (r.bahanBakuId === mat.id || (!r.bahanBakuId && r.namaPelengkap?.toLowerCase() === mat.nama?.toLowerCase()))
+                );
+
+                if (recipe) matchedRecipeIds.add(recipe.id);
+
+                if (selectedMaterialId && selectedMaterialId !== "all") {
+                  if (!recipe) return;
+                  const hasMaterial = recipe.komposisi?.some((c) => c.bahanBakuId === selectedMaterialId);
+                  if (!hasMaterial) return;
+                }
+
+                list.push({
+                  id: mat.id,
+                  material: mat,
+                  recipe: recipe || null,
+                  title: mat.nama,
+                  code: mat.code || "BB-BASE",
+                  subtitle: `3. PEMBUATAN SENDIRI • 1 ${mat.satuanBesar || 'Unit'} = ${mat.qtyKecil || 1} ${mat.satuanKecil || 'gr/ml'}`,
+                  onAdd: () => {
+                    setSelectedBahanBakuPelengkapId(mat.id);
+                    setNamaPelengkap(mat.nama);
+                    setActiveTab('pelengkap');
+                    setIsDialogOpen(true);
+                  }
+                });
+              });
+
+              filteredPelengkapRecipes.forEach((r) => {
+                if (!matchedRecipeIds.has(r.id)) {
+                  list.push({
+                    id: r.id,
+                    material: null,
+                    recipe: r,
+                    title: r.namaPelengkap || "Tanpa Nama",
+                    code: r.kodePelengkap || "PELENGKAP",
+                    subtitle: "RESEP PELENGKAP MANUAL",
+                    onAdd: undefined
+                  });
+                }
+              });
+
+              if (list.length === 0) {
+                return (
+                  <EmptyState 
+                    icon={<Layers className="h-16 w-16" />} 
+                    message="Belum ada bahan baku berstatus '3. Pembuatan Sendiri' atau resep pelengkap yang cocok." 
+                  />
+                );
+              }
+
+              return list.map((item) => (
                 <RecipeCard 
-                  key={recipe.id}
-                  title={recipe.namaPelengkap || "Tanpa Nama"}
-                  code="PELENGKAP"
-                  subtitle="RESEP INTERNAL"
+                  key={item.id}
+                  title={item.title}
+                  code={item.code}
+                  subtitle={item.subtitle}
                   style={CATEGORY_STYLES["pelengkap"]}
-                  recipe={recipe}
+                  recipe={item.recipe}
                   highlightMaterialId={selectedMaterialId}
-                  onEdit={() => openEdit(recipe)}
-                  onDelete={() => handleDelete(recipe.id)}
+                  onEdit={() => item.recipe && openEdit(item.recipe)}
+                  onDelete={() => item.recipe && handleDelete(item.recipe.id)}
+                  onAdd={item.onAdd}
                   getMaterialDetail={getMaterialDetail}
+                  getPricePerSmallUnitGlobal={getPricePerSmallUnitGlobal}
                   toTitleCase={toTitleCase}
+                  targetMaterial={item.material}
                 />
-              ))
-            ) : (
-              <EmptyState icon={<Layers className="h-16 w-16" />} message="Belum ada resep pelengkap ditemukan untuk bahan baku ini" />
-            )}
+              ));
+            })()}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="luar_resep" className="m-0">
+          <div className="space-y-6">
+            <div className="bg-amber-50/80 border border-amber-200/70 rounded-3xl p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Boxes className="h-6 w-6 text-amber-700 shrink-0" />
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-amber-900">
+                    Bahan Baku Non-Resep / Operasional Langsung
+                  </h4>
+                  <p className="text-[11px] text-amber-800 font-medium mt-0.5">
+                    Daftar bahan baku yang belum atau tidak terikat pada komposisi Resep Produk maupun Resep Pelengkap (seperti sedotan, cup, kemasan, gas, kresek, perlengkapan operasional, dsb).
+                  </p>
+                </div>
+              </div>
+              <span className="text-[10px] font-black uppercase px-3 py-1.5 rounded-xl bg-amber-200/80 text-amber-900 shrink-0">
+                {materialsOutsideRecipe.length} Bahan
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {materialsOutsideRecipe.length > 0 ? (
+                materialsOutsideRecipe.map((mat: any) => {
+                  const priceKecil = getPricePerSmallUnitGlobal(mat);
+                  const isPembuatanSendiri = mat.metodePembelian === "Pembuatan Sendiri";
+                  const isBeliSendiri = mat.metodePembelian === "Beli Sendiri";
+
+                  return (
+                    <Card 
+                      key={mat.id}
+                      className="border-none shadow-sm rounded-[2rem] bg-white p-6 hover:shadow-lg transition-all duration-300 flex flex-col justify-between space-y-4"
+                    >
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700 text-[10px] font-black uppercase tracking-wider">
+                            {mat.code || "NO CODE"}
+                          </span>
+                          <span className={cn(
+                            "px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider",
+                            isPembuatanSendiri
+                              ? "bg-purple-100 text-purple-800 border border-purple-200"
+                              : isBeliSendiri 
+                                ? "bg-amber-100 text-amber-800 border border-amber-200" 
+                                : "bg-blue-100 text-blue-800 border border-blue-200"
+                          )}>
+                            {isPembuatanSendiri ? "Pembuatan Sendiri" : isBeliSendiri ? "Beli Sendiri" : "Supplier"}
+                          </span>
+                        </div>
+
+                        <h3 className="text-base font-black text-slate-900 uppercase italic">
+                          {toTitleCase(mat.nama)}
+                        </h3>
+
+                        <div className="bg-slate-50 rounded-2xl p-4 space-y-2 border border-slate-100 text-xs">
+                          <div className="flex justify-between items-center">
+                            <span className="text-[10px] font-bold uppercase text-slate-500">Konversi Kemasan</span>
+                            <span className="font-bold text-slate-800 text-[11px]">
+                              1 {mat.satuanBesar || 'Pack'} = {mat.qtyKecil || 1} {mat.satuanKecil || 'Pcs'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-[10px] font-bold uppercase text-slate-500">Harga Satuan Besar</span>
+                            <span className="font-black text-slate-900 text-[11px] tabular-nums">
+                              Rp {Number(mat.currentPrice ?? mat.hargaBeliSatuanBesar ?? 0).toLocaleString("id-ID")}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center border-t border-slate-200/60 pt-2">
+                            <span className="text-[10px] font-bold uppercase text-slate-500">Harga per {mat.satuanKecil || 'Pcs'}</span>
+                            <span className="font-black text-primary text-[11px] tabular-nums">
+                              Rp {priceKecil.toLocaleString("id-ID", { maximumFractionDigits: 1 })}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 flex items-center justify-between text-[10px] text-slate-400 font-bold uppercase">
+                        <span>Status: Operasional Bebas</span>
+                        <span className="text-emerald-600 font-black">Aktif</span>
+                      </div>
+                    </Card>
+                  );
+                })
+              ) : (
+                <EmptyState 
+                  icon={<Boxes className="h-16 w-16" />} 
+                  message="Semua bahan baku saat ini telah terdaftar ke dalam resep produk atau resep pelengkap." 
+                />
+              )}
+            </div>
           </div>
         </TabsContent>
       </Tabs>
@@ -892,22 +1545,20 @@ function RecipeCard({
   onDelete, 
   onAdd, 
   getMaterialDetail, 
-  toTitleCase 
+  getPricePerSmallUnitGlobal,
+  toTitleCase,
+  targetMaterial
 }: any) {
-  const getPricePerSmallUnit = (mat: any) => {
-    if (!mat) return 0;
-    const explicitPriceKecil = Number(mat.hargaSatuanKecil || 0);
-    if (explicitPriceKecil > 0) return explicitPriceKecil;
-
-    const conversionRate = Number(mat.qtyKecil || 1);
-    const unitPrice = Number(mat.currentPrice ?? mat.avgPrice ?? mat.hargaBeliSatuanBesar ?? 0);
-    return conversionRate > 0 ? unitPrice / conversionRate : 0;
-  };
+  const isPelengkap = recipe?.type === "pelengkap" || !!targetMaterial;
 
   const totalHpp = recipe ? recipe.komposisi.reduce((sum: number, comp: any) => {
     const mat = getMaterialDetail(comp.bahanBakuId);
-    return sum + (getPricePerSmallUnit(mat) * Number(comp.jumlah || 0));
+    const unitPrice = getPricePerSmallUnitGlobal ? getPricePerSmallUnitGlobal(mat) : 0;
+    return sum + (unitPrice * Number(comp.jumlah || 0));
   }, 0) : 0;
+
+  const qtyCups = Number(targetMaterial?.qtyKecil || 1);
+  const hppPerCup = qtyCups > 0 ? totalHpp / qtyCups : totalHpp;
 
   return (
     <Card 
@@ -979,6 +1630,8 @@ function RecipeCard({
                   {recipe.komposisi.map((comp: any, idx: number) => {
                     const mat = getMaterialDetail(comp.bahanBakuId);
                     const isHighlighted = highlightMaterialId && highlightMaterialId !== "all" && comp.bahanBakuId === highlightMaterialId;
+                    const unitPrice = getPricePerSmallUnitGlobal ? getPricePerSmallUnitGlobal(mat) : 0;
+                    const itemSubtotal = unitPrice * Number(comp.jumlah || 0);
 
                     return (
                       <tr 
@@ -1000,7 +1653,7 @@ function RecipeCard({
                         </td>
                         <td className="py-3 text-right">
                           <span className="text-xs font-semibold text-slate-600 tabular-nums">
-                            Rp {(getPricePerSmallUnit(mat) * comp.jumlah).toLocaleString("id-ID", { maximumFractionDigits: 1 })}
+                            Rp {itemSubtotal.toLocaleString("id-ID", { maximumFractionDigits: 1 })}
                           </span>
                         </td>
                         <td className="py-3 text-right">
@@ -1016,13 +1669,34 @@ function RecipeCard({
                   })}
                 </tbody>
                 <tfoot>
-                  <tr className="border-t border-slate-200/50 font-black">
-                    <td className="py-3 text-[9px] font-black uppercase tracking-widest text-slate-700">Total HPP Resep:</td>
-                    <td className="py-3 text-right text-xs font-black text-primary tabular-nums">
-                      Rp {totalHpp.toLocaleString("id-ID", { maximumFractionDigits: 0 })}
-                    </td>
-                    <td colSpan={2}></td>
-                  </tr>
+                  {isPelengkap ? (
+                    <>
+                      <tr className="border-t border-slate-200/50 font-black">
+                        <td className="py-2 text-[9px] font-black uppercase tracking-widest text-slate-700">Total Biaya Racikan:</td>
+                        <td className="py-2 text-right text-xs font-black text-slate-900 tabular-nums">
+                          Rp {totalHpp.toLocaleString("id-ID", { maximumFractionDigits: 0 })}
+                        </td>
+                        <td colSpan={2} className="py-2 pl-3 text-[9px] text-slate-500 font-bold uppercase">/ {targetMaterial?.satuanBesar || 'Batch'}</td>
+                      </tr>
+                      <tr className="border-t border-purple-200 bg-purple-50/50 font-black">
+                        <td className="py-2.5 text-[9px] font-black uppercase tracking-widest text-purple-900">
+                          HPP per {targetMaterial?.satuanKecil || 'Cup'} ({qtyCups} {targetMaterial?.satuanKecil || 'Cup'}/{targetMaterial?.satuanBesar || 'Batch'}):
+                        </td>
+                        <td className="py-2.5 text-right text-xs font-black text-purple-800 tabular-nums">
+                          Rp {hppPerCup.toLocaleString("id-ID", { maximumFractionDigits: 1 })}
+                        </td>
+                        <td colSpan={2} className="py-2.5 pl-3 text-[9px] text-purple-700 font-bold uppercase">/ {targetMaterial?.satuanKecil || 'cup'}</td>
+                      </tr>
+                    </>
+                  ) : (
+                    <tr className="border-t border-slate-200/50 font-black">
+                      <td className="py-3 text-[9px] font-black uppercase tracking-widest text-slate-700">Total HPP Produk:</td>
+                      <td className="py-3 text-right text-xs font-black text-primary tabular-nums">
+                        Rp {totalHpp.toLocaleString("id-ID", { maximumFractionDigits: 0 })}
+                      </td>
+                      <td colSpan={2} className="py-3 pl-3 text-[9px] text-slate-500 font-bold uppercase">/ porsi</td>
+                    </tr>
+                  )}
                 </tfoot>
               </table>
             </div>

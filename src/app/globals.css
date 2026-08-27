@@ -41,6 +41,19 @@
     --theme-text: #0f172a;
     --theme-muted: #64748b;
   }
+
+  /* Kusus Tema Toko 3 - Teh Warga Gandrungmangu (Dominasi Hijau Segar) */
+  html[data-branch="tehwarga"],
+  body.theme-tehwarga,
+  [data-branch="tehwarga"] {
+    --primary: 158 64% 32%; /* Emerald Green */
+    --primary-foreground: 150 100% 98%;
+    --ring: 158 64% 32%;
+    --accent: 152 60% 94%;
+    --accent-foreground: 158 64% 20%;
+    --theme-primary: #065f46;
+    --theme-primary-foreground: #ecfdf5;
+  }
 }
 
 @layer base {
@@ -56,6 +69,12 @@
   ::selection {
     background-color: rgba(139, 26, 26, 0.2);
     color: #111827;
+  }
+
+  html[data-branch="tehwarga"] ::selection,
+  [data-branch="tehwarga"] ::selection {
+    background-color: rgba(6, 95, 70, 0.25);
+    color: #064e3b;
   }
 }
 

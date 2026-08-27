@@ -1,15 +1,25 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
-import { FirebaseClientProvider } from "@/firebase";
+import { FirebaseClientProvider, getActiveBranch } from "@/firebase";
 import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/toaster";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+
+  useEffect(() => {
+    const updateBranchAttr = () => {
+      const active = getActiveBranch();
+      document.documentElement.setAttribute('data-branch', active);
+    };
+    updateBranchAttr();
+    window.addEventListener('branch_changed', updateBranchAttr);
+    return () => window.removeEventListener('branch_changed', updateBranchAttr);
+  }, [pathname]);
 
   const isStandalonePage =
     pathname === "/" ||
@@ -17,6 +27,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     pathname.startsWith("/zona_gdm") ||
     pathname === "/zona_kedungreja" ||
     pathname.startsWith("/zona_kedungreja") ||
+    pathname === "/teh_warga_gdm" ||
+    pathname.startsWith("/teh_warga_gdm") ||
     pathname === "/absensi" ||
     pathname === "/owner-login" ||
     pathname === "/admin-login" ||

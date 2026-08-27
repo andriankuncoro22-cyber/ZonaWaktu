@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useMemo, useState } from "react";
 import {
@@ -18,6 +18,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCollection, useDoc, useFirestore, useMemoFirebase, collection, doc } from "@/firebase";
+import { getStoreConfigDocId } from "@/lib/branch-helper";
 import { orderBy, query } from "firebase/firestore";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
@@ -149,6 +150,7 @@ const formatDateLabel = (value: FirestoreTimestamp | Date | string | null | unde
   }).format(date);
 };
 
+
 const getMonthKey = (value: FirestoreTimestamp | Date | string | null | undefined) => {
   const date = toDateValue(value);
   if (!date || Number.isNaN(date.getTime())) return "";
@@ -180,7 +182,7 @@ export default function LaporanStockOpnamePage() {
   );
   const { data: warehouseHistory, loading: loadingWarehouseHistory } = useCollection(warehouseHistoryQuery);
 
-  const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
+  const settingsRef = useMemoFirebase(() => doc(db, "settings", getStoreConfigDocId()), [db]);
   const { data: settings } = useDoc(settingsRef);
 
   const filteredMaterials = useMemo(() => {

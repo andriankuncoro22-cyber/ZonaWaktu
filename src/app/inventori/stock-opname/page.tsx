@@ -1,5 +1,7 @@
-﻿
 "use client";
+
+import { getStoreConfigDocId } from "@/lib/branch-helper";
+
 
 import React, { useState, useEffect } from "react";
 import { 
@@ -36,7 +38,7 @@ export default function StockOpnamePage() {
   
   const { data: materials, loading } = useCollection(materialsQuery);
 
-  const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
+  const settingsRef = useMemoFirebase(() => doc(db, "settings", getStoreConfigDocId()), [db]);
   const { data: settings } = useDoc(settingsRef);
 
   const filteredMaterials = (materials as any[])?.filter(item => 

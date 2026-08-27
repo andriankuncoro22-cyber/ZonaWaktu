@@ -53,13 +53,15 @@ interface BahanBaku {
   kalibrasiNote?: string;
 }
 
+import { getStoreConfigDocId } from "@/lib/branch-helper";
+
 export default function MasterBahanBakuPage() {
   const db = useFirestore();
   
   const materialsQuery = useMemoFirebase(() => collection(db, "bahan-baku"), [db]);
   const { data: materials, loading } = useCollection(materialsQuery);
   
-  const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
+  const settingsRef = useMemoFirebase(() => doc(db, "settings", getStoreConfigDocId()), [db]);
   const { data: settings } = useDoc(settingsRef);
 
   const { toast } = useToast();
@@ -158,7 +160,7 @@ export default function MasterBahanBakuPage() {
         "Satuan Kecil": "gr",
         "Min Stok Gudang": 6,
         "Min Stok Kontainer": 3,
-        "Metode Pembelian": "1. Supliyer"
+        "Metode Pembelian": "3. Pembuatan Sendiri"
       },
       {
         "Code": "BB004",
@@ -173,7 +175,7 @@ export default function MasterBahanBakuPage() {
         "Satuan Kecil": "ml",
         "Min Stok Gudang": 2,
         "Min Stok Kontainer": 1,
-        "Metode Pembelian": "1. Supliyer"
+        "Metode Pembelian": "3. Pembuatan Sendiri"
       },
       {
         "Code": "BB005",
@@ -212,7 +214,11 @@ export default function MasterBahanBakuPage() {
       "Satuan Kecil": item.satuanKecil || "-",
       "Min Stok Gudang": formatNumber(item.qtyMinGudang ?? item.qtyMin ?? 5),
       "Min Stok Kontainer": formatNumber(item.qtyMinKontainer ?? item.qtyMin ?? 5),
-      "Metode Pembelian": item.metodePembelian === "Beli Sendiri" ? "2. Beli Sendiri" : "1. Supliyer",
+      "Metode Pembelian": item.metodePembelian === "Pembuatan Sendiri"
+        ? "3. Pembuatan Sendiri"
+        : item.metodePembelian === "Beli Sendiri" 
+          ? "2. Beli Sendiri" 
+          : "1. Supliyer",
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportData);
@@ -259,7 +265,11 @@ export default function MasterBahanBakuPage() {
       formatNumber(item.gramPerBesar || 0).toLocaleString('id-ID') + getUnitSuffix(item),
       formatNumber(item.qtyKecil).toLocaleString('id-ID'),
       item.satuanKecil || "-",
-      item.metodePembelian === "Beli Sendiri" ? "2. Beli Sendiri" : "1. Supliyer",
+      item.metodePembelian === "Pembuatan Sendiri"
+        ? "3. Pembuatan Sendiri"
+        : item.metodePembelian === "Beli Sendiri" 
+          ? "2. Beli Sendiri" 
+          : "1. Supliyer",
     ]);
 
     autoTable(docPDF, {
@@ -387,9 +397,11 @@ export default function MasterBahanBakuPage() {
             0
           );
 
-          const metodePembelian = (rawMetode.includes("beli sendiri") || rawMetode.includes("2.")) 
-            ? "Beli Sendiri" 
-            : "Supliyer";
+          const metodePembelian = (rawMetode.includes("pembuatan") || rawMetode.includes("3."))
+            ? "Pembuatan Sendiri"
+            : (rawMetode.includes("beli sendiri") || rawMetode.includes("2.")) 
+              ? "Beli Sendiri" 
+              : "Supliyer";
 
           const cleanCode = String(codeValue).trim();
           const existingDocId = existingMap.get(cleanCode.toLowerCase());
@@ -575,6 +587,7 @@ export default function MasterBahanBakuPage() {
                   >
                     <option value="Supliyer">1. Supliyer</option>
                     <option value="Beli Sendiri">2. Beli Sendiri</option>
+                    <option value="Pembuatan Sendiri">3. Pembuatan Sendiri</option>
                   </select>
                 </div>
                 
@@ -775,12 +788,18 @@ export default function MasterBahanBakuPage() {
                     </td>
                     <td className="px-2 py-3 text-center">
                       <span className={cn(
-                        "inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold tracking-tight whitespace-nowrap",
-                        item.metodePembelian === "Beli Sendiri" 
-                          ? "bg-amber-50 text-amber-700 border border-amber-200" 
-                          : "bg-blue-50 text-blue-700 border border-blue-200"
+                        "inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold tracking-tight whitespace-nowrap border",
+                        item.metodePembelian === "Pembuatan Sendiri"
+                          ? "bg-purple-50 text-purple-700 border-purple-200"
+                          : item.metodePembelian === "Beli Sendiri" 
+                            ? "bg-amber-50 text-amber-700 border-amber-200" 
+                            : "bg-blue-50 text-blue-700 border-blue-200"
                       )}>
-                        {item.metodePembelian === "Beli Sendiri" ? "2. Beli Sendiri" : "1. Supliyer"}
+                        {item.metodePembelian === "Pembuatan Sendiri" 
+                          ? "3. Pembuatan Sendiri" 
+                          : item.metodePembelian === "Beli Sendiri" 
+                            ? "2. Beli Sendiri" 
+                            : "1. Supliyer"}
                       </span>
                     </td>
                     <td className="pr-4 pl-2 py-3 text-right">
@@ -888,11 +907,17 @@ export default function MasterBahanBakuPage() {
                     <span className="text-[7px] font-black uppercase text-slate-400 tracking-wider">Metode Beli</span>
                     <span className={cn(
                       "inline-flex items-center justify-center px-2 py-0.5 rounded text-[8px] font-bold tracking-tight w-full text-center border",
-                      item.metodePembelian === "Beli Sendiri" 
-                        ? "bg-amber-50 text-amber-700 border-amber-200" 
-                        : "bg-blue-50 text-blue-700 border-blue-200"
+                      item.metodePembelian === "Pembuatan Sendiri"
+                        ? "bg-purple-50 text-purple-700 border-purple-200"
+                        : item.metodePembelian === "Beli Sendiri" 
+                          ? "bg-amber-50 text-amber-700 border-amber-200" 
+                          : "bg-blue-50 text-blue-700 border-blue-200"
                     )}>
-                      {item.metodePembelian === "Beli Sendiri" ? "Beli Sendiri" : "Supliyer"}
+                      {item.metodePembelian === "Pembuatan Sendiri" 
+                        ? "Pembuatan Sendiri" 
+                        : item.metodePembelian === "Beli Sendiri" 
+                          ? "Beli Sendiri" 
+                          : "Supliyer"}
                     </span>
                   </div>
                 </Card>

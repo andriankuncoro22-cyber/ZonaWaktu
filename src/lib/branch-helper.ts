@@ -1,3 +1,4 @@
+import { useState, useEffect, useSyncExternalStore } from 'react';
 import { 
   collection as fsCollection, 
   doc as fsDoc, 
@@ -7,7 +8,7 @@ import {
   DocumentData 
 } from 'firebase/firestore';
 
-export type BranchId = 'gdm' | 'kedungreja';
+export type BranchId = 'gdm' | 'kedungreja' | 'tehwarga';
 
 export interface BranchInfo {
   id: BranchId;
@@ -36,20 +37,52 @@ export const BRANCH_LIST: Record<BranchId, BranchInfo> = {
     shortName: 'Cabang Kedungreja',
     landingRoute: '/zona_kedungreja',
     loginRoute: '/zona_kedungreja/owner-login',
-    badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-400/30'
+    badgeColor: 'bg-cyan-500/20 text-cyan-300 border-cyan-400/30'
+  },
+  tehwarga: {
+    id: 'tehwarga',
+    code: 'TW-01',
+    name: 'Teh Warga - Cabang Gandrungmangu',
+    shortName: 'Teh Warga Gandrungmangu',
+    landingRoute: '/teh_warga_gdm',
+    loginRoute: '/teh_warga_gdm/owner-login',
+    badgeColor: 'bg-emerald-600 text-white border-emerald-500'
   }
 };
 
 /**
- * Get current active branch ('gdm' | 'kedungreja')
+ * Get current active branch ('gdm' | 'kedungreja' | 'tehwarga')
  */
 export function getActiveBranch(): BranchId {
   if (typeof window === 'undefined') return 'gdm';
   const saved = localStorage.getItem('current_branch');
+  if (saved === 'tehwarga' || saved === 'teh_warga_gdm') return 'tehwarga';
   if (saved === 'kedungreja') return 'kedungreja';
+  if (window.location.pathname.startsWith('/teh_warga_gdm')) return 'tehwarga';
   if (window.location.pathname.startsWith('/zona_kedungreja')) return 'kedungreja';
   if (window.location.pathname.startsWith('/zona_gdm')) return 'gdm';
   return (saved as BranchId) || 'gdm';
+}
+
+function subscribeBranch(callback: () => void) {
+  if (typeof window === 'undefined') return () => {};
+  window.addEventListener('branch_changed', callback);
+  window.addEventListener('storage', callback);
+  return () => {
+    window.removeEventListener('branch_changed', callback);
+    window.removeEventListener('storage', callback);
+  };
+}
+
+/**
+ * Hook to reactively listen to active branch changes
+ */
+export function useActiveBranch(): BranchId {
+  return useSyncExternalStore(
+    subscribeBranch,
+    getActiveBranch,
+    () => 'gdm'
+  );
 }
 
 /**
@@ -58,8 +91,48 @@ export function getActiveBranch(): BranchId {
 export function setActiveBranch(branch: BranchId) {
   if (typeof window !== 'undefined') {
     localStorage.setItem('current_branch', branch);
+    document.documentElement.setAttribute('data-branch', branch);
     window.dispatchEvent(new Event('branch_changed'));
   }
+}
+
+/**
+ * Get document ID in 'settings' collection for branch business identity
+ */
+export function getStoreConfigDocId(explicitBranch?: BranchId): string {
+  const branch = explicitBranch || getActiveBranch();
+  if (branch === 'tehwarga') return 'store_config_tehwarga';
+  if (branch === 'kedungreja') return 'store_config_kedungreja';
+  return 'store_config';
+}
+
+/**
+ * Get default store identity per branch
+ */
+export function getDefaultStoreIdentity(explicitBranch?: BranchId) {
+  const branch = explicitBranch || getActiveBranch();
+  if (branch === 'tehwarga') {
+    return {
+      name: "Teh Warga Gandrungmangu",
+      tagline: "Spesialis Racikan Varian Teh Autentik",
+      logoLanding: "",
+      logoHeader: ""
+    };
+  }
+  if (branch === 'kedungreja') {
+    return {
+      name: "Zona Waktu Kedungreja",
+      tagline: "Coffee & Teh Bakar Cabang Kedungreja",
+      logoLanding: "",
+      logoHeader: ""
+    };
+  }
+  return {
+    name: "Zona Waktu",
+    tagline: "Coffee & Teh Bakar Autentik",
+    logoLanding: "",
+    logoHeader: ""
+  };
 }
 
 const GLOBAL_COLLECTIONS = new Set(['settings', 'users']);
@@ -68,12 +141,18 @@ const GLOBAL_COLLECTIONS = new Set(['settings', 'users']);
  * Scope collection name based on current active branch
  * GDM uses standard collections (preserving all existing data)
  * Kedungreja uses '_kdrj' collections (starting 100% clean & completely isolated)
+ * Teh Warga uses '_tehwarga' collections (starting 100% clean & completely isolated)
  */
 export function getBranchScopedCollectionName(name: string, explicitBranch?: BranchId): string {
   if (!name) return name;
   const branch = explicitBranch || getActiveBranch();
+  if (GLOBAL_COLLECTIONS.has(name)) return name;
+  
+  if (branch === 'tehwarga') {
+    if (name.endsWith('_tehwarga') || name.endsWith('_twgdm')) return name;
+    return `${name}_tehwarga`;
+  }
   if (branch === 'kedungreja') {
-    if (GLOBAL_COLLECTIONS.has(name)) return name;
     if (name.endsWith('_kdrj') || name.endsWith('_kedungreja')) return name;
     return `${name}_kdrj`;
   }

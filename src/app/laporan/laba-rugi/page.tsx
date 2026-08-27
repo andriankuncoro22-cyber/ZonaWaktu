@@ -1,5 +1,7 @@
-
 "use client";
+
+import { getStoreConfigDocId } from "@/lib/branch-helper";
+
 
 import React, { useState, useMemo } from "react";
 import { 
@@ -36,7 +38,7 @@ export default function LabaRugiPage() {
   const [appliedMonth, setAppliedMonth] = useState(selectedMonth);
   const [appliedType, setAppliedType] = useState(reportType);
 
-  const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
+  const settingsRef = useMemoFirebase(() => doc(db, "settings", getStoreConfigDocId()), [db]);
   const { data: settings } = useDoc(settingsRef);
 
   const handleCheck = () => {
@@ -64,14 +66,6 @@ export default function LabaRugiPage() {
   const productsQuery = useMemoFirebase(() => collection(db, "produk"), [db]);
   const { data: products } = useCollection(productsQuery);
 
-  const categoryMap = useMemo(() => {
-    const map: { [key: string]: string } = {};
-    products?.forEach((p: any) => {
-      if (p.code) map[p.code] = p.kategori || "-";
-    });
-    return map;
-  }, [products]);
-
   const filteredData = useMemo(() => {
     if (appliedType === 'daily') return rawData;
     return rawData?.filter(d => d.tanggal.startsWith(appliedMonth)) || [];
@@ -88,31 +82,69 @@ export default function LabaRugiPage() {
 
   const productSummary = useMemo(() => {
     const summary: { [key: string]: any } = {};
+
+    const findProduct = (itemCode?: string, itemName?: string, itemId?: string) => {
+      if (!products || !products.length) return null;
+      const rawCode = itemCode?.trim().toUpperCase();
+      const cleanCode = rawCode?.replace(/[\s-_]/g, '');
+      const rawName = itemName?.trim().toLowerCase();
+
+      // 1. Match by product ID
+      if (itemId) {
+        const byId = products.find((p: any) => p.id === itemId);
+        if (byId) return byId;
+      }
+      // 2. Match by exact code or normalized code
+      if (rawCode) {
+        const byCode = products.find((p: any) => {
+          const pCode = p.code?.trim().toUpperCase();
+          if (!pCode) return false;
+          const pClean = pCode.replace(/[\s-_]/g, '');
+          return pCode === rawCode || (cleanCode && pClean === cleanCode);
+        });
+        if (byCode) return byCode;
+      }
+      // 3. Match by Name
+      if (rawName) {
+        const byName = products.find((p: any) => p.nama?.trim().toLowerCase() === rawName);
+        if (byName) return byName;
+      }
+      return null;
+    };
+
     filteredData.forEach(closing => {
       closing.items?.forEach((item: any) => {
-        if (!summary[item.code]) {
-          summary[item.code] = { 
-            code: item.code, 
-            name: item.name, 
-            kategori: categoryMap[item.code] || "-",
+        const matchedProduct = findProduct(item.code || item.kode, item.name || item.nama, item.produkId || item.id);
+        
+        const finalCode = matchedProduct?.code || item.code || item.kode || "-";
+        const finalName = matchedProduct?.nama || item.name || item.nama || "-";
+        const finalCategory = matchedProduct?.kategori || item.kategori || "-";
+        const groupKey = finalCode !== "-" ? finalCode.toUpperCase() : finalName.toLowerCase();
+
+        if (!summary[groupKey]) {
+          summary[groupKey] = { 
+            code: finalCode, 
+            name: finalName, 
+            kategori: finalCategory,
             total: 0, 
             pendapatan: 0, 
             keuntungan: 0,
             margin: 0
           };
         }
-        summary[item.code].total += item.total;
-        summary[item.code].pendapatan += item.pendapatan;
-        summary[item.code].keuntungan += item.keuntungan;
+        summary[groupKey].total += Number(item.total ?? item.qty ?? 0);
+        summary[groupKey].pendapatan += Number(item.pendapatan ?? item.totalHarga ?? 0);
+        summary[groupKey].keuntungan += Number(item.keuntungan ?? 0);
       });
     });
+
     return Object.values(summary).map((item: any) => ({
       ...item,
       margin: item.pendapatan > 0 ? (item.keuntungan / item.pendapatan) * 100 : 0
     })).sort((a: any, b: any) => 
-      (a.code || "").localeCompare(b.code || "", undefined, { numeric: true })
+      (a.code || "").localeCompare(b.code || "", undefined, { numeric: true, sensitivity: 'base' })
     );
-  }, [filteredData, categoryMap]);
+  }, [filteredData, products]);
 
   const handleDeleteReport = async () => {
     const periodLabel = appliedType === 'daily' ? appliedDate : appliedMonth;

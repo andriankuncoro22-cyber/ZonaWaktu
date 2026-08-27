@@ -1,5 +1,7 @@
 "use client";
 
+import { getStoreConfigDocId } from "@/lib/branch-helper";
+
 import React, { useState, useMemo } from "react";
 import { 
   Gift, 
@@ -58,7 +60,7 @@ export default function LaporanFreeProdukPage() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
 
   // Store config settings for PDF Kop
-  const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
+  const settingsRef = useMemoFirebase(() => doc(db, "settings", getStoreConfigDocId()), [db]);
   const { data: settings } = useDoc(settingsRef);
 
   // Fetch Input Free logs from Firestore

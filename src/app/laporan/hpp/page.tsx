@@ -76,13 +76,49 @@ export default function HppReportPage() {
   const productSummary = useMemo(() => {
     const summary: Record<string, any> = {};
 
+    const findProduct = (itemCode?: string, itemName?: string, itemId?: string) => {
+      if (!products || !products.length) return null;
+      const rawCode = itemCode?.trim().toUpperCase();
+      const cleanCode = rawCode?.replace(/[\s-_]/g, '');
+      const rawName = itemName?.trim().toLowerCase();
+
+      // 1. Match by product ID
+      if (itemId) {
+        const byId = products.find((p: any) => p.id === itemId);
+        if (byId) return byId;
+      }
+      // 2. Match by exact code or normalized code
+      if (rawCode) {
+        const byCode = products.find((p: any) => {
+          const pCode = p.code?.trim().toUpperCase();
+          if (!pCode) return false;
+          const pClean = pCode.replace(/[\s-_]/g, '');
+          return pCode === rawCode || (cleanCode && pClean === cleanCode);
+        });
+        if (byCode) return byCode;
+      }
+      // 3. Match by Name
+      if (rawName) {
+        const byName = products.find((p: any) => p.nama?.trim().toLowerCase() === rawName);
+        if (byName) return byName;
+      }
+      return null;
+    };
+
     filteredData.forEach((closing: any) => {
       closing.items?.forEach((item: any) => {
-        const key = item.code || item.name || "-";
-        if (!summary[key]) {
-          summary[key] = {
-            code: item.code || "-",
-            name: item.name || "-",
+        const matchedProduct = findProduct(item.code || item.kode, item.name || item.nama, item.produkId || item.id);
+        
+        const finalCode = matchedProduct?.code || item.code || item.kode || "-";
+        const finalName = matchedProduct?.nama || item.name || item.nama || "-";
+        const finalCategory = matchedProduct?.kategori || item.kategori || "-";
+        const groupKey = finalCode !== "-" ? finalCode.toUpperCase() : finalName.toLowerCase();
+
+        if (!summary[groupKey]) {
+          summary[groupKey] = {
+            code: finalCode,
+            name: finalName,
+            kategori: finalCategory,
             totalQty: 0,
             totalJual: 0,
             totalHpp: 0,
@@ -92,30 +128,58 @@ export default function HppReportPage() {
 
         const qty = Number(item.total ?? item.qty ?? 0);
         const jual = Number(item.pendapatan ?? item.totalHarga ?? (qty * Number(item.price || 0)));
-        const productId = productCodeMap[item.code] || productCodeMap[item.kode];
-        const recipe = Array.isArray(productId ? recipeMap[productId] : []) 
-          ? (productId ? recipeMap[productId] : []) 
-          : [];
+        const productId = matchedProduct?.id || productCodeMap[item.code] || productCodeMap[item.kode];
+        
+        const recipeObj = recipes?.find((r: any) => 
+          (productId && r.produkId === productId) || 
+          (finalCode !== "-" && r.kodeProduk?.trim().toUpperCase() === finalCode.toUpperCase()) ||
+          (finalName !== "-" && r.namaProduk?.trim().toLowerCase() === finalName.toLowerCase())
+        );
+
+        const composition = recipeObj?.komposisi || (productId ? recipeMap[productId] : []) || [];
         let hpp = 0;
 
-        recipe.forEach((ingredient: any) => {
+        composition.forEach((ingredient: any) => {
           const material = materialMap[ingredient?.bahanBakuId];
-          hpp += calculateRecipeIngredientCost(ingredient, material, qty);
+          if (!material) return;
+
+          // Cek jika bahan baku merupakan hasil racikan / pembuatan sendiri
+          const pelengkapRecipe = recipes?.find(
+            (r: any) => r.type === "pelengkap" && (r.bahanBakuId === material.id || (!r.bahanBakuId && r.namaPelengkap?.trim().toLowerCase() === material.nama?.trim().toLowerCase()))
+          );
+
+          if (pelengkapRecipe && pelengkapRecipe.komposisi?.length) {
+            const batchCost = pelengkapRecipe.komposisi.reduce((sum: number, comp: any) => {
+              const ingMat = materialMap[comp.bahanBakuId];
+              if (!ingMat) return sum;
+              const ingConversion = Number(ingMat.qtyKecil) || 1;
+              const ingUnitPrice = Number(ingMat.currentPrice ?? ingMat.avgPrice ?? ingMat.hargaBeliSatuanBesar ?? 0);
+              const ingExplicit = Number(ingMat.hargaSatuanKecil || 0);
+              const ingPriceSmall = ingExplicit > 0 ? ingExplicit : (ingConversion > 0 ? ingUnitPrice / ingConversion : 0);
+              return sum + (ingPriceSmall * Number(comp.jumlah || 0));
+            }, 0);
+
+            const qtyCups = Number(material.qtyKecil) || 1;
+            const pricePerCup = qtyCups > 0 ? batchCost / qtyCups : batchCost;
+            hpp += Number(ingredient.jumlah || 0) * qty * pricePerCup;
+          } else {
+            hpp += calculateRecipeIngredientCost(ingredient, material, qty);
+          }
         });
 
         const roundedHpp = Math.round(hpp);
 
-        summary[key].totalQty += qty;
-        summary[key].totalJual += jual;
-        summary[key].totalHpp += roundedHpp;
-        summary[key].labaKotor += jual - roundedHpp;
+        summary[groupKey].totalQty += qty;
+        summary[groupKey].totalJual += jual;
+        summary[groupKey].totalHpp += roundedHpp;
+        summary[groupKey].labaKotor += jual - roundedHpp;
       });
     });
 
     return Object.values(summary).sort((a: any, b: any) =>
-      (a.code || "").localeCompare(b.code || "", undefined, { numeric: true })
+      (a.code || "").localeCompare(b.code || "", undefined, { numeric: true, sensitivity: 'base' })
     );
-  }, [filteredData, materialMap, productCodeMap, recipeMap]);
+  }, [filteredData, materialMap, productCodeMap, recipeMap, products, recipes]);
 
   const totals = useMemo(() => {
     return productSummary.reduce(
@@ -237,7 +301,8 @@ export default function HppReportPage() {
             <thead>
               <tr className="bg-slate-50/70">
                 <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Kode</th>
-                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Nama</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Nama Produk</th>
+                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Kategori</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 text-center">Total Barang Terjual</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Nominal Total Jual</th>
                 <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Nominal Total Harga Bahan Baku</th>
@@ -248,13 +313,22 @@ export default function HppReportPage() {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="py-16 text-center text-slate-500">Memuat data...</td>
+                  <td colSpan={8} className="py-16 text-center text-slate-500">Memuat data...</td>
                 </tr>
               ) : productSummary.length > 0 ? (
                 productSummary.map((item: any) => (
                   <tr key={item.code} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-4 text-sm font-black text-slate-800">{item.code}</td>
-                    <td className="px-6 py-4 text-sm font-black text-slate-800">{item.name}</td>
+                    <td className="px-6 py-4">
+                      <div className="inline-flex px-3 py-1 rounded-lg bg-primary/5 border border-primary/10 text-[10px] font-bold text-primary">
+                        {item.code}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-sm font-black text-slate-900 uppercase italic tracking-tight">{item.name}</td>
+                    <td className="px-6 py-4">
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-[9px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 whitespace-nowrap">
+                        {item.kategori}
+                      </span>
+                    </td>
                     <td className="px-6 py-4 text-sm font-black text-slate-600 text-center">{item.totalQty}</td>
                     <td className="px-6 py-4 text-sm font-black text-emerald-600 text-right">Rp {item.totalJual.toLocaleString("id-ID")}</td>
                     <td className="px-6 py-4 text-sm font-black text-amber-700 text-right">Rp {item.totalHpp.toLocaleString("id-ID")}</td>
@@ -266,7 +340,7 @@ export default function HppReportPage() {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={7} className="py-16 text-center text-slate-500">Tidak ada data penjualan untuk periode ini.</td>
+                  <td colSpan={8} className="py-16 text-center text-slate-500">Tidak ada data penjualan untuk periode ini.</td>
                 </tr>
               )}
             </tbody>
@@ -291,6 +365,9 @@ export default function HppReportPage() {
                       <div className="flex items-center gap-2">
                         <span className="inline-flex px-2 py-0.5 rounded bg-primary/5 border border-primary/10 text-[8px] font-bold text-primary">
                           {item.code}
+                        </span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-wider bg-slate-100 text-slate-500">
+                          {item.kategori}
                         </span>
                       </div>
                       <h4 className="text-xs font-black text-slate-900 uppercase italic">

@@ -1,5 +1,7 @@
 "use client";
 
+import { getStoreConfigDocId } from "@/lib/branch-helper";
+
 import React, { useState, useMemo } from "react";
 import { 
   AlertTriangle, 
@@ -63,7 +65,7 @@ export default function RekapanStockKritisPage() {
   
   const { data: materials, loading } = useCollection(materialsQuery);
 
-  const settingsRef = useMemoFirebase(() => doc(db, "settings", "store_config"), [db]);
+  const settingsRef = useMemoFirebase(() => doc(db, "settings", getStoreConfigDocId()), [db]);
   const { data: settings } = useDoc(settingsRef);
 
   const getMinStockGudang = (item: BahanBaku) => Number(item.qtyMinGudang ?? item.qtyMin ?? 5);
@@ -193,7 +195,7 @@ export default function RekapanStockKritisPage() {
         "Satuan Kecil": item.satuanKecil,
         "Total Kontainer (Satuan Besar)": Number(getKontainerTotal(item).toFixed(4)),
         "Batas Minimum Kontainer": getMinStockKontainer(item),
-        "Metode Pembelian": item.metodePembelian === "Beli Sendiri" ? "2. Beli Sendiri" : "1. Supliyer",
+        "Metode Pembelian": item.metodePembelian === "Pembuatan Sendiri" ? "3. Pembuatan Sendiri" : item.metodePembelian === "Beli Sendiri" ? "2. Beli Sendiri" : "1. Supliyer",
       }));
       const wsKontainer = XLSX.utils.json_to_sheet(wsKontainerData);
       XLSX.utils.book_append_sheet(wb, wsKontainer, "Kritis Kontainer");
@@ -205,7 +207,7 @@ export default function RekapanStockKritisPage() {
         "Stok Gudang": item.qtyBesar || 0,
         "Satuan": item.satuanBesar,
         "Batas Minimum Gudang": getMinStockGudang(item),
-        "Metode Pembelian": item.metodePembelian === "Beli Sendiri" ? "2. Beli Sendiri" : "1. Supliyer",
+        "Metode Pembelian": item.metodePembelian === "Pembuatan Sendiri" ? "3. Pembuatan Sendiri" : item.metodePembelian === "Beli Sendiri" ? "2. Beli Sendiri" : "1. Supliyer",
       }));
       const wsGudang = XLSX.utils.json_to_sheet(wsGudangData);
       XLSX.utils.book_append_sheet(wb, wsGudang, "Kritis Gudang");
@@ -288,7 +290,7 @@ export default function RekapanStockKritisPage() {
         item.satuanKecil || "",
         getKontainerTotal(item).toFixed(2),
         getMinStockKontainer(item),
-        item.metodePembelian === "Beli Sendiri" ? "Beli Sendiri" : "Supliyer"
+        item.metodePembelian === "Pembuatan Sendiri" ? "Pembuatan Sendiri" : item.metodePembelian === "Beli Sendiri" ? "Beli Sendiri" : "Supliyer"
       ]);
 
       autoTable(docPDF, {
@@ -314,7 +316,7 @@ export default function RekapanStockKritisPage() {
         item.qtyBesar || 0,
         item.satuanBesar || "",
         getMinStockGudang(item),
-        item.metodePembelian === "Beli Sendiri" ? "Beli Sendiri" : "Supliyer"
+        item.metodePembelian === "Pembuatan Sendiri" ? "Pembuatan Sendiri" : item.metodePembelian === "Beli Sendiri" ? "Beli Sendiri" : "Supliyer"
       ]);
 
       autoTable(docPDF, {
@@ -599,12 +601,14 @@ export default function RekapanStockKritisPage() {
                               </td>
                               <td className="px-1 py-2.5 text-center whitespace-nowrap">
                                 <span className={cn(
-                                  "inline-block rounded px-1.5 py-0.5 text-[8px] font-bold tracking-tight",
-                                  item.metodePembelian === "Beli Sendiri" 
-                                    ? "bg-amber-50 text-amber-700 border border-amber-200" 
-                                    : "bg-blue-50 text-blue-700 border border-blue-200"
+                                  "inline-block rounded px-1.5 py-0.5 text-[8px] font-bold tracking-tight border",
+                                  item.metodePembelian === "Pembuatan Sendiri"
+                                    ? "bg-purple-50 text-purple-700 border-purple-200"
+                                    : item.metodePembelian === "Beli Sendiri" 
+                                      ? "bg-amber-50 text-amber-700 border border-amber-200" 
+                                      : "bg-blue-50 text-blue-700 border border-blue-200"
                                 )}>
-                                  {item.metodePembelian === "Beli Sendiri" ? "Beli Sendiri" : "Supliyer"}
+                                  {item.metodePembelian === "Pembuatan Sendiri" ? "Pembuatan Sendiri" : item.metodePembelian === "Beli Sendiri" ? "Beli Sendiri" : "Supliyer"}
                                 </span>
                               </td>
                               <td className="pr-4 pl-1 py-2.5 text-center whitespace-nowrap">
@@ -659,12 +663,14 @@ export default function RekapanStockKritisPage() {
                                   Kritis
                                 </span>
                                 <span className={cn(
-                                  "rounded px-1.5 py-0.5 text-[8px] font-bold tracking-tight",
-                                  item.metodePembelian === "Beli Sendiri" 
-                                    ? "bg-amber-50 text-amber-700 border border-amber-200" 
-                                    : "bg-blue-50 text-blue-700 border border-blue-200"
+                                  "rounded px-1.5 py-0.5 text-[8px] font-bold tracking-tight border",
+                                  item.metodePembelian === "Pembuatan Sendiri"
+                                    ? "bg-purple-50 text-purple-700 border-purple-200"
+                                    : item.metodePembelian === "Beli Sendiri" 
+                                      ? "bg-amber-50 text-amber-700 border border-amber-200" 
+                                      : "bg-blue-50 text-blue-700 border border-blue-200"
                                 )}>
-                                  {item.metodePembelian === "Beli Sendiri" ? "Beli Sendiri" : "Supliyer"}
+                                  {item.metodePembelian === "Pembuatan Sendiri" ? "Pembuatan Sendiri" : item.metodePembelian === "Beli Sendiri" ? "Beli Sendiri" : "Supliyer"}
                                 </span>
                               </div>
                             </div>
@@ -771,12 +777,14 @@ export default function RekapanStockKritisPage() {
                               </td>
                               <td className="px-1 py-2.5 text-center whitespace-nowrap">
                                 <span className={cn(
-                                  "inline-block rounded px-1.5 py-0.5 text-[8px] font-bold tracking-tight",
-                                  item.metodePembelian === "Beli Sendiri" 
-                                    ? "bg-amber-50 text-amber-700 border border-amber-200" 
-                                    : "bg-blue-50 text-blue-700 border border-blue-200"
+                                  "inline-block rounded px-1.5 py-0.5 text-[8px] font-bold tracking-tight border",
+                                  item.metodePembelian === "Pembuatan Sendiri"
+                                    ? "bg-purple-50 text-purple-700 border-purple-200"
+                                    : item.metodePembelian === "Beli Sendiri" 
+                                      ? "bg-amber-50 text-amber-700 border border-amber-200" 
+                                      : "bg-blue-50 text-blue-700 border border-blue-200"
                                 )}>
-                                  {item.metodePembelian === "Beli Sendiri" ? "Beli Sendiri" : "Supliyer"}
+                                  {item.metodePembelian === "Pembuatan Sendiri" ? "Pembuatan Sendiri" : item.metodePembelian === "Beli Sendiri" ? "Beli Sendiri" : "Supliyer"}
                                 </span>
                               </td>
                               <td className="pr-4 pl-1 py-2.5 text-center whitespace-nowrap">
@@ -832,12 +840,14 @@ export default function RekapanStockKritisPage() {
                                   Kritis
                                 </span>
                                 <span className={cn(
-                                  "rounded px-1.5 py-0.5 text-[8px] font-bold tracking-tight",
-                                  item.metodePembelian === "Beli Sendiri" 
-                                    ? "bg-amber-50 text-amber-700 border border-amber-200" 
-                                    : "bg-blue-50 text-blue-700 border border-blue-200"
+                                  "rounded px-1.5 py-0.5 text-[8px] font-bold tracking-tight border",
+                                  item.metodePembelian === "Pembuatan Sendiri"
+                                    ? "bg-purple-50 text-purple-700 border-purple-200"
+                                    : item.metodePembelian === "Beli Sendiri" 
+                                      ? "bg-amber-50 text-amber-700 border border-amber-200" 
+                                      : "bg-blue-50 text-blue-700 border border-blue-200"
                                 )}>
-                                  {item.metodePembelian === "Beli Sendiri" ? "Beli Sendiri" : "Supliyer"}
+                                  {item.metodePembelian === "Pembuatan Sendiri" ? "Pembuatan Sendiri" : item.metodePembelian === "Beli Sendiri" ? "Beli Sendiri" : "Supliyer"}
                                 </span>
                               </div>
                             </div>
