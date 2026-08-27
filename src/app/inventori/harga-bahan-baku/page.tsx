@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,24 +8,55 @@ import { Label } from "@/components/ui/label";
 import { useFirestore, useCollection, useMemoFirebase, collection, doc } from "@/firebase";
 import { query, orderBy, serverTimestamp, writeBatch } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
-import { Search, Save, Package, RefreshCw, ShoppingBag, Truck, ChefHat } from "lucide-react";
+import { 
+  Search, 
+  Save, 
+  Package, 
+  RefreshCw, 
+  ShoppingBag, 
+  Truck, 
+  ChefHat, 
+  FileSpreadsheet, 
+  Upload, 
+  Download, 
+  FileDown,
+  Loader2 
+} from "lucide-react";
 import { applyPriceUpdate } from "@/lib/hpp";
 import { cn } from "@/lib/utils";
+import * as XLSX from "xlsx";
+
+function parseExcelPrice(val: any): number | null {
+  if (val === undefined || val === null || val === "") return null;
+  if (typeof val === "number") return isNaN(val) ? null : val;
+  const cleaned = String(val).replace(/[^0-9.,-]/g, "").replace(",", ".");
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? null : num;
+}
 
 export default function HargaBahanBakuPage() {
   const db = useFirestore();
   const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedId, setSelectedId] = useState<string>("");
   const [priceBesarInput, setPriceBesarInput] = useState<string>("");
   const [priceKecilInput, setPriceKecilInput] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
   const materialsQuery = useMemoFirebase(() => query(collection(db, "bahan-baku"), orderBy("nama", "asc")), [db]);
   const { data: materials } = useCollection(materialsQuery);
 
   const filteredMaterials = useMemo(() => {
     return (materials as any[])?.filter((item: any) => {
+      // Abaikan bahan yang dibuat sendiri (3. Pembuatan Sendiri)
+      const isSelfMade = item.metodePembelian === "Pembuatan Sendiri" || 
+                         item.metodePembelian?.toLowerCase().includes("pembuatan sendiri") ||
+                         item.metodePembelian?.toLowerCase().includes("3.");
+      if (isSelfMade) return false;
+
       const q = searchTerm.toLowerCase();
       return !q || item.nama?.toLowerCase().includes(q) || item.code?.toLowerCase().includes(q);
     }) || [];
@@ -110,14 +141,291 @@ export default function HargaBahanBakuPage() {
     }
   };
 
+  // Export Excel (Hanya bahan baku supliyer & beli sendiri)
+  const handleExportExcel = () => {
+    const validMaterials = (materials as any[])?.filter((mat: any) => {
+      const isSelfMade = mat.metodePembelian === "Pembuatan Sendiri" || 
+                         mat.metodePembelian?.toLowerCase().includes("pembuatan sendiri") ||
+                         mat.metodePembelian?.toLowerCase().includes("3.");
+      return !isSelfMade;
+    }) || [];
+
+    if (validMaterials.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Gagal Ekspor",
+        description: "Tidak ada data bahan baku untuk diekspor."
+      });
+      return;
+    }
+
+    const exportData = validMaterials.map((mat) => {
+      const conversion = Number(mat.qtyKecil || 1);
+      const priceBesar = Number(mat.currentPrice ?? mat.avgPrice ?? mat.hargaBeliSatuanBesar ?? 0);
+      const priceKecil = mat.hargaSatuanKecil ?? (conversion > 0 ? priceBesar / conversion : 0);
+      const avgPriceBesar = Number(mat.avgPrice || priceBesar || 0);
+      const avgPriceKecil = Number(mat.avgPriceKecil || priceKecil || 0);
+
+      return {
+        "Code": mat.code || "-",
+        "Nama Bahan": mat.nama || "-",
+        "Metode Pembelian": mat.metodePembelian === "Beli Sendiri" 
+          ? "2. Beli Sendiri" 
+          : "1. Supliyer",
+        "Satuan Besar": mat.satuanBesar || "-",
+        "Isi per Sat. Besar (Qty Kecil)": conversion,
+        "Satuan Kecil": mat.satuanKecil || "-",
+        "Harga Satuan Besar (Rp)": Math.round(priceBesar),
+        "Harga Satuan Kecil (Rp)": Math.round(priceKecil * 100) / 100,
+        "Rata-Rata Sat. Besar (Rp)": Math.round(avgPriceBesar),
+        "Rata-Rata Sat. Kecil (Rp)": Math.round(avgPriceKecil * 100) / 100,
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Harga Bahan Baku");
+    XLSX.writeFile(wb, `harga-bahan-baku-zonawaktu_${new Date().toISOString().split('T')[0]}.xlsx`);
+    
+    toast({
+      title: "Ekspor Berhasil",
+      description: `${exportData.length} data harga bahan baku berhasil diekspor ke Excel.`
+    });
+  };
+
+  // Download Template Excel
+  const handleDownloadTemplate = () => {
+    const templateData = [
+      {
+        "Code": "BB005",
+        "Nama Bahan": "Gula Aren",
+        "Satuan Besar": "liter",
+        "Isi per Sat. Besar (Qty Kecil)": 1000,
+        "Satuan Kecil": "ml",
+        "Harga Satuan Besar (Rp)": 24000,
+        "Harga Satuan Kecil (Rp)": 24
+      },
+      {
+        "Code": "BB006",
+        "Nama Bahan": "Susu UHT",
+        "Satuan Besar": "liter",
+        "Isi per Sat. Besar (Qty Kecil)": 1000,
+        "Satuan Kecil": "ml",
+        "Harga Satuan Besar (Rp)": 19000,
+        "Harga Satuan Kecil (Rp)": 19
+      },
+      {
+        "Code": "BB007",
+        "Nama Bahan": "Cup 16oz",
+        "Satuan Besar": "Dus",
+        "Isi per Sat. Besar (Qty Kecil)": 1000,
+        "Satuan Kecil": "pcs",
+        "Harga Satuan Besar (Rp)": 250000,
+        "Harga Satuan Kecil (Rp)": 250
+      }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Template Update Harga");
+    XLSX.writeFile(wb, "template-update-harga-bahan-baku.xlsx");
+  };
+
+  // Import Excel
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        setIsImporting(true);
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: "binary" });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const rows: any[] = XLSX.utils.sheet_to_json(ws);
+
+        if (!rows || rows.length === 0) {
+          toast({
+            variant: "destructive",
+            title: "Import Gagal",
+            description: "File Excel kosong atau tidak memiliki data yang valid."
+          });
+          setIsImporting(false);
+          return;
+        }
+
+        const currentMaterials = (materials as any[]) || [];
+        const batch = writeBatch(db);
+        let updatedCount = 0;
+
+        rows.forEach((row: any) => {
+          const rawCode = String(row["Code"] || row["code"] || row["Kode"] || row["KODE"] || "").trim();
+          const rawName = String(row["Nama Bahan"] || row["Nama barang"] || row["Nama Barang"] || row["nama"] || row["Nama"] || "").trim();
+
+          if (!rawCode && !rawName) return;
+
+          // Match material by code or name
+          const targetMat = currentMaterials.find((m: any) => {
+            const mCode = String(m.code || "").trim().toUpperCase();
+            const mName = String(m.nama || "").trim().toLowerCase();
+            const cleanMCode = mCode.replace(/[\s-_]/g, '');
+            const cleanTargetCode = rawCode.toUpperCase().replace(/[\s-_]/g, '');
+
+            if (rawCode && (mCode === rawCode.toUpperCase() || cleanMCode === cleanTargetCode)) {
+              return true;
+            }
+            if (rawName && mName === rawName.toLowerCase()) {
+              return true;
+            }
+            return false;
+          });
+
+          if (!targetMat) return;
+
+          // Abaikan bahan pembuatan sendiri
+          const isSelfMade = targetMat.metodePembelian === "Pembuatan Sendiri" || 
+                             targetMat.metodePembelian?.toLowerCase().includes("pembuatan sendiri") ||
+                             targetMat.metodePembelian?.toLowerCase().includes("3.");
+          if (isSelfMade) return;
+
+          const rate = Number(targetMat.qtyKecil || 1);
+
+          // Parse prices
+          let priceBesar = parseExcelPrice(
+            row["Harga Satuan Besar (Rp)"] ?? 
+            row["Harga Satuan Besar"] ?? 
+            row["Harga Besar"] ?? 
+            row["Harga Beli Satuan Besar"] ?? 
+            row["currentPrice"] ?? 
+            row["Harga Beli"]
+          );
+
+          let priceKecil = parseExcelPrice(
+            row["Harga Satuan Kecil (Rp)"] ?? 
+            row["Harga Satuan Kecil"] ?? 
+            row["Harga Kecil"] ?? 
+            row["hargaSatuanKecil"] ?? 
+            row["Harga Per Cup/Gram/Ml"]
+          );
+
+          // If only Besar is provided, calculate Kecil
+          if (priceBesar !== null && priceKecil === null && rate > 0) {
+            priceKecil = Math.round((priceBesar / rate) * 100) / 100;
+          }
+          // If only Kecil is provided, calculate Besar
+          else if (priceKecil !== null && priceBesar === null && rate > 0) {
+            priceBesar = Math.round(priceKecil * rate);
+          }
+
+          if (priceBesar === null && priceKecil === null) return;
+
+          const finalBesar = priceBesar ?? 0;
+          const finalKecil = priceKecil ?? (rate > 0 ? finalBesar / rate : 0);
+
+          const updated = applyPriceUpdate(targetMat, finalBesar, finalKecil);
+          const matRef = doc(db, "bahan-baku", targetMat.id);
+
+          batch.update(matRef, {
+            currentPrice: updated.currentPrice,
+            hargaSatuanKecil: updated.hargaSatuanKecil,
+            avgPrice: updated.avgPrice,
+            avgPriceKecil: updated.avgPriceKecil,
+            priceHistory: updated.priceHistory,
+            updatedAt: serverTimestamp(),
+          });
+
+          updatedCount++;
+        });
+
+        if (updatedCount > 0) {
+          await batch.commit();
+          toast({
+            title: "Import Harga Berhasil",
+            description: `${updatedCount} harga bahan baku berhasil diperbarui dari Excel.`
+          });
+        } else {
+          toast({
+            variant: "destructive",
+            title: "Tidak Ada Data Cocok",
+            description: "Tidak ditemukan kode atau nama bahan yang cocok di database (bahan pembuatan sendiri dilewati)."
+          });
+        }
+      } catch (err) {
+        console.error("Gagal import harga excel:", err);
+        toast({
+          variant: "destructive",
+          title: "Gagal Import",
+          description: "Terjadi kesalahan saat memproses file Excel."
+        });
+      } finally {
+        setIsImporting(false);
+        if (e.target) e.target.value = "";
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
   return (
     <div className="space-y-8 p-2">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl font-black uppercase italic tracking-tighter text-slate-900">Harga Bahan Baku</h1>
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
-            Manajemen Harga Satuan Besar & Satuan Kecil • Konversi & Redaksi Metode Beli
+            Manajemen Harga Bahan Baku Pembelian (1. Supliyer & 2. Beli Sendiri) • Konversi Otomatis
           </p>
+        </div>
+
+        {/* Action Buttons: Template, Export, Import */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDownloadTemplate}
+            className="rounded-2xl border-slate-200 hover:bg-slate-50 font-black uppercase tracking-wider text-[9px] gap-1.5 h-10 px-3.5 shadow-sm"
+          >
+            <FileDown className="h-3.5 w-3.5 text-slate-500" />
+            Template Excel
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportExcel}
+            className="rounded-2xl border-emerald-200 bg-emerald-50/50 hover:bg-emerald-100/60 text-emerald-800 font-black uppercase tracking-wider text-[9px] gap-1.5 h-10 px-4 shadow-sm"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
+            Ekspor Excel
+          </Button>
+
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleImportExcel}
+            accept=".xlsx, .xls"
+            className="hidden"
+          />
+
+          <Button
+            variant="default"
+            size="sm"
+            disabled={isImporting}
+            onClick={() => fileInputRef.current?.click()}
+            className="rounded-2xl bg-primary hover:bg-primary/90 text-white font-black uppercase tracking-wider text-[9px] gap-1.5 h-10 px-4 shadow-md shadow-primary/20"
+          >
+            {isImporting ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Mengimpor...
+              </>
+            ) : (
+              <>
+                <Upload className="h-3.5 w-3.5" />
+                Impor Excel
+              </>
+            )}
+          </Button>
         </div>
       </div>
 
@@ -192,17 +500,13 @@ export default function HargaBahanBakuPage() {
                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Bahan Terpilih</span>
                     <span className={cn(
                       "inline-flex items-center px-2.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-tight",
-                      selectedMaterial.metodePembelian === "Pembuatan Sendiri"
-                        ? "bg-purple-100 text-purple-800 border border-purple-200"
-                        : selectedMaterial.metodePembelian === "Beli Sendiri" 
-                          ? "bg-amber-100 text-amber-800 border border-amber-200" 
-                          : "bg-blue-100 text-blue-800 border border-blue-200"
+                      selectedMaterial.metodePembelian === "Beli Sendiri" 
+                        ? "bg-amber-100 text-amber-800 border border-amber-200" 
+                        : "bg-blue-100 text-blue-800 border border-blue-200"
                     )}>
-                      {selectedMaterial.metodePembelian === "Pembuatan Sendiri"
-                        ? "3. Pembuatan Sendiri"
-                        : selectedMaterial.metodePembelian === "Beli Sendiri" 
-                          ? "2. Beli Sendiri" 
-                          : "1. Supliyer"}
+                      {selectedMaterial.metodePembelian === "Beli Sendiri" 
+                        ? "2. Beli Sendiri" 
+                        : "1. Supliyer"}
                     </span>
                   </div>
                   <h2 className="text-2xl font-black text-slate-900">{selectedMaterial.nama}</h2>
@@ -233,19 +537,12 @@ export default function HargaBahanBakuPage() {
               {/* Redaksi Metode Pembelian Context */}
               <div className={cn(
                 "rounded-2xl p-4 border text-xs space-y-1.5",
-                selectedMaterial.metodePembelian === "Pembuatan Sendiri"
-                  ? "bg-purple-50/50 border-purple-200/70 text-purple-900"
-                  : selectedMaterial.metodePembelian === "Beli Sendiri" 
-                    ? "bg-amber-50/50 border-amber-200/70 text-amber-900" 
-                    : "bg-blue-50/50 border-blue-200/70 text-blue-900"
+                selectedMaterial.metodePembelian === "Beli Sendiri" 
+                  ? "bg-amber-50/50 border-amber-200/70 text-amber-900" 
+                  : "bg-blue-50/50 border-blue-200/70 text-blue-900"
               )}>
                 <div className="flex items-center gap-2 font-black uppercase text-[10px] tracking-wider">
-                  {selectedMaterial.metodePembelian === "Pembuatan Sendiri" ? (
-                    <>
-                      <ChefHat className="h-4 w-4 text-purple-600" />
-                      Redaksi: Produksi Internal (Pembuatan Sendiri)
-                    </>
-                  ) : selectedMaterial.metodePembelian === "Beli Sendiri" ? (
+                  {selectedMaterial.metodePembelian === "Beli Sendiri" ? (
                     <>
                       <ShoppingBag className="h-4 w-4 text-amber-600" />
                       Redaksi: Pembelian Fleksibel (Beli Sendiri)
@@ -258,11 +555,9 @@ export default function HargaBahanBakuPage() {
                   )}
                 </div>
                 <p className="text-[11px] leading-relaxed opacity-90 font-medium">
-                  {selectedMaterial.metodePembelian === "Pembuatan Sendiri"
-                    ? `Item ini merupakan bahan/base hasil racikan atau pembuatan sendiri internal (misal: Base Kopi, Gula Cair, Creamyfoam). HPP dan biaya bahan dikalkulasikan dari komposisi resep pelengkap atau biaya modal bahan penyusunnya.`
-                    : selectedMaterial.metodePembelian === "Beli Sendiri" 
-                      ? `Item ini dikategorikan "Beli Sendiri" (misal: belanja per pack/box/pcs dengan berat/isi yang bervariasi). Penginputan harga per satuan kecil (${selectedMaterial.satuanKecil || 'satuan kecil'}) akan menjadi acuan fleksibel saat input belanja langsung.`
-                      : `Item ini dikategorikan "Supliyer" dengan patokan baku paket/dus dari supliyer utama. Penghitungan konversi ke ${selectedMaterial.satuanKecil || 'satuan kecil'} terkalkulasi secara standar.`
+                  {selectedMaterial.metodePembelian === "Beli Sendiri" 
+                    ? `Item ini dikategorikan "Beli Sendiri" (misal: belanja per pack/box/pcs dengan berat/isi yang bervariasi). Penginputan harga per satuan kecil (${selectedMaterial.satuanKecil || 'satuan kecil'}) akan menjadi acuan fleksibel saat input belanja langsung.`
+                    : `Item ini dikategorikan "Supliyer" dengan patokan baku paket/dus dari supliyer utama. Penghitungan konversi ke ${selectedMaterial.satuanKecil || 'satuan kecil'} terkalkulasi secara standar.`
                   }
                 </p>
               </div>

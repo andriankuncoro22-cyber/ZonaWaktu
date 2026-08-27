@@ -17,6 +17,7 @@ import {
   FileSpreadsheet,
   FileText,
   Download,
+  FileDown,
   Upload,
   Loader2,
   ChefHat,
@@ -516,6 +517,109 @@ export default function ResepProdukPage() {
     return allRows;
   };
 
+  const handleDownloadTemplate = async () => {
+    const XLSX = await import("xlsx");
+    const templateRows = [
+      {
+        "Tipe": "Produk",
+        "Kode": "P-001",
+        "Nama Produk / Pelengkap": "Avocado Choco",
+        "Kategori": "Non-Coffee",
+        "No": 1,
+        "Kode Bahan": "BB-001",
+        "Nama Bahan": "Base Kopi",
+        "Qty": 30,
+        "Satuan": "gr",
+        "Harga Satuan (Rp)": 100,
+        "Total Harga (Rp)": 3000,
+        "Total HPP (Rp)": ""
+      },
+      {
+        "Tipe": "",
+        "Kode": "",
+        "Nama Produk / Pelengkap": "",
+        "Kategori": "",
+        "No": 2,
+        "Kode Bahan": "BB-004",
+        "Nama Bahan": "Gula Cair",
+        "Qty": 20,
+        "Satuan": "ml",
+        "Harga Satuan (Rp)": 18,
+        "Total Harga (Rp)": 360,
+        "Total HPP (Rp)": ""
+      },
+      {
+        "Tipe": "",
+        "Kode": "",
+        "Nama Produk / Pelengkap": "",
+        "Kategori": "",
+        "No": 3,
+        "Kode Bahan": "BB-006",
+        "Nama Bahan": "Susu UHT",
+        "Qty": 120,
+        "Satuan": "ml",
+        "Harga Satuan (Rp)": 19,
+        "Total Harga (Rp)": 2280,
+        "Total HPP (Rp)": 5640
+      },
+      {},
+      {
+        "Tipe": "Pelengkap",
+        "Kode": "BB-001",
+        "Nama Produk / Pelengkap": "Base Kopi",
+        "Kategori": "Resep Internal",
+        "No": 1,
+        "Kode Bahan": "BB-010",
+        "Nama Bahan": "Bubuk Kopi Robusta",
+        "Qty": 250,
+        "Satuan": "gr",
+        "Harga Satuan (Rp)": 80,
+        "Total Harga (Rp)": 20000,
+        "Total HPP (Rp)": ""
+      },
+      {
+        "Tipe": "",
+        "Kode": "",
+        "Nama Produk / Pelengkap": "",
+        "Kategori": "",
+        "No": 2,
+        "Kode Bahan": "BB-015",
+        "Nama Bahan": "Air Panas",
+        "Qty": 1000,
+        "Satuan": "ml",
+        "Harga Satuan (Rp)": 2,
+        "Total Harga (Rp)": 2000,
+        "Total HPP (Rp)": 22000
+      }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(templateRows);
+
+    ws['!cols'] = [
+      { wch: 10 }, // Tipe
+      { wch: 12 }, // Kode
+      { wch: 30 }, // Nama
+      { wch: 18 }, // Kategori
+      { wch: 5  }, // No
+      { wch: 12 }, // Kode Bahan
+      { wch: 28 }, // Nama Bahan
+      { wch: 8  }, // Qty
+      { wch: 10 }, // Satuan
+      { wch: 18 }, // Harga Satuan
+      { wch: 18 }, // Total Harga
+      { wch: 18 }, // Total HPP
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Template Resep");
+    XLSX.writeFile(wb, "Template_Impor_Resep_ZonaWaktu.xlsx");
+    
+    toast({
+      title: "Template Diunduh",
+      description: "File Template_Impor_Resep_ZonaWaktu.xlsx siap digunakan untuk format import resep."
+    });
+  };
+
   const handleDownloadExcel = async () => {
     const XLSX = await import("xlsx");
     const rows = buildExportData();
@@ -961,6 +1065,14 @@ export default function ResepProdukPage() {
 
           {/* Action & Download Buttons */}
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleDownloadTemplate}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white border border-slate-200 hover:bg-slate-50 active:scale-95 text-slate-700 text-[10px] font-black uppercase tracking-widest shadow-sm transition-all duration-200"
+              title="Download Template Excel untuk Impor Resep"
+            >
+              <FileDown className="h-4 w-4 text-slate-500" />
+              Template Excel
+            </button>
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={isImporting}
