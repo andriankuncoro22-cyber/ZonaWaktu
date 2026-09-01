@@ -21,64 +21,82 @@ export default function TehWargaEmployeeLoginPage() {
   const { toast } = useToast();
 
   const handleLogin = async () => {
+    const inputUsername = username.trim();
+    const inputPassword = password.trim();
+
+    if (!inputUsername || !inputPassword) {
+      setError("Silakan masukkan Username dan Password.");
+      return;
+    }
+
     setLoading(true);
     setError("");
 
     try {
       let userFound = false;
-      let matchedNama = username;
+      let matchedNama = inputUsername;
       let matchedRole = "employee";
 
-      const tehwargaRef = doc(db, "employee_credentials", "logins_tehwarga");
-      const tehwargaSnap = await getDoc(tehwargaRef);
-      if (tehwargaSnap.exists()) {
-        const credentials = tehwargaSnap.data().users || [];
-        const user = credentials.find(
-          (u: any) => u.username === username && u.password === password
-        );
-        if (user) {
+      // 1. Cek langsung ke koleksi karyawan (exact & case-insensitive)
+      const q = query(
+        collection(db, "karyawan"),
+        where("username", "==", inputUsername),
+        where("password", "==", inputPassword)
+      );
+      const kSnap = await getDocs(q);
+
+      if (!kSnap.empty) {
+        userFound = true;
+        matchedNama = kSnap.docs[0].data().nama || inputUsername;
+      } else {
+        const allKSnap = await getDocs(collection(db, "karyawan"));
+        const foundDoc = allKSnap.docs.find(d => {
+          const dData = d.data();
+          return (
+            String(dData.username || "").trim().toLowerCase() === inputUsername.toLowerCase() &&
+            String(dData.password || "").trim() === inputPassword
+          );
+        });
+
+        if (foundDoc) {
           userFound = true;
-          matchedNama = user.nama || username;
-          matchedRole = user.role || "employee";
+          matchedNama = foundDoc.data().nama || inputUsername;
         }
       }
 
+      // 2. Cek ke dokumen employee_credentials logins_tehwarga atau logins
       if (!userFound) {
-        const credentialsRef = doc(db, "employee_credentials", "logins");
-        const docSnap = await getDoc(credentialsRef);
-        if (docSnap.exists()) {
-          const credentials = docSnap.data().users || [];
+        const tehwargaRef = doc(db, "employee_credentials", "logins_tehwarga");
+        let tehwargaSnap = await getDoc(tehwargaRef);
+        if (!tehwargaSnap.exists()) {
+          tehwargaSnap = await getDoc(doc(db, "employee_credentials", "logins"));
+        }
+
+        if (tehwargaSnap.exists()) {
+          const credentials = tehwargaSnap.data().users || [];
           const user = credentials.find(
-            (u: any) => u.username === username && u.password === password
+            (u: any) => 
+              String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
+              String(u.password || "").trim() === inputPassword
           );
           if (user) {
             userFound = true;
-            matchedNama = user.nama || username;
+            matchedNama = user.nama || inputUsername;
             matchedRole = user.role || "employee";
           }
         }
       }
 
-      // Also check direct karyawan collection (scoped to karyawan_tehwarga)
-      if (!userFound) {
-        const q = query(
-          collection(db, "karyawan"),
-          where("username", "==", username),
-          where("password", "==", password)
-        );
-        const kSnap = await getDocs(q);
-        if (!kSnap.empty) {
-          userFound = true;
-          matchedNama = kSnap.docs[0].data().nama || username;
-        }
-      }
-
       if (userFound) {
-        localStorage.setItem("user_role", matchedRole);
-        localStorage.setItem("employee_name", matchedNama);
-        localStorage.setItem("current_branch", "tehwarga");
-        document.documentElement.setAttribute("data-branch", "tehwarga");
-        window.dispatchEvent(new Event("branch_changed"));
+        try {
+          localStorage.setItem("user_role", matchedRole);
+          localStorage.setItem("employee_name", matchedNama);
+          localStorage.setItem("current_branch", "tehwarga");
+          document.documentElement.setAttribute("data-branch", "tehwarga");
+          window.dispatchEvent(new Event("branch_changed"));
+        } catch (storageErr) {
+          console.warn("Storage error on mobile webview:", storageErr);
+        }
 
         toast({
           title: "Login Berhasil",
@@ -87,7 +105,7 @@ export default function TehWargaEmployeeLoginPage() {
 
         router.push("/employee/dashboard");
       } else {
-        setError("Username atau password salah");
+        setError("Username atau password salah. Pastikan huruf besar/kecil dan spasi sudah sesuai.");
       }
     } catch (err: any) {
       console.error(err);
@@ -142,6 +160,11 @@ export default function TehWargaEmployeeLoginPage() {
                 onChange={(e) => setUsername(e.target.value)}
                 className="bg-black/30 border-emerald-500/40 text-white placeholder:text-white/30 rounded-xl h-11"
                 placeholder="Masukkan username karyawan"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="username"
+                disabled={loading}
               />
             </div>
             <div className="space-y-2">
@@ -154,6 +177,11 @@ export default function TehWargaEmployeeLoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   className="bg-black/30 border-emerald-500/40 text-white pr-10 rounded-xl h-11"
                   placeholder="••••••••"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  autoComplete="current-password"
+                  disabled={loading}
                 />
                 <div className="absolute inset-y-0 right-2 flex items-center">
                   <Button

@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Coffee, Loader2, ArrowLeft, Eye, EyeOff } from "lucide-react";
-import { useFirestore, doc } from "@/firebase";
-import { getDoc } from "firebase/firestore";
+import { useFirestore, doc, collection } from "@/firebase";
+import { getDoc, getDocs, query, where } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 
 export default function EmployeeLoginPage() {
@@ -21,37 +21,88 @@ export default function EmployeeLoginPage() {
   const { toast } = useToast();
 
   const handleLogin = async () => {
+    const inputUsername = username.trim();
+    const inputPassword = password.trim();
+
+    if (!inputUsername || !inputPassword) {
+      setError("Silakan masukkan Username dan Password.");
+      return;
+    }
+
     setLoading(true);
     setError("");
 
     try {
-      const credentialsRef = doc(db, "employee_credentials", "logins");
-      const docSnap = await getDoc(credentialsRef);
+      let userFound = false;
+      let matchedNama = inputUsername;
 
-      if (docSnap.exists()) {
-        const credentials = docSnap.data().users || [];
-        const user = credentials.find(
-          (u: any) => u.username === username && u.password === password
-        );
+      // 1. Cek langsung ke koleksi karyawan
+      const q = query(
+        collection(db, "karyawan"),
+        where("username", "==", inputUsername),
+        where("password", "==", inputPassword)
+      );
+      const kSnap = await getDocs(q);
 
-        if (user) {
-          localStorage.setItem("current_branch", "gdm");
-          toast({ title: "Login Berhasil", description: `Selamat datang, ${username}!` });
-          setUsername("");
-          setPassword("");
-          router.push("/employee/dashboard");
-        } else {
-          setError("Username atau password salah.");
-        }
+      if (!kSnap.empty) {
+        userFound = true;
+        matchedNama = kSnap.docs[0].data().nama || inputUsername;
       } else {
-        setError("Sistem otentikasi belum dikonfigurasi.");
+        // Fallback case-insensitive di koleksi karyawan
+        const allKSnap = await getDocs(collection(db, "karyawan"));
+        const foundDoc = allKSnap.docs.find(d => {
+          const dData = d.data();
+          return (
+            String(dData.username || "").trim().toLowerCase() === inputUsername.toLowerCase() &&
+            String(dData.password || "").trim() === inputPassword
+          );
+        });
+
+        if (foundDoc) {
+          userFound = true;
+          matchedNama = foundDoc.data().nama || inputUsername;
+        }
+      }
+
+      // 2. Cek ke dokumen employee_credentials logins
+      if (!userFound) {
+        const credentialsRef = doc(db, "employee_credentials", "logins");
+        const docSnap = await getDoc(credentialsRef);
+
+        if (docSnap.exists()) {
+          const credentials = docSnap.data().users || [];
+          const user = credentials.find(
+            (u: any) => 
+              String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
+              String(u.password || "").trim() === inputPassword
+          );
+
+          if (user) {
+            userFound = true;
+            matchedNama = user.nama || inputUsername;
+          }
+        }
+      }
+
+      if (userFound) {
+        try {
+          localStorage.setItem("current_branch", "gdm");
+        } catch (storageErr) {
+          console.warn("Storage error on mobile webview:", storageErr);
+        }
+        toast({ title: "Login Berhasil", description: `Selamat datang, ${matchedNama}!` });
+        setUsername("");
+        setPassword("");
+        router.push("/employee/dashboard");
+      } else {
+        setError("Username atau password salah. Pastikan huruf besar/kecil dan spasi sudah sesuai.");
       }
     } catch (err) {
       setError("Gagal terhubung ke server. Coba lagi nanti.");
       console.error(err);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   return (
@@ -82,6 +133,10 @@ export default function EmployeeLoginPage() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="bg-black/20 border-white/30 text-white"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="username"
                 disabled={loading}
               />
             </div>
@@ -94,6 +149,10 @@ export default function EmployeeLoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="bg-black/20 border-white/30 text-white pr-10"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  autoComplete="current-password"
                   disabled={loading}
                 />
                 <div className="absolute inset-y-0 right-2 flex items-center">

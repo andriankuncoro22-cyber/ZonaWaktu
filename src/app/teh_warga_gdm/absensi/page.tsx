@@ -166,26 +166,81 @@ export default function TehWargaAbsensiPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    const inputUsername = (loginData.username || "").trim();
+    const inputPassword = (loginData.password || "").trim();
+    if (!inputUsername || !inputPassword) {
+      alert("Silakan masukkan Username dan Password!");
+      return;
+    }
+
     setLoading(true);
     try {
+      let userData: KaryawanUser | null = null;
+
+      // 1. Cek langsung ke koleksi karyawan dengan exact match
       const q = query(
         collection(db, "karyawan"), 
-        where("username", "==", loginData.username.trim()),
-        where("password", "==", loginData.password)
+        where("username", "==", inputUsername),
+        where("password", "==", inputPassword)
       );
       const querySnapshot = await getDocs(q);
       if (!querySnapshot.empty) {
-        const u = { id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() } as KaryawanUser;
-        setUser(u);
-        localStorage.setItem("karyawan_user_tehwarga", JSON.stringify(u));
-        localStorage.setItem("current_branch", "tehwarga");
-        fetchAttendanceData(u.id);
+        userData = { id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() } as KaryawanUser;
       } else {
-        alert("Username atau password salah untuk outlet Teh Warga Gandrungmangu.");
+        // 2. Fallback: Case-insensitive username match di koleksi karyawan
+        const allKaryawanSnap = await getDocs(collection(db, "karyawan"));
+        const foundDoc = allKaryawanSnap.docs.find(d => {
+          const dData = d.data();
+          return (
+            String(dData.username || "").trim().toLowerCase() === inputUsername.toLowerCase() &&
+            String(dData.password || "").trim() === inputPassword
+          );
+        });
+
+        if (foundDoc) {
+          userData = { id: foundDoc.id, ...foundDoc.data() } as KaryawanUser;
+        } else {
+          // 3. Fallback: Cek di dokumen employee_credentials logins_tehwarga atau logins
+          const credRef = doc(db, "employee_credentials", "logins_tehwarga");
+          let credSnap = await getDoc(credRef);
+          if (!credSnap.exists()) {
+            credSnap = await getDoc(doc(db, "employee_credentials", "logins"));
+          }
+
+          if (credSnap.exists()) {
+            const users = credSnap.data().users || [];
+            const credUser = users.find((u: any) => 
+              String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() &&
+              String(u.password || "").trim() === inputPassword
+            );
+            if (credUser) {
+              userData = {
+                id: credUser.id || `emp_${credUser.username}`,
+                nama: credUser.nama || credUser.username,
+                username: credUser.username,
+                ...credUser
+              } as KaryawanUser;
+            }
+          }
+        }
+      }
+
+      if (userData) {
+        setUser(userData);
+        try {
+          localStorage.setItem("karyawan_user_tehwarga", JSON.stringify(userData));
+          localStorage.setItem("current_branch", "tehwarga");
+        } catch (storageErr) {
+          console.warn("Storage error on mobile webview:", storageErr);
+        }
+        setLoginData({ username: "", password: "" });
+        fetchAttendanceData(userData.id);
+      } else {
+        alert("Username atau password salah! Pastikan huruf besar/kecil dan spasi sudah sesuai.");
       }
     } catch (e) {
       console.error("Login failed", e);
-      alert("Terjadi kesalahan saat login.");
+      alert("Terjadi kesalahan saat login. Periksa koneksi internet Anda.");
     } finally {
       setLoading(false);
     }
@@ -398,6 +453,10 @@ export default function TehWargaAbsensiPage() {
                   value={loginData.username}
                   onChange={(e) => setLoginData({ ...loginData, username: e.target.value })}
                   className="bg-black/40 border-emerald-500/40 text-white rounded-xl h-11"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  autoComplete="username"
                   required
                 />
               </div>
@@ -409,6 +468,10 @@ export default function TehWargaAbsensiPage() {
                   value={loginData.password}
                   onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
                   className="bg-black/40 border-emerald-500/40 text-white rounded-xl h-11"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  autoComplete="current-password"
                   required
                 />
               </div>

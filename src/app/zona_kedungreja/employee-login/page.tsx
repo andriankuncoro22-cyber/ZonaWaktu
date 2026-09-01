@@ -21,67 +21,89 @@ export default function KedungrejaEmployeeLoginPage() {
   const { toast } = useToast();
 
   const handleLogin = async () => {
+    const inputUsername = username.trim();
+    const inputPassword = password.trim();
+
+    if (!inputUsername || !inputPassword) {
+      setError("Silakan masukkan Username dan Password.");
+      return;
+    }
+
     setLoading(true);
     setError("");
 
     try {
-      // 1. Check in employee_credentials/logins_kedungreja or logins
       let userFound = false;
-      
-      const kedungrejaRef = doc(db, "employee_credentials", "logins_kedungreja");
-      const kedungrejaSnap = await getDoc(kedungrejaRef);
-      if (kedungrejaSnap.exists()) {
-        const credentials = kedungrejaSnap.data().users || [];
-        const user = credentials.find(
-          (u: any) => u.username === username && u.password === password
-        );
-        if (user) {
+      let matchedNama = inputUsername;
+
+      // 1. Cek ke koleksi karyawan (exact & case-insensitive)
+      const q = query(
+        collection(db, "karyawan"),
+        where("username", "==", inputUsername),
+        where("password", "==", inputPassword)
+      );
+      const kSnap = await getDocs(q);
+
+      if (!kSnap.empty) {
+        userFound = true;
+        matchedNama = kSnap.docs[0].data().nama || inputUsername;
+      } else {
+        const allKSnap = await getDocs(collection(db, "karyawan"));
+        const foundDoc = allKSnap.docs.find(d => {
+          const dData = d.data();
+          return (
+            String(dData.username || "").trim().toLowerCase() === inputUsername.toLowerCase() &&
+            String(dData.password || "").trim() === inputPassword
+          );
+        });
+
+        if (foundDoc) {
           userFound = true;
+          matchedNama = foundDoc.data().nama || inputUsername;
         }
       }
 
+      // 2. Cek ke dokumen employee_credentials/logins_kedungreja atau logins
       if (!userFound) {
-        const credentialsRef = doc(db, "employee_credentials", "logins");
-        const docSnap = await getDoc(credentialsRef);
-        if (docSnap.exists()) {
-          const credentials = docSnap.data().users || [];
+        const kedungrejaRef = doc(db, "employee_credentials", "logins_kedungreja");
+        let kedungrejaSnap = await getDoc(kedungrejaRef);
+        if (!kedungrejaSnap.exists()) {
+          kedungrejaSnap = await getDoc(doc(db, "employee_credentials", "logins"));
+        }
+
+        if (kedungrejaSnap.exists()) {
+          const credentials = kedungrejaSnap.data().users || [];
           const user = credentials.find(
-            (u: any) => u.username === username && u.password === password
+            (u: any) => 
+              String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
+              String(u.password || "").trim() === inputPassword
           );
           if (user) {
             userFound = true;
+            matchedNama = user.nama || inputUsername;
           }
         }
       }
 
-      // Also check direct karyawan collection
-      if (!userFound) {
-        const q = query(
-          collection(db, "karyawan"),
-          where("username", "==", username),
-          where("password", "==", password)
-        );
-        const kSnap = await getDocs(q);
-        if (!kSnap.empty) {
-          userFound = true;
-        }
-      }
-
       if (userFound) {
-        localStorage.setItem("current_branch", "kedungreja");
-        toast({ title: "Login Berhasil", description: `Selamat datang di Cabang Kedungreja, ${username}!` });
+        try {
+          localStorage.setItem("current_branch", "kedungreja");
+        } catch (storageErr) {
+          console.warn("Storage error on mobile webview:", storageErr);
+        }
+        toast({ title: "Login Berhasil", description: `Selamat datang di Cabang Kedungreja, ${matchedNama}!` });
         setUsername("");
         setPassword("");
         router.push("/employee/dashboard");
       } else {
-        setError("Username atau password salah.");
+        setError("Username atau password salah. Pastikan huruf besar/kecil dan spasi sudah sesuai.");
       }
     } catch (err) {
       setError("Gagal terhubung ke server. Coba lagi nanti.");
       console.error(err);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   return (
@@ -116,6 +138,10 @@ export default function KedungrejaEmployeeLoginPage() {
                 onChange={(e) => setUsername(e.target.value)}
                 className="bg-black/20 border-white/30 text-white"
                 placeholder="Masukkan username karyawan"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="username"
                 disabled={loading}
               />
             </div>
@@ -128,6 +154,10 @@ export default function KedungrejaEmployeeLoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="bg-black/20 border-white/30 text-white pr-10"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  autoComplete="current-password"
                   disabled={loading}
                 />
                 <div className="absolute inset-y-0 right-2 flex items-center">

@@ -140,29 +140,101 @@ export default function PengaturanAbsensiPage() {
   const [formGender, setFormGender] = useState("Laki-laki");
   const [formTeam, setFormTeam] = useState("tim1");
 
+  // Helper untuk sinkronisasi kredensial ke Firestore agar dapat digunakan di semua device (PC & Mobile Android)
+  const syncCredentialsToFirestore = async (firestoreDb: any) => {
+    const snapshot = await getDocs(collection(firestoreDb, "karyawan"));
+    const allUsers: any[] = [];
+    const kedungrejaUsers: any[] = [];
+    const tehwargaUsers: any[] = [];
+
+    snapshot.docs.forEach((d) => {
+      const data = d.data();
+      const cleanUsername = String(data.username || "").trim();
+      const cleanPassword = String(data.password || "").trim();
+      const cleanNama = String(data.nama || cleanUsername).trim();
+      const role = "employee";
+
+      if (cleanUsername && cleanPassword) {
+        const userObj = {
+          id: d.id,
+          username: cleanUsername,
+          password: cleanPassword,
+          nama: cleanNama,
+          role: role,
+          gender: data.gender || "Laki-laki",
+          team: data.team || "tim1",
+          status: data.status || "aktif"
+        };
+
+        allUsers.push(userObj);
+        kedungrejaUsers.push(userObj);
+        tehwargaUsers.push(userObj);
+      }
+    });
+
+    // Sinkronisasi ke koleksi employee_credentials (multi-branch & multi-device)
+    await setDoc(doc(firestoreDb, "employee_credentials", "logins"), {
+      users: allUsers,
+      totalUsers: allUsers.length,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    await setDoc(doc(firestoreDb, "employee_credentials", "logins_kedungreja"), {
+      users: kedungrejaUsers,
+      totalUsers: kedungrejaUsers.length,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    await setDoc(doc(firestoreDb, "employee_credentials", "logins_tehwarga"), {
+      users: tehwargaUsers,
+      totalUsers: tehwargaUsers.length,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    // Sinkronisasi info ke absensi_config
+    await setDoc(doc(firestoreDb, "settings", "absensi_config"), {
+      lastGlobalSync: serverTimestamp(),
+      totalActiveKaryawan: allUsers.length
+    }, { merge: true });
+
+    return allUsers.length;
+  };
+
   const handleSaveKaryawan = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const cleanNama = formNama.trim();
+    const cleanUsername = formUsername.trim();
+    const cleanPassword = formPassword.trim();
+
+    if (!cleanNama || !cleanUsername || !cleanPassword) {
+      alert("Nama, Username, dan Password wajib diisi!");
+      return;
+    }
+
     try {
       const data = {
-        nama: formNama,
-        username: formUsername,
-        password: formPassword,
+        nama: cleanNama,
+        username: cleanUsername,
+        password: cleanPassword,
         gender: formGender,
         team: formTeam,
+        status: "aktif",
         updatedAt: serverTimestamp()
       };
 
       if (editingKaryawan) {
         await updateDoc(doc(db, "karyawan", editingKaryawan.id), data);
-        alert("Rincian karyawan berhasil diupdate!");
       } else {
         await addDoc(collection(db, "karyawan"), {
           ...data,
-          createdAt: serverTimestamp(),
-          status: "aktif"
+          createdAt: serverTimestamp()
         });
-        alert("Karyawan baru berhasil ditambahkan!");
       }
+
+      // Otomatis sinkronisasi kredensial ke seluruh device & branch
+      await syncCredentialsToFirestore(db);
+
+      alert(editingKaryawan ? "Data karyawan berhasil diupdate & disinkronkan ke seluruh device!" : "Karyawan baru berhasil ditambahkan & disinkronkan ke seluruh device!");
 
       // Reset Form
       setEditingKaryawan(null);
@@ -184,8 +256,15 @@ export default function PengaturanAbsensiPage() {
       const batch = writeBatch(db);
       
       snapshot.docs.forEach((d) => {
-        // Memastikan setiap karyawan memiliki field status dan updatedAt yang sinkron
+        const data = d.data();
+        const cleanUsername = String(data.username || "").trim();
+        const cleanPassword = String(data.password || "").trim();
+        const cleanNama = String(data.nama || cleanUsername).trim();
+
         batch.update(d.ref, { 
+          nama: cleanNama,
+          username: cleanUsername,
+          password: cleanPassword,
           status: "aktif",
           lastSynced: serverTimestamp() 
         });
@@ -193,15 +272,13 @@ export default function PengaturanAbsensiPage() {
       
       await batch.commit();
       
-      // Update global sync timestamp
-      await setDoc(doc(db, "settings", "absensi_config"), {
-        lastGlobalSync: serverTimestamp()
-      }, { merge: true });
+      // Sinkronkan seluruh kredensial logins multi-device
+      const totalSynced = await syncCredentialsToFirestore(db);
 
-      alert("Sinkronisasi Kaderisasi Berhasil!");
+      alert(`Sinkronisasi Kaderisasi Berhasil!\n${totalSynced} akun karyawan aktif telah disinkronkan ke Firestore untuk semua perangkat (PC, Mobile Android, dan POS).`);
     } catch (err) {
       console.error("Error syncing kaderisasi:", err);
-      alert("Gagal melakukan sinkronisasi.");
+      alert("Gagal melakukan sinkronisasi kaderisasi.");
     } finally {
       setSyncing(false);
     }
@@ -579,9 +656,11 @@ export default function PengaturanAbsensiPage() {
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              onClick={() => {
+                              onClick={async () => {
                                 if (window.confirm(`Hapus karyawan ${k.nama}?`)) {
-                                  deleteDoc(doc(db, "karyawan", k.id));
+                                  await deleteDoc(doc(db, "karyawan", k.id));
+                                  await syncCredentialsToFirestore(db);
+                                  alert(`Data karyawan ${k.nama} berhasil dihapus & kredensial tersinkronisasi.`);
                                 }
                               }} 
                               className="text-slate-400 hover:text-rose-600"

@@ -154,30 +154,82 @@ export default function KedungrejaAbsensiPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!loginData.username || !loginData.password) return;
+    const inputUsername = (loginData.username || "").trim();
+    const inputPassword = (loginData.password || "").trim();
+    if (!inputUsername || !inputPassword) {
+      alert("Silakan masukkan Username dan Password!");
+      return;
+    }
     
     setLoading(true);
     try {
+      let userData: KaryawanUser | null = null;
+
+      // 1. Cek langsung ke koleksi karyawan dengan exact match
       const q = query(
         collection(db, "karyawan"), 
-        where("username", "==", loginData.username), 
-        where("password", "==", loginData.password)
+        where("username", "==", inputUsername), 
+        where("password", "==", inputPassword)
       );
       const snapshot = await getDocs(q);
       
       if (!snapshot.empty) {
-        const userData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as KaryawanUser;
+        userData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as KaryawanUser;
+      } else {
+        // 2. Fallback: Case-insensitive username match di koleksi karyawan
+        const allKaryawanSnap = await getDocs(collection(db, "karyawan"));
+        const foundDoc = allKaryawanSnap.docs.find(d => {
+          const dData = d.data();
+          return (
+            String(dData.username || "").trim().toLowerCase() === inputUsername.toLowerCase() &&
+            String(dData.password || "").trim() === inputPassword
+          );
+        });
+
+        if (foundDoc) {
+          userData = { id: foundDoc.id, ...foundDoc.data() } as KaryawanUser;
+        } else {
+          // 3. Fallback: Cek di dokumen employee_credentials logins_kedungreja atau logins
+          const credRef = doc(db, "employee_credentials", "logins_kedungreja");
+          let credSnap = await getDoc(credRef);
+          if (!credSnap.exists()) {
+            credSnap = await getDoc(doc(db, "employee_credentials", "logins"));
+          }
+
+          if (credSnap.exists()) {
+            const users = credSnap.data().users || [];
+            const credUser = users.find((u: any) => 
+              String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() &&
+              String(u.password || "").trim() === inputPassword
+            );
+            if (credUser) {
+              userData = {
+                id: credUser.id || `emp_${credUser.username}`,
+                nama: credUser.nama || credUser.username,
+                username: credUser.username,
+                ...credUser
+              } as KaryawanUser;
+            }
+          }
+        }
+      }
+
+      if (userData) {
         setUser(userData);
-        localStorage.setItem("absensi_user_kedungreja", JSON.stringify(userData));
-        localStorage.setItem("current_branch", "kedungreja");
+        try {
+          localStorage.setItem("absensi_user_kedungreja", JSON.stringify(userData));
+          localStorage.setItem("current_branch", "kedungreja");
+        } catch (storageErr) {
+          console.warn("Storage error on mobile webview:", storageErr);
+        }
         setLoginData({ username: "", password: "" }); 
         await fetchAttendanceData(userData.id);
       } else {
-        alert("Username atau Password salah!");
+        alert("Username atau Password salah! Pastikan huruf besar/kecil dan spasi sudah sesuai.");
       }
     } catch (err) {
       console.error("Login error", err);
-      alert("Terjadi kesalahan sistem.");
+      alert("Terjadi kesalahan sistem saat login. Periksa koneksi internet Anda.");
     } finally {
       setLoading(false);
     }
@@ -303,40 +355,96 @@ export default function KedungrejaAbsensiPage() {
     }
   };
 
-  const validateLocation = useCallback(() => {
-    const locationConfig = config?.location || config;
-    if (!locationConfig) return;
+  const [checkingLocation, setCheckingLocation] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
 
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition((position) => {
-        const userLat = position.coords.latitude;
-        const userLng = position.coords.longitude;
-        
-        const dist = getDistance(
-          userLat, 
-          userLng, 
-          parseFloat(locationConfig.lat), 
-          parseFloat(locationConfig.lng)
-        );
-        
-        setDistance(Math.round(dist));
-        setIsWithinRadius(dist <= parseFloat(locationConfig.radius));
-      }, (error) => {
-        console.error("Geolocation error:", error);
-        alert("Gagal mendapatkan lokasi. Pastikan izin GPS aktif.");
-      }, {
-        enableHighAccuracy: true,
-        timeout: 5000,
-        maximumAge: 0
-      });
+  const validateLocation = useCallback((showUserAlert = false) => {
+    const locationConfig = config?.location || config;
+    if (!locationConfig || !locationConfig.lat || !locationConfig.lng) return;
+
+    if (!navigator.geolocation) {
+      setLocationError("Browser ini tidak mendukung deteksi lokasi (GPS).");
+      setIsWithinRadius(false);
+      if (showUserAlert) alert("Browser ini tidak mendukung deteksi GPS.");
+      return;
     }
+
+    setCheckingLocation(true);
+    setLocationError(null);
+
+    const onPosSuccess = (position: GeolocationPosition) => {
+      const userLat = position.coords.latitude;
+      const userLng = position.coords.longitude;
+      
+      const dist = getDistance(
+        userLat, 
+        userLng, 
+        parseFloat(locationConfig.lat), 
+        parseFloat(locationConfig.lng)
+      );
+      
+      const roundedDist = Math.round(dist);
+      const maxRadius = parseFloat(locationConfig.radius || "50");
+      setDistance(roundedDist);
+      setIsWithinRadius(roundedDist <= maxRadius);
+      setCheckingLocation(false);
+      setLocationError(null);
+      if (showUserAlert) {
+        if (roundedDist <= maxRadius) {
+          alert(`Lokasi Terverifikasi! Anda berada ${roundedDist}m dari cabang Kedungreja (dalam radius ${maxRadius}m).`);
+        } else {
+          alert(`Anda berada ${roundedDist}m dari cabang Kedungreja (di luar batas radius ${maxRadius}m).`);
+        }
+      }
+    };
+
+    const onPosError = (error: GeolocationPositionError) => {
+      console.warn("Geolocation warning:", error.message || error);
+      
+      if (error.code === error.TIMEOUT) {
+        navigator.geolocation.getCurrentPosition(
+          onPosSuccess,
+          (fallbackErr) => {
+            console.warn("Fallback geolocation failed:", fallbackErr.message);
+            setIsWithinRadius(false);
+            setCheckingLocation(false);
+            setLocationError("Waktu permintaan GPS habis. Pastikan GPS aktif.");
+            if (showUserAlert) alert("Waktu permintaan GPS habis. Pastikan izin lokasi aktif.");
+          },
+          { enableHighAccuracy: false, timeout: 15000, maximumAge: 10000 }
+        );
+        return;
+      }
+
+      let errorMsg = "Gagal membaca koordinat GPS.";
+      if (error.code === error.PERMISSION_DENIED) {
+        errorMsg = "Izin akses lokasi (GPS) ditolak. Aktifkan izin lokasi browser/HP.";
+      } else if (error.code === error.POSITION_UNAVAILABLE) {
+        errorMsg = "Informasi GPS tidak tersedia pada perangkat ini.";
+      }
+
+      setLocationError(errorMsg);
+      setIsWithinRadius(false);
+      setCheckingLocation(false);
+      if (showUserAlert) {
+        alert(errorMsg);
+      }
+    };
+
+    navigator.geolocation.getCurrentPosition(onPosSuccess, onPosError, {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 5000
+    });
   }, [config]);
 
   useEffect(() => {
-    if (config) {
-      validateLocation();
+    if (user && config) {
+      validateLocation(false);
+      const interval = setInterval(() => validateLocation(false), 15000);
+      return () => clearInterval(interval);
     }
-  }, [config, validateLocation]);
+  }, [user, config, validateLocation]);
 
   useEffect(() => {
     return () => stopCamera();
@@ -371,7 +479,10 @@ export default function KedungrejaAbsensiPage() {
                 onChange={(e) => setLoginData({...loginData, username: e.target.value})}
                 className="h-14 rounded-2xl border-slate-100 bg-slate-50 font-bold"
                 placeholder="Masukkan username..."
-                autoComplete="off"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="username"
               />
             </div>
             <div className="space-y-2">
@@ -382,7 +493,10 @@ export default function KedungrejaAbsensiPage() {
                 onChange={(e) => setLoginData({...loginData, password: e.target.value})}
                 className="h-14 rounded-2xl border-slate-100 bg-slate-50 font-bold"
                 placeholder="••••••••"
-                autoComplete="off"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="current-password"
               />
             </div>
             <Button 
@@ -441,15 +555,23 @@ export default function KedungrejaAbsensiPage() {
             </span>
           </div>
 
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div className={cn(
               "flex items-center gap-2 px-4 py-2 rounded-xl border",
-              isWithinRadius ? "bg-white/10 border-white/20" : "bg-rose-500/20 border-rose-500/40"
+              isWithinRadius ? "bg-emerald-500/20 border-emerald-400/40 text-emerald-100" : "bg-rose-500/20 border-rose-500/40 text-rose-100"
             )}>
-              <MapPin className="h-3 w-3" />
+              <MapPin className="h-3.5 w-3.5" />
               <span className="text-[9px] font-black uppercase tracking-widest">
-                {isWithinRadius ? 'Dalam Area Kedungreja' : `Luar Radius (${distance}m)`}
+                {isWithinRadius ? `Dalam Area Kedungreja (${distance ?? 0}m)` : distance !== null ? `Luar Radius (${distance}m)` : (locationError || 'Mencari GPS...')}
               </span>
+              <button 
+                type="button"
+                onClick={() => validateLocation(true)}
+                title="Cek Ulang GPS"
+                className="ml-1 p-1 hover:bg-white/20 rounded-lg transition-colors"
+              >
+                <RefreshCw className={cn("h-3 w-3", checkingLocation && "animate-spin")} />
+              </button>
             </div>
             <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md px-4 py-2 rounded-xl border border-white/20">
               <Clock className="h-3 w-3" />
@@ -550,7 +672,7 @@ export default function KedungrejaAbsensiPage() {
             </div>
           </div>
           <Button 
-            onClick={validateLocation}
+            onClick={() => validateLocation(true)}
             variant="ghost" 
             size="icon" 
             className="h-10 w-10 rounded-full hover:bg-rose-100 text-rose-400"
