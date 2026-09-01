@@ -139,43 +139,60 @@ export default function PengaturanAbsensiPage() {
   const [formPassword, setFormPassword] = useState("");
   const [formGender, setFormGender] = useState("Laki-laki");
   const [formTeam, setFormTeam] = useState("tim1");
+  const [formCabang, setFormCabang] = useState<"gdm" | "kedungreja" | "tehwarga">("gdm");
+  const [filterBranch, setFilterBranch] = useState<string>("all");
 
-  // Helper untuk sinkronisasi kredensial ke Firestore agar dapat digunakan di semua device (PC & Mobile Android)
+  // Helper untuk sinkronisasi kredensial ke Firestore agar terisolasi per cabang & dapat digunakan di semua device (PC & Mobile Android)
   const syncCredentialsToFirestore = async (firestoreDb: any) => {
     const snapshot = await getDocs(collection(firestoreDb, "karyawan"));
-    const allUsers: any[] = [];
+    const gdmUsers: any[] = [];
     const kedungrejaUsers: any[] = [];
     const tehwargaUsers: any[] = [];
+    let totalAll = 0;
 
     snapshot.docs.forEach((d) => {
       const data = d.data();
       const cleanUsername = String(data.username || "").trim();
       const cleanPassword = String(data.password || "").trim();
       const cleanNama = String(data.nama || cleanUsername).trim();
+      const userCabang = (data.cabang || "gdm").toLowerCase();
       const role = "employee";
 
       if (cleanUsername && cleanPassword) {
+        totalAll++;
         const userObj = {
           id: d.id,
           username: cleanUsername,
           password: cleanPassword,
           nama: cleanNama,
           role: role,
+          cabang: userCabang,
           gender: data.gender || "Laki-laki",
           team: data.team || "tim1",
           status: data.status || "aktif"
         };
 
-        allUsers.push(userObj);
-        kedungrejaUsers.push(userObj);
-        tehwargaUsers.push(userObj);
+        if (userCabang === "kedungreja") {
+          kedungrejaUsers.push(userObj);
+        } else if (userCabang === "tehwarga") {
+          tehwargaUsers.push(userObj);
+        } else {
+          // Default Zona Waktu Gandrungmangu
+          gdmUsers.push(userObj);
+        }
       }
     });
 
-    // Sinkronisasi ke koleksi employee_credentials (multi-branch & multi-device)
+    // Sinkronisasi ke koleksi employee_credentials per masing-masing cabang
+    await setDoc(doc(firestoreDb, "employee_credentials", "logins_gdm"), {
+      users: gdmUsers,
+      totalUsers: gdmUsers.length,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
     await setDoc(doc(firestoreDb, "employee_credentials", "logins"), {
-      users: allUsers,
-      totalUsers: allUsers.length,
+      users: gdmUsers,
+      totalUsers: gdmUsers.length,
       updatedAt: serverTimestamp()
     }, { merge: true });
 
@@ -194,10 +211,10 @@ export default function PengaturanAbsensiPage() {
     // Sinkronisasi info ke absensi_config
     await setDoc(doc(firestoreDb, "settings", "absensi_config"), {
       lastGlobalSync: serverTimestamp(),
-      totalActiveKaryawan: allUsers.length
+      totalActiveKaryawan: totalAll
     }, { merge: true });
 
-    return allUsers.length;
+    return totalAll;
   };
 
   const handleSaveKaryawan = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -218,6 +235,7 @@ export default function PengaturanAbsensiPage() {
         password: cleanPassword,
         gender: formGender,
         team: formTeam,
+        cabang: formCabang,
         status: "aktif",
         updatedAt: serverTimestamp()
       };
@@ -231,10 +249,10 @@ export default function PengaturanAbsensiPage() {
         });
       }
 
-      // Otomatis sinkronisasi kredensial ke seluruh device & branch
+      // Otomatis sinkronisasi kredensial ke branch yang sesuai
       await syncCredentialsToFirestore(db);
 
-      alert(editingKaryawan ? "Data karyawan berhasil diupdate & disinkronkan ke seluruh device!" : "Karyawan baru berhasil ditambahkan & disinkronkan ke seluruh device!");
+      alert(editingKaryawan ? "Data karyawan berhasil diupdate & disinkronkan ke cabang terkait!" : "Karyawan baru berhasil ditambahkan & disinkronkan ke cabang terkait!");
 
       // Reset Form
       setEditingKaryawan(null);
@@ -243,6 +261,7 @@ export default function PengaturanAbsensiPage() {
       setFormPassword("");
       setFormGender("Laki-laki");
       setFormTeam("tim1");
+      setFormCabang("gdm");
     } catch (err) {
       console.error(err);
       alert("Gagal menyimpan data karyawan.");
@@ -511,6 +530,7 @@ export default function PengaturanAbsensiPage() {
                       setFormPassword("");
                       setFormGender("Laki-laki");
                       setFormTeam("tim1");
+                      setFormCabang("gdm");
                     }}
                     className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 h-8 px-3 rounded-xl border border-slate-100"
                   >
@@ -537,6 +557,9 @@ export default function PengaturanAbsensiPage() {
                       onChange={(e) => setFormUsername(e.target.value)} 
                       required 
                       className="rounded-xl h-11" 
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                     />
                   </div>
                   <div className="space-y-2">
@@ -547,10 +570,26 @@ export default function PengaturanAbsensiPage() {
                       type="password" 
                       required 
                       className="rounded-xl h-11" 
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase">Cabang Penempatan</Label>
+                    <select 
+                      value={formCabang} 
+                      onChange={(e) => setFormCabang(e.target.value as any)} 
+                      required 
+                      className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold focus-visible:outline-none"
+                    >
+                      <option value="gdm">ZW Gandrungmangu</option>
+                      <option value="kedungreja">ZW Kedungreja</option>
+                      <option value="tehwarga">Teh Warga GDM</option>
+                    </select>
+                  </div>
                   <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase">Jenis Kelamin</Label>
                     <select 
@@ -583,33 +622,65 @@ export default function PengaturanAbsensiPage() {
             </Card>
 
             <Card className="lg:col-span-2 rounded-[2.5rem] border-none shadow-sm bg-white overflow-hidden">
-              <div className="p-8 border-b border-slate-50 flex items-center justify-between">
-                <h3 className="text-lg font-black uppercase italic tracking-tight">Database Karyawan</h3>
-                <Button 
-                  variant="ghost" 
-                  disabled={syncing}
-                  onClick={handleSyncKaderisasi}
-                  className={cn(
-                    "text-[10px] font-black uppercase tracking-widest text-primary gap-2",
-                    syncing && "opacity-50"
-                  )}
-                >
-                  <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} /> 
-                  {syncing ? "Sinkronisasi..." : "Sinkronisasi Kaderisasi"}
-                </Button>
+              <div className="p-6 sm:p-8 border-b border-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-black uppercase italic tracking-tight">Database Karyawan</h3>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">Karyawan Terdaftar Per Outlet</p>
+                </div>
+                
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl">
+                    {[
+                      { id: "all", label: "Semua" },
+                      { id: "gdm", label: "ZW-01" },
+                      { id: "kedungreja", label: "ZW-02" },
+                      { id: "tehwarga", label: "TW-01" }
+                    ].map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => setFilterBranch(b.id)}
+                        className={cn(
+                          "px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all",
+                          filterBranch === b.id 
+                            ? "bg-white text-slate-900 shadow-xs" 
+                            : "text-slate-500 hover:text-slate-900"
+                        )}
+                      >
+                        {b.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <Button 
+                    variant="ghost" 
+                    disabled={syncing}
+                    onClick={handleSyncKaderisasi}
+                    className={cn(
+                      "text-[10px] font-black uppercase tracking-widest text-primary gap-2 h-9 px-3 rounded-xl border border-primary/20 hover:bg-primary/5",
+                      syncing && "opacity-50"
+                    )}
+                  >
+                    <RefreshCw className={cn("h-3.5 w-3.5", syncing && "animate-spin")} /> 
+                    {syncing ? "Sinkron..." : "Sinkron Kaderisasi"}
+                  </Button>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
                   <thead>
                     <tr className="bg-slate-50">
                       <th className="px-8 py-4 text-[9px] font-black uppercase text-slate-500">Nama</th>
+                      <th className="px-6 py-4 text-[9px] font-black uppercase text-slate-500">Cabang</th>
                       <th className="px-6 py-4 text-[9px] font-black uppercase text-slate-500">Username</th>
                       <th className="px-6 py-4 text-[9px] font-black uppercase text-slate-500">Detail</th>
                       <th className="px-6 py-4 text-[9px] font-black uppercase text-slate-500 text-right">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {karyawanList?.map((k: any) => (
+                    {karyawanList
+                      ?.filter((k: any) => filterBranch === "all" || (k.cabang || "gdm") === filterBranch)
+                      ?.map((k: any) => (
                       <tr key={k.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-8 py-4">
                           <p className="text-sm font-black text-slate-900">{k.nama}</p>
@@ -621,6 +692,18 @@ export default function PengaturanAbsensiPage() {
                               {k.status || "Baru"}
                             </span>
                           </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={cn(
+                            "text-[9px] font-black uppercase px-2.5 py-1 rounded-lg",
+                            (k.cabang === "kedungreja") 
+                              ? "bg-cyan-50 text-cyan-700 border border-cyan-200" 
+                              : (k.cabang === "tehwarga")
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              : "bg-red-50 text-red-700 border border-red-200"
+                          )}>
+                            {k.cabang === "kedungreja" ? "ZW Kedungreja" : k.cabang === "tehwarga" ? "Teh Warga" : "ZW Gandrungmangu"}
+                          </span>
                         </td>
                         <td className="px-6 py-4 text-xs font-bold text-slate-500">{k.username}</td>
                         <td className="px-6 py-4">
@@ -645,6 +728,7 @@ export default function PengaturanAbsensiPage() {
                                 setFormPassword(k.password || "");
                                 setFormGender(k.gender || "Laki-laki");
                                 setFormTeam(k.team || "tim1");
+                                setFormCabang(k.cabang || "gdm");
                                 setTimeout(() => {
                                   formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
                                 }, 50);

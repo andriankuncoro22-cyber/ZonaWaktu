@@ -189,17 +189,14 @@ export default function KedungrejaAbsensiPage() {
         if (foundDoc) {
           userData = { id: foundDoc.id, ...foundDoc.data() } as KaryawanUser;
         } else {
-          // 3. Fallback: Cek di dokumen employee_credentials logins_kedungreja atau logins
+          // 3. Fallback: Cek di dokumen employee_credentials logins_kedungreja khusus Kedungreja
           const credRef = doc(db, "employee_credentials", "logins_kedungreja");
-          let credSnap = await getDoc(credRef);
-          if (!credSnap.exists()) {
-            credSnap = await getDoc(doc(db, "employee_credentials", "logins"));
-          }
+          const credSnap = await getDoc(credRef);
 
           if (credSnap.exists()) {
             const users = credSnap.data().users || [];
             const credUser = users.find((u: any) => 
-              String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() &&
+              String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
               String(u.password || "").trim() === inputPassword
             );
             if (credUser) {
@@ -207,6 +204,7 @@ export default function KedungrejaAbsensiPage() {
                 id: credUser.id || `emp_${credUser.username}`,
                 nama: credUser.nama || credUser.username,
                 username: credUser.username,
+                cabang: credUser.cabang || "kedungreja",
                 ...credUser
               } as KaryawanUser;
             }
@@ -215,6 +213,12 @@ export default function KedungrejaAbsensiPage() {
       }
 
       if (userData) {
+        const userCabang = (userData.cabang || "gdm").toLowerCase();
+        if (userCabang !== "kedungreja") {
+          alert(`Akses Ditolak: Akun Anda terdaftar di Cabang ${userCabang === 'tehwarga' ? 'Teh Warga' : 'Zona Waktu Gandrungmangu'}. Akun tidak dapat digunakan di Portal Absensi Kedungreja.`);
+          return;
+        }
+
         setUser(userData);
         try {
           localStorage.setItem("absensi_user_kedungreja", JSON.stringify(userData));

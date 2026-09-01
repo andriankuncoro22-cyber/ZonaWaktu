@@ -45,8 +45,14 @@ export default function KedungrejaEmployeeLoginPage() {
       const kSnap = await getDocs(q);
 
       if (!kSnap.empty) {
+        const kData = kSnap.docs[0].data();
+        const kCabang = (kData.cabang || "gdm").toLowerCase();
+        if (kCabang !== "kedungreja") {
+          setError(`Akses Ditolak: Akun Anda terdaftar di Cabang ${kCabang === 'tehwarga' ? 'Teh Warga' : 'Zona Waktu Gandrungmangu'}. Akun tidak dapat digunakan di Outlet Kedungreja.`);
+          return;
+        }
         userFound = true;
-        matchedNama = kSnap.docs[0].data().nama || inputUsername;
+        matchedNama = kData.nama || inputUsername;
       } else {
         const allKSnap = await getDocs(collection(db, "karyawan"));
         const foundDoc = allKSnap.docs.find(d => {
@@ -58,18 +64,21 @@ export default function KedungrejaEmployeeLoginPage() {
         });
 
         if (foundDoc) {
+          const dData = foundDoc.data();
+          const kCabang = (dData.cabang || "gdm").toLowerCase();
+          if (kCabang !== "kedungreja") {
+            setError(`Akses Ditolak: Akun Anda terdaftar di Cabang ${kCabang === 'tehwarga' ? 'Teh Warga' : 'Zona Waktu Gandrungmangu'}. Akun tidak dapat digunakan di Outlet Kedungreja.`);
+            return;
+          }
           userFound = true;
-          matchedNama = foundDoc.data().nama || inputUsername;
+          matchedNama = dData.nama || inputUsername;
         }
       }
 
-      // 2. Cek ke dokumen employee_credentials/logins_kedungreja atau logins
+      // 2. Cek ke dokumen employee_credentials/logins_kedungreja khusus Kedungreja
       if (!userFound) {
         const kedungrejaRef = doc(db, "employee_credentials", "logins_kedungreja");
-        let kedungrejaSnap = await getDoc(kedungrejaRef);
-        if (!kedungrejaSnap.exists()) {
-          kedungrejaSnap = await getDoc(doc(db, "employee_credentials", "logins"));
-        }
+        const kedungrejaSnap = await getDoc(kedungrejaRef);
 
         if (kedungrejaSnap.exists()) {
           const credentials = kedungrejaSnap.data().users || [];

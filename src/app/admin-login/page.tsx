@@ -19,12 +19,23 @@ export default function AdminLoginPage() {
   const db = useFirestore();
 
   const handleLogin = async () => {
+    const inputUser = username.trim();
+    const inputPass = password.trim();
+
+    if (!inputUser || !inputPass) {
+      setError("Silakan masukkan Username dan Password");
+      return;
+    }
+
     setLoading(true);
     setError("");
     try {
       // Fetch admin credentials from Firestore
-      const adminRef = doc(db, "employee_credentials", "admin");
-      const adminSnap = await getDoc(adminRef);
+      const adminGdmRef = doc(db, "employee_credentials", "admin_gdm");
+      let adminSnap = await getDoc(adminGdmRef);
+      if (!adminSnap.exists()) {
+        adminSnap = await getDoc(doc(db, "employee_credentials", "admin"));
+      }
 
       let targetUser = "adminzona";
       let targetPass = "admin00";
@@ -35,14 +46,14 @@ export default function AdminLoginPage() {
         targetPass = data.password || "admin00";
       }
 
-      if (username === targetUser && password === targetPass) {
+      if (inputUser === targetUser && inputPass === targetPass) {
         localStorage.setItem("user_role", "admin");
         localStorage.setItem("current_branch", "gdm");
         setUsername("");
         setPassword("");
         router.push("/penjualan/kasir");
       } else {
-        setError("Username atau password admin salah");
+        setError("Username atau password admin Gandrungmangu salah");
       }
     } catch (err) {
       console.error(err);

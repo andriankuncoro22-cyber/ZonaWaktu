@@ -200,12 +200,9 @@ export default function TehWargaAbsensiPage() {
         if (foundDoc) {
           userData = { id: foundDoc.id, ...foundDoc.data() } as KaryawanUser;
         } else {
-          // 3. Fallback: Cek di dokumen employee_credentials logins_tehwarga atau logins
+          // 3. Fallback: Cek di dokumen employee_credentials logins_tehwarga khusus Teh Warga
           const credRef = doc(db, "employee_credentials", "logins_tehwarga");
-          let credSnap = await getDoc(credRef);
-          if (!credSnap.exists()) {
-            credSnap = await getDoc(doc(db, "employee_credentials", "logins"));
-          }
+          const credSnap = await getDoc(credRef);
 
           if (credSnap.exists()) {
             const users = credSnap.data().users || [];
@@ -218,6 +215,7 @@ export default function TehWargaAbsensiPage() {
                 id: credUser.id || `emp_${credUser.username}`,
                 nama: credUser.nama || credUser.username,
                 username: credUser.username,
+                cabang: credUser.cabang || "tehwarga",
                 ...credUser
               } as KaryawanUser;
             }
@@ -226,6 +224,12 @@ export default function TehWargaAbsensiPage() {
       }
 
       if (userData) {
+        const userCabang = (userData.cabang || "gdm").toLowerCase();
+        if (userCabang !== "tehwarga") {
+          alert(`Akses Ditolak: Akun Anda terdaftar di Cabang ${userCabang === 'kedungreja' ? 'Kedungreja' : 'Zona Waktu Gandrungmangu'}. Akun tidak dapat digunakan di Portal Absensi Teh Warga.`);
+          return;
+        }
+
         setUser(userData);
         try {
           localStorage.setItem("karyawan_user_tehwarga", JSON.stringify(userData));

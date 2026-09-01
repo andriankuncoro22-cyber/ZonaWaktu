@@ -19,10 +19,17 @@ export default function KedungrejaAdminLoginPage() {
   const db = useFirestore();
 
   const handleLogin = async () => {
+    const inputUser = username.trim();
+    const inputPass = password.trim();
+
+    if (!inputUser || !inputPass) {
+      setError("Silakan masukkan Username dan Password");
+      return;
+    }
+
     setLoading(true);
     setError("");
     try {
-      // Check Kedungreja admin doc or fallback to global admin
       let targetUser = "adminkedungreja";
       let targetPass = "admin00";
 
@@ -33,20 +40,11 @@ export default function KedungrejaAdminLoginPage() {
         const data = snapKedungreja.data();
         targetUser = data.username || targetUser;
         targetPass = data.password || targetPass;
-      } else {
-        const adminRef = doc(db, "employee_credentials", "admin");
-        const adminSnap = await getDoc(adminRef);
-        if (adminSnap.exists()) {
-          const data = adminSnap.data();
-          targetUser = data.username || "adminkedungreja";
-          targetPass = data.password || "admin00";
-        }
       }
 
       if (
-        (username === targetUser && password === targetPass) ||
-        (username === "adminkedungreja" && password === "admin00") ||
-        (username === "adminzona" && password === "admin00")
+        (inputUser === targetUser && inputPass === targetPass) ||
+        (inputUser === "adminkedungreja" && inputPass === "admin00")
       ) {
         localStorage.setItem("user_role", "admin");
         localStorage.setItem("current_branch", "kedungreja");
@@ -54,7 +52,7 @@ export default function KedungrejaAdminLoginPage() {
         setPassword("");
         router.push("/penjualan/kasir");
       } else {
-        setError("Username atau password admin Kedungreja salah");
+        setError("Username atau password admin Kedungreja salah. Akun toko lain tidak dapat mengakses cabang ini.");
       }
     } catch (err) {
       console.error(err);

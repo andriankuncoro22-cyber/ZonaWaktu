@@ -46,8 +46,14 @@ export default function TehWargaEmployeeLoginPage() {
       const kSnap = await getDocs(q);
 
       if (!kSnap.empty) {
+        const kData = kSnap.docs[0].data();
+        const kCabang = (kData.cabang || "gdm").toLowerCase();
+        if (kCabang !== "tehwarga") {
+          setError(`Akses Ditolak: Akun Anda terdaftar di Cabang ${kCabang === 'kedungreja' ? 'Kedungreja' : 'Zona Waktu Gandrungmangu'}. Akun tidak dapat digunakan di Outlet Teh Warga.`);
+          return;
+        }
         userFound = true;
-        matchedNama = kSnap.docs[0].data().nama || inputUsername;
+        matchedNama = kData.nama || inputUsername;
       } else {
         const allKSnap = await getDocs(collection(db, "karyawan"));
         const foundDoc = allKSnap.docs.find(d => {
@@ -59,18 +65,21 @@ export default function TehWargaEmployeeLoginPage() {
         });
 
         if (foundDoc) {
+          const dData = foundDoc.data();
+          const kCabang = (dData.cabang || "gdm").toLowerCase();
+          if (kCabang !== "tehwarga") {
+            setError(`Akses Ditolak: Akun Anda terdaftar di Cabang ${kCabang === 'kedungreja' ? 'Kedungreja' : 'Zona Waktu Gandrungmangu'}. Akun tidak dapat digunakan di Outlet Teh Warga.`);
+            return;
+          }
           userFound = true;
-          matchedNama = foundDoc.data().nama || inputUsername;
+          matchedNama = dData.nama || inputUsername;
         }
       }
 
-      // 2. Cek ke dokumen employee_credentials logins_tehwarga atau logins
+      // 2. Cek ke dokumen employee_credentials logins_tehwarga khusus Teh Warga
       if (!userFound) {
         const tehwargaRef = doc(db, "employee_credentials", "logins_tehwarga");
-        let tehwargaSnap = await getDoc(tehwargaRef);
-        if (!tehwargaSnap.exists()) {
-          tehwargaSnap = await getDoc(doc(db, "employee_credentials", "logins"));
-        }
+        const tehwargaSnap = await getDoc(tehwargaRef);
 
         if (tehwargaSnap.exists()) {
           const credentials = tehwargaSnap.data().users || [];

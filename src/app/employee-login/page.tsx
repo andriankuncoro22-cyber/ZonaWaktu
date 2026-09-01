@@ -45,8 +45,18 @@ export default function EmployeeLoginPage() {
       const kSnap = await getDocs(q);
 
       if (!kSnap.empty) {
+        const kData = kSnap.docs[0].data();
+        const kCabang = (kData.cabang || "gdm").toLowerCase();
+        if (kCabang === "kedungreja") {
+          setError("Akses Ditolak: Akun Anda terdaftar di Cabang Kedungreja (/zona_kedungreja/employee-login).");
+          return;
+        }
+        if (kCabang === "tehwarga") {
+          setError("Akses Ditolak: Akun Anda terdaftar di Cabang Teh Warga (/teh_warga_gdm/employee-login).");
+          return;
+        }
         userFound = true;
-        matchedNama = kSnap.docs[0].data().nama || inputUsername;
+        matchedNama = kData.nama || inputUsername;
       } else {
         // Fallback case-insensitive di koleksi karyawan
         const allKSnap = await getDocs(collection(db, "karyawan"));
@@ -59,15 +69,28 @@ export default function EmployeeLoginPage() {
         });
 
         if (foundDoc) {
+          const dData = foundDoc.data();
+          const kCabang = (dData.cabang || "gdm").toLowerCase();
+          if (kCabang === "kedungreja") {
+            setError("Akses Ditolak: Akun Anda terdaftar di Cabang Kedungreja (/zona_kedungreja/employee-login).");
+            return;
+          }
+          if (kCabang === "tehwarga") {
+            setError("Akses Ditolak: Akun Anda terdaftar di Cabang Teh Warga (/teh_warga_gdm/employee-login).");
+            return;
+          }
           userFound = true;
-          matchedNama = foundDoc.data().nama || inputUsername;
+          matchedNama = dData.nama || inputUsername;
         }
       }
 
-      // 2. Cek ke dokumen employee_credentials logins
+      // 2. Cek ke dokumen employee_credentials logins_gdm atau logins
       if (!userFound) {
-        const credentialsRef = doc(db, "employee_credentials", "logins");
-        const docSnap = await getDoc(credentialsRef);
+        const credentialsRef = doc(db, "employee_credentials", "logins_gdm");
+        let docSnap = await getDoc(credentialsRef);
+        if (!docSnap.exists()) {
+          docSnap = await getDoc(doc(db, "employee_credentials", "logins"));
+        }
 
         if (docSnap.exists()) {
           const credentials = docSnap.data().users || [];

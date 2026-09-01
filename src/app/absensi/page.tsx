@@ -30,6 +30,7 @@ interface KaryawanUser {
   username: string;
   status?: string;
   shift?: string;
+  cabang?: string;
   [key: string]: unknown;
 }
 
@@ -183,9 +184,12 @@ export default function AbsensiKaryawanPage() {
         if (foundDoc) {
           userData = { id: foundDoc.id, ...foundDoc.data() } as KaryawanUser;
         } else {
-          // 3. Fallback: Cek di dokumen employee_credentials
-          const credRef = doc(db, "employee_credentials", "logins");
-          const credSnap = await getDoc(credRef);
+          // 3. Fallback: Cek di dokumen employee_credentials logins_gdm / logins
+          const credRef = doc(db, "employee_credentials", "logins_gdm");
+          let credSnap = await getDoc(credRef);
+          if (!credSnap.exists()) {
+            credSnap = await getDoc(doc(db, "employee_credentials", "logins"));
+          }
           if (credSnap.exists()) {
             const users = credSnap.data().users || [];
             const credUser = users.find((u: any) => 
@@ -197,6 +201,7 @@ export default function AbsensiKaryawanPage() {
                 id: credUser.id || `emp_${credUser.username}`,
                 nama: credUser.nama || credUser.username,
                 username: credUser.username,
+                cabang: credUser.cabang || "gdm",
                 ...credUser
               } as KaryawanUser;
             }
@@ -205,6 +210,16 @@ export default function AbsensiKaryawanPage() {
       }
 
       if (userData) {
+        const userCabang = (userData.cabang || "gdm").toLowerCase();
+        if (userCabang === "kedungreja") {
+          alert("Akses Ditolak: Akun Anda terdaftar di Cabang Kedungreja. Silakan buka Portal Absensi Kedungreja (/zona_kedungreja/absensi).");
+          return;
+        }
+        if (userCabang === "tehwarga") {
+          alert("Akses Ditolak: Akun Anda terdaftar di Cabang Teh Warga. Silakan buka Portal Absensi Teh Warga (/teh_warga_gdm/absensi).");
+          return;
+        }
+
         setUser(userData);
         try {
           localStorage.setItem("absensi_user", JSON.stringify(userData));

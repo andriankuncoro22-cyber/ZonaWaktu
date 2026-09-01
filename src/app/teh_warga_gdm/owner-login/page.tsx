@@ -15,11 +15,13 @@ export default function TehWargaOwnerLoginPage() {
   const router = useRouter();
 
   const handleLogin = () => {
+    const inputUser = username.trim();
+    const inputPass = password.trim();
+
     if (
-      (username === "tehgdm" && password === "ownerteh") ||
-      (username === "tehwargagdm" && password === "ownerteh") ||
-      (username === "zonatehwarga" && password === "ownerteh") ||
-      (username === "zonagdm" && password === "ownerzona")
+      (inputUser === "tehgdm" && inputPass === "ownerteh") ||
+      (inputUser === "tehwargagdm" && inputPass === "ownerteh") ||
+      (inputUser === "zonatehwarga" && inputPass === "ownerteh")
     ) {
       localStorage.setItem("current_branch", "tehwarga");
       localStorage.setItem("user_role", "owner");
@@ -29,7 +31,7 @@ export default function TehWargaOwnerLoginPage() {
       setPassword("");
       router.push("/dashboard");
     } else {
-      setError("Username atau password owner salah");
+      setError("Username atau password owner Teh Warga salah. Akun toko lain tidak dapat mengakses cabang ini.");
     }
   };
 

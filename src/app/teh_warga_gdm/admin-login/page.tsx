@@ -19,6 +19,14 @@ export default function TehWargaAdminLoginPage() {
   const db = useFirestore();
 
   const handleLogin = async () => {
+    const inputUser = username.trim();
+    const inputPass = password.trim();
+
+    if (!inputUser || !inputPass) {
+      setError("Silakan masukkan Username dan Password");
+      return;
+    }
+
     setLoading(true);
     setError("");
     try {
@@ -32,20 +40,11 @@ export default function TehWargaAdminLoginPage() {
         const data = snapTehWarga.data();
         targetUser = data.username || targetUser;
         targetPass = data.password || targetPass;
-      } else {
-        const adminRef = doc(db, "employee_credentials", "admin");
-        const adminSnap = await getDoc(adminRef);
-        if (adminSnap.exists()) {
-          const data = adminSnap.data();
-          targetUser = data.username || "admintehwarga";
-          targetPass = data.password || "admin00";
-        }
       }
 
       if (
-        (username === targetUser && password === targetPass) ||
-        (username === "admintehwarga" && password === "admin00") ||
-        (username === "adminzona" && password === "admin00")
+        (inputUser === targetUser && inputPass === targetPass) ||
+        (inputUser === "admintehwarga" && inputPass === "admin00")
       ) {
         localStorage.setItem("user_role", "admin");
         localStorage.setItem("current_branch", "tehwarga");
@@ -55,11 +54,11 @@ export default function TehWargaAdminLoginPage() {
         setPassword("");
         router.push("/penjualan/kasir");
       } else {
-        setError("Username atau password admin Teh Warga salah");
+        setError("Username atau password admin Teh Warga salah. Akun toko lain tidak dapat mengakses cabang ini.");
       }
     } catch (err) {
       console.error(err);
-      setError("Terjadi kesalahan sistem");
+      setError("Terjadi kesalahan sistem. Cek koneksi Anda.");
     } finally {
       setLoading(false);
     }

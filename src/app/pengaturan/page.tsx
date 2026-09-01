@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { 
   Store, 
   ShieldCheck, 
@@ -15,14 +16,20 @@ import {
   Search, 
   Users, 
   Sparkles, 
-  AlertCircle 
+  AlertCircle,
+  Laptop,
+  Smartphone,
+  ArrowRight,
+  RefreshCw,
+  UserCheck,
+  CalendarDays
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useFirestore, useDoc, useMemoFirebase, useCollection, collection, doc } from "@/firebase";
-import { setDoc, getDoc, serverTimestamp, query, orderBy, writeBatch } from "firebase/firestore";
+import { setDoc, getDoc, getDocs, addDoc, deleteDoc, serverTimestamp, query, orderBy, writeBatch } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
@@ -36,9 +43,23 @@ interface EmployeeCredential {
 
 export default function PengaturanPage() {
   const db = useFirestore();
+  const router = useRouter();
   const { toast } = useToast();
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [syncingAbsensi, setSyncingAbsensi] = useState(false);
+  
+  // Tab pemisah antara Akun Sistem Karyawan & Akun Login Absensi
+  const [accountTypeTab, setAccountTypeTab] = useState<"sistem" | "absensi">("sistem");
+
+  // Form tambah akun absensi baru (terhubung langsung dengan /pengaturan/absensi - karyawan)
+  const [newAbsensiForm, setNewAbsensiForm] = useState({
+    nama: "",
+    username: "",
+    password: "",
+    gender: "Laki-laki",
+    team: "tim1"
+  });
   
   // Branch-isolated Store Settings
   const activeBranch = useActiveBranch();
@@ -52,10 +73,141 @@ export default function PengaturanPage() {
   const settingsRef = useMemoFirebase(() => doc(db, "settings", configDocId), [db, configDocId]);
   const { data: storeSettings } = useDoc(settingsRef);
 
-  // Employee credentials
-  const credentialsRef = useMemoFirebase(() => doc(db, "employee_credentials", "logins"), [db]);
-  const [credentials, setCredentials] = useState<EmployeeCredential[]>([]);
+  // Branch-isolated Employee & Admin Credentials
+  const [credentialBranch, setCredentialBranch] = useState<BranchId>("gdm");
+  const [credentialsByBranch, setCredentialsByBranch] = useState<Record<BranchId, EmployeeCredential[]>>({
+    gdm: [],
+    kedungreja: [],
+    tehwarga: []
+  });
+  const [adminByBranch, setAdminByBranch] = useState<Record<BranchId, { username: string; password: string }>>({
+    gdm: { username: "adminzona", password: "admin00" },
+    kedungreja: { username: "adminkedungreja", password: "admin00" },
+    tehwarga: { username: "admintehwarga", password: "admin00" }
+  });
   const [newCredential, setNewCredential] = useState<EmployeeCredential>({ username: "", password: "" });
+
+  useEffect(() => {
+    const fetchCredentials = async () => {
+      try {
+        // 1. Fetch GDM credentials
+        const gdmCredSnap = await getDoc(doc(db, "employee_credentials", "logins_gdm"));
+        const gdmFallbackSnap = await getDoc(doc(db, "employee_credentials", "logins"));
+        const gdmUsers = gdmCredSnap.exists() 
+          ? (gdmCredSnap.data().users || []) 
+          : (gdmFallbackSnap.exists() ? (gdmFallbackSnap.data().users || []) : []);
+
+        // 2. Fetch Kedungreja credentials
+        const kdrjCredSnap = await getDoc(doc(db, "employee_credentials", "logins_kedungreja"));
+        const kdrjUsers = kdrjCredSnap.exists() ? (kdrjCredSnap.data().users || []) : [];
+
+        // 3. Fetch Teh Warga credentials
+        const tehCredSnap = await getDoc(doc(db, "employee_credentials", "logins_tehwarga"));
+        const tehUsers = tehCredSnap.exists() ? (tehCredSnap.data().users || []) : [];
+
+        setCredentialsByBranch({
+          gdm: gdmUsers,
+          kedungreja: kdrjUsers,
+          tehwarga: tehUsers
+        });
+
+        // 4. Fetch Admin credentials
+        const adminGdmSnap = await getDoc(doc(db, "employee_credentials", "admin_gdm"));
+        const adminGlobalSnap = await getDoc(doc(db, "employee_credentials", "admin"));
+        const adminGdm = adminGdmSnap.exists() ? adminGdmSnap.data() : (adminGlobalSnap.exists() ? adminGlobalSnap.data() : null);
+
+        const adminKdrjSnap = await getDoc(doc(db, "employee_credentials", "admin_kedungreja"));
+        const adminKdrj = adminKdrjSnap.exists() ? adminKdrjSnap.data() : null;
+
+        const adminTehSnap = await getDoc(doc(db, "employee_credentials", "admin_tehwarga"));
+        const adminTeh = adminTehSnap.exists() ? adminTehSnap.data() : null;
+
+        setAdminByBranch({
+          gdm: {
+            username: adminGdm?.username || "adminzona",
+            password: adminGdm?.password || "admin00"
+          },
+          kedungreja: {
+            username: adminKdrj?.username || "adminkedungreja",
+            password: adminKdrj?.password || "admin00"
+          },
+          tehwarga: {
+            username: adminTeh?.username || "admintehwarga",
+            password: adminTeh?.password || "admin00"
+          }
+        });
+      } catch (err) {
+        console.error("Error fetching credentials:", err);
+      }
+    };
+    fetchCredentials();
+  }, [db]);
+
+  const [formData, setFormData] = useState({
+    name: "Zona Waktu",
+    tagline: "Coffee & Teh Bakar Autentik",
+    logoLanding: "",
+    logoHeader: ""
+  });
+
+  useEffect(() => {
+    const defaults = getDefaultStoreIdentity(selectedBranch);
+    if (storeSettings) {
+      setFormData({
+        name: storeSettings.name || defaults.name,
+        tagline: storeSettings.tagline || defaults.tagline,
+        logoLanding: storeSettings.logoLanding || "",
+        logoHeader: storeSettings.logoHeader || ""
+      });
+    } else {
+      setFormData({
+        name: defaults.name,
+        tagline: defaults.tagline,
+        logoLanding: "",
+        logoHeader: ""
+      });
+    }
+  }, [storeSettings, selectedBranch]);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'logoLanding' | 'logoHeader') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        setFormData((prev) => ({ ...prev, [type]: result }));
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error(error);
+      toast({ variant: "destructive", title: "Gagal Upload", description: "Logo tidak dapat diproses." });
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    setLoading(true);
+    try {
+      const docRef = doc(db, "settings", getStoreConfigDocId(selectedBranch));
+      await setDoc(docRef, {
+        name: formData.name,
+        tagline: formData.tagline,
+        logoLanding: formData.logoLanding,
+        logoHeader: formData.logoHeader,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+      toast({ 
+        title: "Identitas Toko Tersimpan", 
+        description: `Identitas bisnis untuk ${BRANCH_LIST[selectedBranch]?.name || "Toko"} berhasil diperbarui.` 
+      });
+    } catch (error) {
+      console.error(error);
+      toast({ variant: "destructive", title: "Gagal Menyimpan", description: "Pengaturan toko gagal disimpan." });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Free Karyawan Quota Settings
   const karyawanQuery = useMemoFirebase(() => query(collection(db, "karyawan"), orderBy("nama", "asc")), [db]);
@@ -125,119 +277,207 @@ export default function PengaturanPage() {
     toast({ title: "Diterapkan ke Semua", description: `Semua karyawan diatur kuota ${num} produk/bulan. Klik Simpan untuk memperbarui.` });
   };
 
-  // Admin credentials
-  const adminCredentialsRef = useMemoFirebase(() => doc(db, "employee_credentials", "admin"), [db]);
-  const [adminUsername, setAdminUsername] = useState("adminzona");
-  const [adminPassword, setAdminPassword] = useState("admin00");
-
-  useEffect(() => {
-    const fetchCredentials = async () => {
-      const docSnap = await getDoc(credentialsRef);
-      if (docSnap.exists()) {
-        setCredentials(docSnap.data().users || []);
-      }
-
-      const adminSnap = await getDoc(adminCredentialsRef);
-      if (adminSnap.exists()) {
-        const adminData = adminSnap.data();
-        setAdminUsername(adminData.username || "adminzona");
-        setAdminPassword(adminData.password || "admin00");
-      }
-    };
-    fetchCredentials();
-  }, [credentialsRef, adminCredentialsRef]);
-
-  const [formData, setFormData] = useState({
-    name: "Zona Waktu",
-    tagline: "Coffee & Teh Bakar Autentik",
-    logoLanding: "",
-    logoHeader: ""
-  });
-
-  useEffect(() => {
-    const defaults = getDefaultStoreIdentity(selectedBranch);
-    if (storeSettings) {
-      setFormData({
-        name: storeSettings.name || defaults.name,
-        tagline: storeSettings.tagline || defaults.tagline,
-        logoLanding: storeSettings.logoLanding || "",
-        logoHeader: storeSettings.logoHeader || ""
-      });
-    } else {
-      setFormData({
-        name: defaults.name,
-        tagline: defaults.tagline,
-        logoLanding: "",
-        logoHeader: ""
-      });
-    }
-  }, [storeSettings, selectedBranch]);
-
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'logoLanding' | 'logoHeader') => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        setFormData((prev) => ({ ...prev, [type]: result }));
-      };
-      reader.readAsDataURL(file);
-    } catch (error) {
-      console.error(error);
-      toast({ variant: "destructive", title: "Gagal Upload", description: "Logo tidak dapat diproses." });
-    }
-  };
-
-  const handleSaveSettings = async () => {
-    setLoading(true);
-    try {
-      const docRef = doc(db, "settings", getStoreConfigDocId(selectedBranch));
-      await setDoc(docRef, {
-        name: formData.name,
-        tagline: formData.tagline,
-        logoLanding: formData.logoLanding,
-        logoHeader: formData.logoHeader,
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-      toast({ 
-        title: "Identitas Toko Tersimpan", 
-        description: `Identitas bisnis untuk ${BRANCH_LIST[selectedBranch]?.name || "Toko"} berhasil diperbarui.` 
-      });
-    } catch (error) {
-      console.error(error);
-      toast({ variant: "destructive", title: "Gagal Menyimpan", description: "Pengaturan toko gagal disimpan." });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleAddCredential = () => {
-    if (newCredential.username && newCredential.password) {
-      setCredentials([...credentials, newCredential]);
-      setNewCredential({ username: "", password: "" });
-    } else {
+    const u = newCredential.username.trim();
+    const p = newCredential.password.trim();
+    if (!u || !p) {
       toast({
         variant: "destructive",
         title: "Input Kosong",
         description: "Username dan password tidak boleh kosong.",
       });
+      return;
     }
+
+    const currentList = credentialsByBranch[credentialBranch] || [];
+    if (currentList.some(item => item.username.toLowerCase() === u.toLowerCase())) {
+      toast({
+        variant: "destructive",
+        title: "Username Sudah Ada",
+        description: `Username "${u}" sudah terdaftar di cabang ${BRANCH_LIST[credentialBranch]?.name}.`,
+      });
+      return;
+    }
+
+    setCredentialsByBranch(prev => ({
+      ...prev,
+      [credentialBranch]: [...(prev[credentialBranch] || []), { username: u, password: p }]
+    }));
+    setNewCredential({ username: "", password: "" });
   };
 
   const handleRemoveCredential = (index: number) => {
-    setCredentials(credentials.filter((_, i) => i !== index));
+    setCredentialsByBranch(prev => ({
+      ...prev,
+      [credentialBranch]: prev[credentialBranch].filter((_, i) => i !== index)
+    }));
   };
   
   const handleSyncCredentials = async () => {
     setLoading(true);
     try {
-      await setDoc(credentialsRef, { users: credentials }, { merge: true });
-      await setDoc(adminCredentialsRef, { username: adminUsername, password: adminPassword }, { merge: true });
-      toast({ title: "Sinkronisasi Berhasil", description: "Hak akses karyawan & admin telah diperbarui." });
+      const targetBranch = credentialBranch;
+      const branchUsers = credentialsByBranch[targetBranch] || [];
+      const branchAdmin = adminByBranch[targetBranch];
+
+      if (targetBranch === "gdm") {
+        await setDoc(doc(db, "employee_credentials", "logins_gdm"), { users: branchUsers, updatedAt: serverTimestamp() }, { merge: true });
+        await setDoc(doc(db, "employee_credentials", "logins"), { users: branchUsers, updatedAt: serverTimestamp() }, { merge: true });
+        await setDoc(doc(db, "employee_credentials", "admin_gdm"), { username: branchAdmin.username.trim(), password: branchAdmin.password.trim(), updatedAt: serverTimestamp() }, { merge: true });
+        await setDoc(doc(db, "employee_credentials", "admin"), { username: branchAdmin.username.trim(), password: branchAdmin.password.trim(), updatedAt: serverTimestamp() }, { merge: true });
+      } else if (targetBranch === "kedungreja") {
+        await setDoc(doc(db, "employee_credentials", "logins_kedungreja"), { users: branchUsers, updatedAt: serverTimestamp() }, { merge: true });
+        await setDoc(doc(db, "employee_credentials", "admin_kedungreja"), { username: branchAdmin.username.trim(), password: branchAdmin.password.trim(), updatedAt: serverTimestamp() }, { merge: true });
+      } else if (targetBranch === "tehwarga") {
+        await setDoc(doc(db, "employee_credentials", "logins_tehwarga"), { users: branchUsers, updatedAt: serverTimestamp() }, { merge: true });
+        await setDoc(doc(db, "employee_credentials", "admin_tehwarga"), { username: branchAdmin.username.trim(), password: branchAdmin.password.trim(), updatedAt: serverTimestamp() }, { merge: true });
+      }
+
+      toast({ 
+        title: "Sinkronisasi Berhasil", 
+        description: `Hak akses karyawan & admin untuk ${BRANCH_LIST[targetBranch]?.name} telah diperbarui & diisolasi.` 
+      });
     } catch (error) {
-      toast({ variant: "destructive", title: "Gagal Sinkronisasi" });
+      console.error(error);
+      toast({ variant: "destructive", title: "Gagal Sinkronisasi", description: "Terjadi kesalahan saat menyimpan hak akses." });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Helper sinkronisasi seluruh karyawan absensi ke employee_credentials per branch
+  const syncAllAbsensiKaryawan = async () => {
+    setSyncingAbsensi(true);
+    try {
+      const snapshot = await getDocs(collection(db, "karyawan"));
+      const gdmUsers: any[] = [];
+      const kedungrejaUsers: any[] = [];
+      const tehwargaUsers: any[] = [];
+      let totalAll = 0;
+
+      snapshot.docs.forEach((d) => {
+        const data = d.data();
+        const cleanUsername = String(data.username || "").trim();
+        const cleanPassword = String(data.password || "").trim();
+        const cleanNama = String(data.nama || cleanUsername).trim();
+        const userCabang = (data.cabang || "gdm").toLowerCase();
+
+        if (cleanUsername && cleanPassword) {
+          totalAll++;
+          const userObj = {
+            id: d.id,
+            username: cleanUsername,
+            password: cleanPassword,
+            nama: cleanNama,
+            role: "employee",
+            cabang: userCabang,
+            gender: data.gender || "Laki-laki",
+            team: data.team || "tim1",
+            status: data.status || "aktif"
+          };
+
+          if (userCabang === "kedungreja") {
+            kedungrejaUsers.push(userObj);
+          } else if (userCabang === "tehwarga") {
+            tehwargaUsers.push(userObj);
+          } else {
+            gdmUsers.push(userObj);
+          }
+        }
+      });
+
+      await setDoc(doc(db, "employee_credentials", "logins_gdm"), {
+        users: gdmUsers,
+        totalUsers: gdmUsers.length,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+
+      await setDoc(doc(db, "employee_credentials", "logins"), {
+        users: gdmUsers,
+        totalUsers: gdmUsers.length,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+
+      await setDoc(doc(db, "employee_credentials", "logins_kedungreja"), {
+        users: kedungrejaUsers,
+        totalUsers: kedungrejaUsers.length,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+
+      await setDoc(doc(db, "employee_credentials", "logins_tehwarga"), {
+        users: tehwargaUsers,
+        totalUsers: tehwargaUsers.length,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+
+      toast({
+        title: "Sinkronisasi Kaderisasi Berhasil",
+        description: `${totalAll} akun karyawan absensi telah disinkronkan ke seluruh database toko & mobile.`
+      });
+    } catch (err) {
+      console.error(err);
+      toast({ variant: "destructive", title: "Gagal Sinkronisasi", description: "Terjadi kesalahan saat menyinkronkan data absensi." });
+    } finally {
+      setSyncingAbsensi(false);
+    }
+  };
+
+  const handleAddAbsensiKaryawan = async () => {
+    const nama = newAbsensiForm.nama.trim();
+    const username = newAbsensiForm.username.trim();
+    const password = newAbsensiForm.password.trim();
+
+    if (!nama || !username || !password) {
+      toast({ variant: "destructive", title: "Input Kosong", description: "Nama, Username, dan Password wajib diisi!" });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await addDoc(collection(db, "karyawan"), {
+        nama,
+        username,
+        password,
+        gender: newAbsensiForm.gender,
+        team: newAbsensiForm.team,
+        cabang: credentialBranch,
+        status: "aktif",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+
+      await syncAllAbsensiKaryawan();
+
+      toast({
+        title: "Akun Absensi Ditambahkan",
+        description: `Akun absensi ${nama} (${username}) untuk ${BRANCH_LIST[credentialBranch]?.name} berhasil dibuat & tersambung ke /pengaturan/absensi.`
+      });
+
+      setNewAbsensiForm({
+        nama: "",
+        username: "",
+        password: "",
+        gender: "Laki-laki",
+        team: "tim1"
+      });
+    } catch (error) {
+      console.error(error);
+      toast({ variant: "destructive", title: "Gagal Menyimpan", description: "Terjadi kesalahan saat membuat akun absensi." });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteAbsensiKaryawan = async (id: string, nama: string) => {
+    if (!window.confirm(`Hapus akun absensi untuk "${nama}"? Akun ini juga akan terhapus dari /pengaturan/absensi.`)) return;
+    setLoading(true);
+    try {
+      await deleteDoc(doc(db, "karyawan", id));
+      await syncAllAbsensiKaryawan();
+      toast({ title: "Akun Absensi Dihapus", description: `Akun absensi ${nama} berhasil dihapus.` });
+    } catch (error) {
+      console.error(error);
+      toast({ variant: "destructive", title: "Gagal Menghapus" });
     } finally {
       setLoading(false);
     }
@@ -246,7 +486,7 @@ export default function PengaturanPage() {
   const settingsGroups = [
     { id: "toko", title: "Toko", icon: Store, desc: "Identitas toko, logo, dan profil bisnis" },
     { id: "free-karyawan", title: "Free Karyawan", icon: Gift, desc: "Batas maksimal produk gratis yang dapat diklaim karyawan per bulan" },
-    { id: "hak-akses", title: "Hak Akses", icon: ShieldCheck, desc: "Kaderisasi login untuk sistem karyawan" },
+    { id: "hak-akses", title: "Hak Akses", icon: ShieldCheck, desc: "Kaderisasi login untuk sistem karyawan & absensi" },
     { id: "hardware", title: "Hardware", icon: Printer, desc: "Printer thermal dan integrasi scanner" },
   ];
   if (activeSection === "free-karyawan") {
@@ -301,58 +541,39 @@ export default function PengaturanPage() {
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-1.5">
-                {[5, 10, 15, 30].map((quickNum) => (
-                  <Button
-                    key={quickNum}
-                    type="button"
-                    variant="outline"
-                    onClick={() => setGlobalQuotaBatch(String(quickNum))}
-                    className="h-10 rounded-xl text-xs font-black uppercase px-3 border-slate-200 hover:bg-slate-50"
-                  >
-                    {quickNum} Pcs
-                  </Button>
-                ))}
+            <div className="flex items-center gap-3">
+              <div className="relative w-36">
+                <Input
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={globalQuotaBatch}
+                  onChange={(e) => setGlobalQuotaBatch(e.target.value)}
+                  className="h-12 rounded-2xl bg-slate-50 border-slate-200 font-black text-center pr-10 text-base"
+                />
+                <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[10px] font-black uppercase text-slate-400">
+                  Pcs
+                </span>
               </div>
-
-              <div className="flex items-center gap-2">
-                <div className="relative w-28">
-                  <Input
-                    type="number"
-                    min="0"
-                    placeholder="Qty"
-                    value={globalQuotaBatch}
-                    onChange={(e) => setGlobalQuotaBatch(e.target.value)}
-                    className="h-10 rounded-xl bg-slate-50 border-none text-center font-black text-sm pr-8"
-                  />
-                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[9px] font-black uppercase text-slate-400">
-                    Pcs
-                  </span>
-                </div>
-
-                <Button
-                  type="button"
-                  onClick={handleApplyBatchQuota}
-                  className="h-10 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase px-4"
-                >
-                  Terapkan Ke Semua
-                </Button>
-              </div>
+              <Button
+                onClick={handleApplyBatchQuota}
+                className="h-12 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-black uppercase tracking-wider text-xs px-5 shadow-sm"
+              >
+                Terapkan
+              </Button>
             </div>
           </div>
         </Card>
 
-        {/* List of Employees with Individual Quotas */}
-        <Card className="rounded-[2.5rem] border border-slate-200/80 bg-white p-6 sm:p-8 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5 mb-6">
-            <div>
-              <h3 className="text-base font-black uppercase italic tracking-tight text-slate-900 flex items-center gap-2">
-                <Users className="h-5 w-5 text-primary" />
-                Daftar Karyawan ({filteredKaryawanList.length})
+        {/* Search & List */}
+        <Card className="rounded-[2.5rem] border-none shadow-sm bg-white p-6 sm:p-8 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <h3 className="text-xl font-black uppercase italic tracking-tight text-slate-800">
+                Daftar Kuota Karyawan
               </h3>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mt-0.5">
-                Isi kuota 0 jika tidak ada kuota atau tidak berhak klaim produk gratis
+              <p className="text-xs font-bold text-slate-400">
+                Total {listKaryawan?.length || 0} karyawan terdaftar di database
               </p>
             </div>
 
@@ -362,29 +583,31 @@ export default function PengaturanPage() {
                 placeholder="Cari nama karyawan..."
                 value={quotaSearch}
                 onChange={(e) => setQuotaSearch(e.target.value)}
-                className="pl-10 h-11 rounded-xl bg-slate-50 border-none text-xs font-bold"
+                className="h-11 pl-10 rounded-2xl bg-slate-50 border-none font-bold text-xs"
               />
             </div>
           </div>
 
           {loadingKaryawan ? (
-            <div className="py-20 text-center text-slate-400 flex flex-col items-center gap-2">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <p className="text-xs font-black uppercase tracking-wider">Memuat data karyawan...</p>
+            <div className="py-20 text-center">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+              <p className="text-xs font-black uppercase text-slate-400 mt-2">Memuat Data Karyawan...</p>
             </div>
           ) : filteredKaryawanList.length === 0 ? (
-            <div className="py-16 text-center text-slate-400">
-              <Users className="h-10 w-10 mx-auto mb-2 opacity-30" />
-              <p className="text-xs font-black uppercase tracking-wider">Tidak ada data karyawan ditemukan</p>
+            <div className="py-16 text-center rounded-3xl bg-slate-50 border border-dashed border-slate-200">
+              <AlertCircle className="h-8 w-8 mx-auto text-slate-400 mb-2" />
+              <p className="text-xs font-black uppercase text-slate-500 tracking-wider">
+                {quotaSearch ? "Karyawan tidak ditemukan" : "Belum ada data karyawan"}
+              </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {filteredKaryawanList.map((karyawan: any) => {
-                const currentVal = freeQuotas[karyawan.id] ?? 0;
+                const currentVal = freeQuotas[karyawan.id] ?? Number(karyawan.freeQuota ?? karyawan.quotaFreeBulanan ?? 0);
                 return (
                   <div
                     key={karyawan.id}
-                    className="p-4 rounded-2xl border border-slate-100 bg-slate-50/50 hover:bg-white hover:border-slate-200 transition-all flex items-center justify-between gap-3"
+                    className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:border-slate-200 transition-all"
                   >
                     <div className="flex items-center gap-3">
                       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 font-black text-sm uppercase">
@@ -439,117 +662,439 @@ export default function PengaturanPage() {
   }
 
   if (activeSection === "hak-akses") {
+    const currentBranchCredentials = credentialsByBranch[credentialBranch] || [];
+    const currentBranchAdmin = adminByBranch[credentialBranch] || { username: "", password: "" };
+    const currentBranchInfo = BRANCH_LIST[credentialBranch] || BRANCH_LIST.gdm;
+
+    // Filter absensi karyawan untuk cabang aktif (berhubungan langsung dengan /pengaturan/absensi - karyawan)
+    const branchAbsensiList = (listKaryawan as any[])?.filter(
+      (k) => (k.cabang || "gdm").toLowerCase() === credentialBranch
+    ) || [];
+
     return (
       <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => setActiveSection(null)} className="rounded-2xl">
-            <ChevronLeft className="h-6 w-6" />
-          </Button>
-          <div>
-            <h1 className="text-4xl font-black tracking-tighter text-slate-900 uppercase italic">Hak Akses Karyawan</h1>
-            <p className="text-xs text-slate-600 font-black uppercase tracking-[0.2em] mt-1">Buat dan kelola akun login untuk sistem karyawan</p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="icon" onClick={() => setActiveSection(null)} className="rounded-2xl">
+              <ChevronLeft className="h-6 w-6" />
+            </Button>
+            <div>
+              <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-slate-900 uppercase italic">
+                Hak Akses Karyawan & Admin
+              </h1>
+              <p className="text-xs text-slate-600 font-black uppercase tracking-[0.2em] mt-1">
+                Pemisahan akun login sistem karyawan & akun login absensi per masing-masing toko
+              </p>
+            </div>
+          </div>
+
+          {/* Branch Switcher Tabs */}
+          <div className="flex flex-wrap items-center gap-2 p-1.5 bg-white border border-slate-200/80 rounded-2xl shadow-sm">
+            {Object.entries(BRANCH_LIST).map(([bId, bInfo]) => (
+              <button
+                key={bId}
+                type="button"
+                onClick={() => setCredentialBranch(bId as BranchId)}
+                className={cn(
+                  "px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all",
+                  credentialBranch === bId
+                    ? "bg-slate-900 text-white shadow-sm"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                )}
+              >
+                {bInfo.shortName} ({bInfo.code})
+              </button>
+            ))}
           </div>
         </div>
 
-        <Card className="rounded-[3rem] border-none shadow-sm bg-white p-10">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* Form Tambah Karyawan */}
+        {/* Sub-Tabs: Pemisahan Akun Sistem Karyawan vs Akun Absensi Karyawan */}
+        <div className="flex flex-wrap items-center gap-3 p-2 bg-slate-100/80 rounded-3xl w-fit border border-slate-200/60">
+          <button
+            type="button"
+            onClick={() => setAccountTypeTab("sistem")}
+            className={cn(
+              "flex items-center gap-2.5 px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-wider transition-all",
+              accountTypeTab === "sistem"
+                ? "bg-white text-slate-900 shadow-md shadow-slate-200/50 scale-[1.02]"
+                : "text-slate-500 hover:text-slate-900 hover:bg-white/50"
+            )}
+          >
+            <Laptop className="h-4 w-4 text-indigo-600" />
+            <span>Akun Sistem Karyawan (Kasir & POS)</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-black ml-1">
+              {currentBranchCredentials.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setAccountTypeTab("absensi")}
+            className={cn(
+              "flex items-center gap-2.5 px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-wider transition-all",
+              accountTypeTab === "absensi"
+                ? "bg-white text-slate-900 shadow-md shadow-slate-200/50 scale-[1.02]"
+                : "text-slate-500 hover:text-slate-900 hover:bg-white/50"
+            )}
+          >
+            <Smartphone className="h-4 w-4 text-emerald-600" />
+            <span>Akun Login Absensi Karyawan</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-black ml-1">
+              {branchAbsensiList.length}
+            </span>
+          </button>
+        </div>
+
+        {accountTypeTab === "sistem" ? (
+          /* ========================================================================= */
+          /* BAGIAN 1: AKUN SISTEM KARYAWAN (KASIR, CLOSING, POS, OPERASIONAL)        */
+          /* ========================================================================= */
+          <Card className="rounded-[3rem] border-none shadow-sm bg-white p-8 sm:p-10 animate-in fade-in duration-300">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 mb-8 border-b border-slate-100 gap-4">
+              <div className="flex items-center gap-3">
+                <div className="h-11 w-11 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600 font-black text-xs">
+                  <Laptop className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black uppercase italic text-slate-900">
+                    Akun Login Sistem Karyawan ({currentBranchInfo.name})
+                  </h2>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">
+                    Digunakan untuk login kasir, closing toko, operasional & dashboard karyawan (/employee-login)
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs font-black uppercase px-3.5 py-1.5 bg-slate-100 text-slate-600 rounded-full w-fit">
+                {currentBranchCredentials.length} Akun Kasir Aktif
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {/* Form Tambah Karyawan Sistem */}
+              <div className="space-y-6">
+                <h3 className="text-xl font-black tracking-tight uppercase italic text-slate-800">
+                  Tambah Akun Kasir / Sistem ({currentBranchInfo.shortName})
+                </h3>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Username Kasir</Label>
+                    <Input 
+                      placeholder="Contoh: kasir01" 
+                      value={newCredential.username}
+                      onChange={(e) => setNewCredential({ ...newCredential, username: e.target.value })}
+                      className="h-14 rounded-2xl bg-slate-50 border-none font-bold"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Password</Label>
+                    <Input 
+                      type="password"
+                      placeholder="Minimal 6 karakter" 
+                      value={newCredential.password}
+                      onChange={(e) => setNewCredential({ ...newCredential, password: e.target.value })}
+                      className="h-14 rounded-2xl bg-slate-50 border-none font-bold"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                    />
+                  </div>
+                  <Button 
+                    onClick={handleAddCredential}
+                    className="w-full h-14 rounded-2xl bg-slate-900 font-black uppercase tracking-widest text-xs gap-2"
+                  >
+                    <Plus className="h-4 w-4" /> Tambah ke Daftar Sistem
+                  </Button>
+                </div>
+              </div>
+
+              {/* List Karyawan Sistem */}
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xl font-black tracking-tight uppercase italic text-slate-800">
+                    Daftar Akun Kasir Terdaftar
+                  </h3>
+                  <span className="text-xs font-black uppercase text-indigo-600 tracking-widest">
+                    {currentBranchCredentials.length} Akun
+                  </span>
+                </div>
+                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                  {currentBranchCredentials.length === 0 ? (
+                    <div className="p-8 text-center rounded-2xl bg-slate-50 border border-dashed border-slate-200">
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                        Belum ada akun kasir/sistem di {currentBranchInfo.shortName}
+                      </p>
+                    </div>
+                  ) : (
+                    currentBranchCredentials.map((cred, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:border-slate-200 transition-colors">
+                        <div>
+                          <p className="font-black text-sm text-slate-900">{cred.username}</p>
+                          <p className="text-[10px] font-bold text-slate-400">Password: ••••••••</p>
+                        </div>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={() => handleRemoveCredential(idx)}
+                          className="rounded-xl text-rose-500 hover:bg-rose-50"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <hr className="my-10 border-slate-100" />
+
+            {/* Admin Credentials */}
             <div className="space-y-6">
-              <h3 className="text-xl font-black tracking-tight uppercase italic text-slate-800">Tambah Akun Karyawan</h3>
-              <div className="space-y-4">
+              <h3 className="text-xl font-black tracking-tight uppercase italic text-slate-800">
+                Kredensial Admin ({currentBranchInfo.shortName})
+              </h3>
+              <p className="text-xs text-slate-500 font-bold">
+                Kredensial ini digunakan untuk membuka akses halaman Admin/Kasir khusus untuk outlet {currentBranchInfo.name}.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Username</Label>
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Username Admin</Label>
                   <Input 
-                    placeholder="Contoh: kasir01" 
-                    value={newCredential.username}
-                    onChange={(e) => setNewCredential({ ...newCredential, username: e.target.value })}
+                    value={currentBranchAdmin.username}
+                    onChange={(e) => setAdminByBranch(prev => ({
+                      ...prev,
+                      [credentialBranch]: { ...prev[credentialBranch], username: e.target.value }
+                    }))}
                     className="h-14 rounded-2xl bg-slate-50 border-none font-bold"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Password</Label>
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Password Admin</Label>
                   <Input 
                     type="password"
-                    placeholder="Minimal 6 karakter" 
-                    value={newCredential.password}
-                    onChange={(e) => setNewCredential({ ...newCredential, password: e.target.value })}
+                    value={currentBranchAdmin.password}
+                    onChange={(e) => setAdminByBranch(prev => ({
+                      ...prev,
+                      [credentialBranch]: { ...prev[credentialBranch], password: e.target.value }
+                    }))}
                     className="h-14 rounded-2xl bg-slate-50 border-none font-bold"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                   />
                 </div>
-                <Button 
-                  onClick={handleAddCredential}
-                  className="w-full h-14 rounded-2xl bg-slate-900 font-black uppercase tracking-widest text-xs gap-2"
+              </div>
+            </div>
+
+            <div className="mt-10 flex justify-end">
+              <Button 
+                onClick={handleSyncCredentials} 
+                disabled={loading}
+                className="h-14 rounded-2xl bg-primary px-10 font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 hover:bg-primary/90 text-white gap-2"
+              >
+                {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}
+                Simpan Perubahan Sistem ({currentBranchInfo.shortName})
+              </Button>
+            </div>
+          </Card>
+        ) : (
+          /* ========================================================================= */
+          /* BAGIAN 2: AKUN LOGIN ABSENSI (TERHUBUNG KE /pengaturan/absensi - karyawan) */
+          /* ========================================================================= */
+          <Card className="rounded-[3rem] border-none shadow-sm bg-white p-8 sm:p-10 animate-in fade-in duration-300">
+            {/* Info & Shortcut Header */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between pb-6 mb-8 border-b border-slate-100 gap-6">
+              <div className="flex items-center gap-3">
+                <div className="h-11 w-11 rounded-2xl bg-emerald-50 flex items-center justify-center text-emerald-600 font-black text-xs">
+                  <Smartphone className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black uppercase italic text-slate-900">
+                    Akun Login Absensi Karyawan ({currentBranchInfo.name})
+                  </h2>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">
+                    Terhubung langsung dengan Database Karyawan di <span className="text-emerald-600 font-black">/pengaturan/absensi</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => router.push("/pengaturan/absensi")}
+                  className="rounded-2xl border-slate-200 text-slate-700 hover:bg-slate-50 font-black uppercase tracking-wider text-[10px] h-11 px-4 gap-2"
                 >
-                  <Plus className="h-4 w-4" /> Tambah ke Daftar
+                  <CalendarDays className="h-4 w-4 text-slate-500" />
+                  Buka Pengaturan Absensi Lengkap
+                  <ArrowRight className="h-3.5 w-3.5 text-slate-400" />
+                </Button>
+
+                <Button
+                  onClick={syncAllAbsensiKaryawan}
+                  disabled={syncingAbsensi}
+                  className="rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase tracking-wider text-[10px] h-11 px-4 gap-2 shadow-sm"
+                >
+                  <RefreshCw className={cn("h-3.5 w-3.5", syncingAbsensi && "animate-spin")} />
+                  {syncingAbsensi ? "Menyinkronkan..." : "Sinkronisasi Kaderisasi"}
                 </Button>
               </div>
             </div>
 
-            {/* List Karyawan */}
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xl font-black tracking-tight uppercase italic text-slate-800">Daftar Akun Terdaftar</h3>
-                <span className="text-xs font-black uppercase text-primary tracking-widest">{credentials.length} Akun</span>
-              </div>
-              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
-                {credentials.map((cred, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                    <div>
-                      <p className="font-black text-sm text-slate-900">{cred.username}</p>
-                      <p className="text-[10px] font-bold text-slate-400">Password: ••••••••</p>
-                    </div>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      onClick={() => handleRemoveCredential(idx)}
-                      className="rounded-xl text-rose-500 hover:bg-rose-50"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+              {/* Form Tambah Karyawan Absensi */}
+              <div className="lg:col-span-2 space-y-6">
+                <div className="space-y-1">
+                  <h3 className="text-xl font-black tracking-tight uppercase italic text-slate-800">
+                    Tambah Akun Absensi Baru
+                  </h3>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Cabang Penempatan: <span className="text-emerald-600 font-black">{currentBranchInfo.name}</span>
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Nama Lengkap</Label>
+                    <Input 
+                      placeholder="Nama sesuai KTP..." 
+                      value={newAbsensiForm.nama}
+                      onChange={(e) => setNewAbsensiForm({ ...newAbsensiForm, nama: e.target.value })}
+                      className="h-12 rounded-2xl bg-slate-50 border-none font-bold text-xs"
+                    />
                   </div>
-                ))}
+                  
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Username Absensi</Label>
+                      <Input 
+                        placeholder="Contoh: budi01" 
+                        value={newAbsensiForm.username}
+                        onChange={(e) => setNewAbsensiForm({ ...newAbsensiForm, username: e.target.value })}
+                        className="h-12 rounded-2xl bg-slate-50 border-none font-bold text-xs"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Password</Label>
+                      <Input 
+                        type="password"
+                        placeholder="••••••••" 
+                        value={newAbsensiForm.password}
+                        onChange={(e) => setNewAbsensiForm({ ...newAbsensiForm, password: e.target.value })}
+                        className="h-12 rounded-2xl bg-slate-50 border-none font-bold text-xs"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Jenis Kelamin</Label>
+                      <select 
+                        value={newAbsensiForm.gender} 
+                        onChange={(e) => setNewAbsensiForm({ ...newAbsensiForm, gender: e.target.value })} 
+                        className="flex h-12 w-full rounded-2xl border-none bg-slate-50 px-3 py-2 text-xs font-bold focus-visible:outline-none"
+                      >
+                        <option value="Laki-laki">Laki-laki</option>
+                        <option value="Perempuan">Perempuan</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Tim Shift</Label>
+                      <select 
+                        value={newAbsensiForm.team} 
+                        onChange={(e) => setNewAbsensiForm({ ...newAbsensiForm, team: e.target.value })} 
+                        className="flex h-12 w-full rounded-2xl border-none bg-slate-50 px-3 py-2 text-xs font-bold focus-visible:outline-none"
+                      >
+                        <option value="tim1">Tim 1</option>
+                        <option value="tim2">Tim 2</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <Button 
+                    onClick={handleAddAbsensiKaryawan}
+                    disabled={loading}
+                    className="w-full h-12 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase tracking-widest text-xs gap-2 shadow-sm mt-2"
+                  >
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                    Simpan Akun Absensi ({currentBranchInfo.shortName})
+                  </Button>
+                </div>
+              </div>
+
+              {/* List Karyawan Absensi */}
+              <div className="lg:col-span-3 space-y-6">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xl font-black tracking-tight uppercase italic text-slate-800">
+                    Daftar Akun Absensi Terdaftar
+                  </h3>
+                  <span className="text-xs font-black uppercase text-emerald-600 tracking-widest">
+                    {branchAbsensiList.length} Karyawan
+                  </span>
+                </div>
+
+                <div className="space-y-3 max-h-[420px] overflow-y-auto pr-2 custom-scrollbar">
+                  {branchAbsensiList.length === 0 ? (
+                    <div className="p-10 text-center rounded-3xl bg-slate-50 border border-dashed border-slate-200">
+                      <Users className="h-8 w-8 mx-auto text-slate-400 mb-2" />
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                        Belum ada karyawan absensi di {currentBranchInfo.shortName}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        Gunakan form di samping atau buka menu /pengaturan/absensi
+                      </p>
+                    </div>
+                  ) : (
+                    branchAbsensiList.map((karyawan: any) => (
+                      <div 
+                        key={karyawan.id} 
+                        className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:border-slate-200 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-800 font-black text-xs uppercase">
+                            {karyawan.nama ? karyawan.nama.substring(0, 2) : "KW"}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="font-black text-sm text-slate-900">{karyawan.nama}</p>
+                              <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                {karyawan.team === "tim2" ? "Tim 2" : "Tim 1"}
+                              </span>
+                            </div>
+                            <p className="text-[10px] font-bold text-slate-400 mt-0.5">
+                              User: <span className="font-mono text-slate-600">{karyawan.username}</span> &bull; Pass: ••••••••
+                            </p>
+                          </div>
+                        </div>
+
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={() => handleDeleteAbsensiKaryawan(karyawan.id, karyawan.nama)}
+                          className="rounded-xl text-rose-500 hover:bg-rose-50"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-
-          <hr className="my-10 border-slate-100" />
-
-          {/* Admin Credentials */}
-          <div className="space-y-6">
-            <h3 className="text-xl font-black tracking-tight uppercase italic text-slate-800">Kredensial Owner & Super Admin</h3>
-            <p className="text-xs text-slate-500 font-bold">Kredensial ini digunakan untuk membuka akses halaman Dashboard Utama, Inventori, Master Data, dan Laporan.</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Username Admin</Label>
-                <Input 
-                  value={adminUsername}
-                  onChange={(e) => setAdminUsername(e.target.value)}
-                  className="h-14 rounded-2xl bg-slate-50 border-none font-bold"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Password Admin</Label>
-                <Input 
-                  type="password"
-                  value={adminPassword}
-                  onChange={(e) => setAdminPassword(e.target.value)}
-                  className="h-14 rounded-2xl bg-slate-50 border-none font-bold"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-10 flex justify-end">
-            <Button 
-              onClick={handleSyncCredentials} 
-              disabled={loading}
-              className="h-14 rounded-2xl bg-primary px-10 font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20 hover:bg-primary/90 text-white gap-2"
-            >
-              {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}
-              Simpan Perubahan
-            </Button>
-          </div>
-        </Card>
+          </Card>
+        )}
       </div>
     );
   }

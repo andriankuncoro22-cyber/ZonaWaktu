@@ -15,17 +15,20 @@ export default function KedungrejaOwnerLoginPage() {
   const router = useRouter();
 
   const handleLogin = () => {
+    const inputUser = username.trim();
+    const inputPass = password.trim();
+
     if (
-      (username === "zonakdrj" && password === "ownerzona") ||
-      (username === "zonakedungreja" && password === "ownerzona") ||
-      (username === "zonagdm" && password === "ownerzona")
+      (inputUser === "zonakdrj" && inputPass === "ownerzona") ||
+      (inputUser === "zonakedungreja" && inputPass === "ownerzona")
     ) {
       localStorage.setItem("current_branch", "kedungreja");
+      localStorage.setItem("user_role", "owner");
       setUsername("");
       setPassword("");
       router.push("/dashboard");
     } else {
-      setError("Username atau password owner salah");
+      setError("Username atau password owner Kedungreja salah. Akun toko lain tidak dapat mengakses cabang ini.");
     }
   };
 
