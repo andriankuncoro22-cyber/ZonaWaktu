@@ -184,26 +184,26 @@ export default function AbsensiKaryawanPage() {
         if (foundDoc) {
           userData = { id: foundDoc.id, ...foundDoc.data() } as KaryawanUser;
         } else {
-          // 3. Fallback: Cek di dokumen employee_credentials logins_gdm / logins
-          const credRef = doc(db, "employee_credentials", "logins_gdm");
-          let credSnap = await getDoc(credRef);
-          if (!credSnap.exists()) {
-            credSnap = await getDoc(doc(db, "employee_credentials", "logins"));
-          }
-          if (credSnap.exists()) {
-            const users = credSnap.data().users || [];
-            const credUser = users.find((u: any) => 
-              String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() &&
-              String(u.password || "").trim() === inputPassword
-            );
-            if (credUser) {
-              userData = {
-                id: credUser.id || `emp_${credUser.username}`,
-                nama: credUser.nama || credUser.username,
-                username: credUser.username,
-                cabang: credUser.cabang || "gdm",
-                ...credUser
-              } as KaryawanUser;
+          // 3. Fallback: Cek di dokumen employee_credentials (absensi_logins_gdm, logins_gdm, logins)
+          const docNames = ["absensi_logins_gdm", "logins_gdm", "logins"];
+          for (const docName of docNames) {
+            if (userData) break;
+            const credSnap = await getDoc(doc(db, "employee_credentials", docName));
+            if (credSnap.exists()) {
+              const users = credSnap.data().users || [];
+              const credUser = users.find((u: any) => 
+                String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() &&
+                String(u.password || "").trim() === inputPassword
+              );
+              if (credUser) {
+                userData = {
+                  id: credUser.id || `emp_${credUser.username}`,
+                  nama: credUser.nama || credUser.username,
+                  username: credUser.username,
+                  cabang: credUser.cabang || "gdm",
+                  ...credUser
+                } as KaryawanUser;
+              }
             }
           }
         }

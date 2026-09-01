@@ -75,21 +75,23 @@ export default function KedungrejaEmployeeLoginPage() {
         }
       }
 
-      // 2. Cek ke dokumen employee_credentials/logins_kedungreja khusus Kedungreja
+      // 2. Cek ke dokumen employee_credentials (system_logins_kedungreja & logins_kedungreja)
       if (!userFound) {
-        const kedungrejaRef = doc(db, "employee_credentials", "logins_kedungreja");
-        const kedungrejaSnap = await getDoc(kedungrejaRef);
-
-        if (kedungrejaSnap.exists()) {
-          const credentials = kedungrejaSnap.data().users || [];
-          const user = credentials.find(
-            (u: any) => 
-              String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
-              String(u.password || "").trim() === inputPassword
-          );
-          if (user) {
-            userFound = true;
-            matchedNama = user.nama || inputUsername;
+        const docNames = ["system_logins_kedungreja", "logins_kedungreja"];
+        for (const docName of docNames) {
+          if (userFound) break;
+          const docSnap = await getDoc(doc(db, "employee_credentials", docName));
+          if (docSnap.exists()) {
+            const credentials = docSnap.data().users || [];
+            const user = credentials.find(
+              (u: any) => 
+                String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
+                String(u.password || "").trim() === inputPassword
+            );
+            if (user) {
+              userFound = true;
+              matchedNama = user.nama || inputUsername;
+            }
           }
         }
       }

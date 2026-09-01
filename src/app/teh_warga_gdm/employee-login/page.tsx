@@ -76,22 +76,24 @@ export default function TehWargaEmployeeLoginPage() {
         }
       }
 
-      // 2. Cek ke dokumen employee_credentials logins_tehwarga khusus Teh Warga
+      // 2. Cek ke dokumen employee_credentials (system_logins_tehwarga & logins_tehwarga)
       if (!userFound) {
-        const tehwargaRef = doc(db, "employee_credentials", "logins_tehwarga");
-        const tehwargaSnap = await getDoc(tehwargaRef);
-
-        if (tehwargaSnap.exists()) {
-          const credentials = tehwargaSnap.data().users || [];
-          const user = credentials.find(
-            (u: any) => 
-              String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
-              String(u.password || "").trim() === inputPassword
-          );
-          if (user) {
-            userFound = true;
-            matchedNama = user.nama || inputUsername;
-            matchedRole = user.role || "employee";
+        const docNames = ["system_logins_tehwarga", "logins_tehwarga"];
+        for (const docName of docNames) {
+          if (userFound) break;
+          const docSnap = await getDoc(doc(db, "employee_credentials", docName));
+          if (docSnap.exists()) {
+            const credentials = docSnap.data().users || [];
+            const user = credentials.find(
+              (u: any) => 
+                String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
+                String(u.password || "").trim() === inputPassword
+            );
+            if (user) {
+              userFound = true;
+              matchedNama = user.nama || inputUsername;
+              matchedRole = user.role || "employee";
+            }
           }
         }
       }

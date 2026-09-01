@@ -143,70 +143,74 @@ export default function PengaturanAbsensiPage() {
   const [filterBranch, setFilterBranch] = useState<string>("all");
 
   // Helper untuk sinkronisasi kredensial ke Firestore agar terisolasi per cabang & dapat digunakan di semua device (PC & Mobile Android)
-  const syncCredentialsToFirestore = async (firestoreDb: any) => {
+  const syncCredentialsToFirestore = async (firestoreDb: any, targetCabang?: "gdm" | "kedungreja" | "tehwarga") => {
     const snapshot = await getDocs(collection(firestoreDb, "karyawan"));
-    const gdmUsers: any[] = [];
-    const kedungrejaUsers: any[] = [];
-    const tehwargaUsers: any[] = [];
+    const branchesToSync: ("gdm" | "kedungreja" | "tehwarga")[] = targetCabang ? [targetCabang] : ["gdm", "kedungreja", "tehwarga"];
     let totalAll = 0;
 
-    snapshot.docs.forEach((d) => {
-      const data = d.data();
-      const cleanUsername = String(data.username || "").trim();
-      const cleanPassword = String(data.password || "").trim();
-      const cleanNama = String(data.nama || cleanUsername).trim();
-      const userCabang = (data.cabang || "gdm").toLowerCase();
-      const role = "employee";
+    for (const b of branchesToSync) {
+      const branchAbsensiUsers: any[] = [];
+      snapshot.docs.forEach((d) => {
+        const data = d.data();
+        const cleanUsername = String(data.username || "").trim();
+        const cleanPassword = String(data.password || "").trim();
+        const cleanNama = String(data.nama || cleanUsername).trim();
+        const userCabang = (data.cabang || "gdm").toLowerCase();
 
-      if (cleanUsername && cleanPassword) {
-        totalAll++;
-        const userObj = {
-          id: d.id,
-          username: cleanUsername,
-          password: cleanPassword,
-          nama: cleanNama,
-          role: role,
-          cabang: userCabang,
-          gender: data.gender || "Laki-laki",
-          team: data.team || "tim1",
-          status: data.status || "aktif"
-        };
-
-        if (userCabang === "kedungreja") {
-          kedungrejaUsers.push(userObj);
-        } else if (userCabang === "tehwarga") {
-          tehwargaUsers.push(userObj);
-        } else {
-          // Default Zona Waktu Gandrungmangu
-          gdmUsers.push(userObj);
+        if (cleanUsername && cleanPassword && userCabang === b) {
+          totalAll++;
+          branchAbsensiUsers.push({
+            id: d.id,
+            username: cleanUsername,
+            password: cleanPassword,
+            nama: cleanNama,
+            role: "employee",
+            cabang: b,
+            gender: data.gender || "Laki-laki",
+            team: data.team || "tim1",
+            status: data.status || "aktif"
+          });
         }
+      });
+
+      // 1. Simpan absensi murni ke absensi_logins_<b>
+      await setDoc(doc(firestoreDb, "employee_credentials", `absensi_logins_${b}`), {
+        users: branchAbsensiUsers,
+        totalUsers: branchAbsensiUsers.length,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+
+      // 2. Ambil system_logins_<b> agar akun kasir/POS cabang ini tidak terhapus
+      const sysSnap = await getDoc(doc(firestoreDb, "employee_credentials", `system_logins_${b}`));
+      const existingSystemUsers: any[] = sysSnap.exists() ? (sysSnap.data().users || []) : [];
+
+      // 3. Merge system kasir + absensi untuk cabang ini
+      const mergedMap = new Map<string, any>();
+      existingSystemUsers.forEach(u => {
+        if (u.username) mergedMap.set(u.username.toLowerCase(), { ...u, cabang: b });
+      });
+      branchAbsensiUsers.forEach(u => {
+        if (u.username && !mergedMap.has(u.username.toLowerCase())) {
+          mergedMap.set(u.username.toLowerCase(), u);
+        }
+      });
+      const combinedUsers = Array.from(mergedMap.values());
+
+      // 4. Update logins_<b> HANYA untuk cabang ini
+      await setDoc(doc(firestoreDb, "employee_credentials", `logins_${b}`), {
+        users: combinedUsers,
+        totalUsers: combinedUsers.length,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+
+      if (b === "gdm") {
+        await setDoc(doc(firestoreDb, "employee_credentials", "logins"), {
+          users: combinedUsers,
+          totalUsers: combinedUsers.length,
+          updatedAt: serverTimestamp()
+        }, { merge: true });
       }
-    });
-
-    // Sinkronisasi ke koleksi employee_credentials per masing-masing cabang
-    await setDoc(doc(firestoreDb, "employee_credentials", "logins_gdm"), {
-      users: gdmUsers,
-      totalUsers: gdmUsers.length,
-      updatedAt: serverTimestamp()
-    }, { merge: true });
-
-    await setDoc(doc(firestoreDb, "employee_credentials", "logins"), {
-      users: gdmUsers,
-      totalUsers: gdmUsers.length,
-      updatedAt: serverTimestamp()
-    }, { merge: true });
-
-    await setDoc(doc(firestoreDb, "employee_credentials", "logins_kedungreja"), {
-      users: kedungrejaUsers,
-      totalUsers: kedungrejaUsers.length,
-      updatedAt: serverTimestamp()
-    }, { merge: true });
-
-    await setDoc(doc(firestoreDb, "employee_credentials", "logins_tehwarga"), {
-      users: tehwargaUsers,
-      totalUsers: tehwargaUsers.length,
-      updatedAt: serverTimestamp()
-    }, { merge: true });
+    }
 
     // Sinkronisasi info ke absensi_config
     await setDoc(doc(firestoreDb, "settings", "absensi_config"), {
@@ -249,8 +253,11 @@ export default function PengaturanAbsensiPage() {
         });
       }
 
-      // Otomatis sinkronisasi kredensial ke branch yang sesuai
-      await syncCredentialsToFirestore(db);
+      // Otomatis sinkronisasi kredensial HANYA ke branch yang bersangkutan
+      await syncCredentialsToFirestore(db, formCabang);
+      if (editingKaryawan && editingKaryawan.cabang && editingKaryawan.cabang !== formCabang) {
+        await syncCredentialsToFirestore(db, editingKaryawan.cabang);
+      }
 
       alert(editingKaryawan ? "Data karyawan berhasil diupdate & disinkronkan ke cabang terkait!" : "Karyawan baru berhasil ditambahkan & disinkronkan ke cabang terkait!");
 
@@ -742,8 +749,9 @@ export default function PengaturanAbsensiPage() {
                               size="icon" 
                               onClick={async () => {
                                 if (window.confirm(`Hapus karyawan ${k.nama}?`)) {
+                                  const targetCabang = (k.cabang || "gdm") as "gdm" | "kedungreja" | "tehwarga";
                                   await deleteDoc(doc(db, "karyawan", k.id));
-                                  await syncCredentialsToFirestore(db);
+                                  await syncCredentialsToFirestore(db, targetCabang);
                                   alert(`Data karyawan ${k.nama} berhasil dihapus & kredensial tersinkronisasi.`);
                                 }
                               }} 

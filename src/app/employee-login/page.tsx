@@ -84,25 +84,29 @@ export default function EmployeeLoginPage() {
         }
       }
 
-      // 2. Cek ke dokumen employee_credentials logins_gdm atau logins
+      // 2. Cek ke dokumen employee_credentials (system_logins_gdm, logins_gdm, logins)
       if (!userFound) {
-        const credentialsRef = doc(db, "employee_credentials", "logins_gdm");
-        let docSnap = await getDoc(credentialsRef);
-        if (!docSnap.exists()) {
-          docSnap = await getDoc(doc(db, "employee_credentials", "logins"));
-        }
+        const docNames = ["system_logins_gdm", "logins_gdm", "logins"];
+        for (const docName of docNames) {
+          if (userFound) break;
+          const docSnap = await getDoc(doc(db, "employee_credentials", docName));
+          if (docSnap.exists()) {
+            const credentials = docSnap.data().users || [];
+            const user = credentials.find(
+              (u: any) => 
+                String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
+                String(u.password || "").trim() === inputPassword
+            );
 
-        if (docSnap.exists()) {
-          const credentials = docSnap.data().users || [];
-          const user = credentials.find(
-            (u: any) => 
-              String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
-              String(u.password || "").trim() === inputPassword
-          );
-
-          if (user) {
-            userFound = true;
-            matchedNama = user.nama || inputUsername;
+            if (user) {
+              const uCabang = (user.cabang || "gdm").toLowerCase();
+              if (uCabang === "kedungreja" || uCabang === "tehwarga") {
+                setError(`Akses Ditolak: Akun Anda terdaftar di Cabang ${uCabang === 'tehwarga' ? 'Teh Warga' : 'Kedungreja'}. Akun tidak dapat digunakan di Outlet Gandrungmangu.`);
+                return;
+              }
+              userFound = true;
+              matchedNama = user.nama || inputUsername;
+            }
           }
         }
       }

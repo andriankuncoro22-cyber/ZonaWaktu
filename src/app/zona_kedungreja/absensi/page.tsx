@@ -189,24 +189,26 @@ export default function KedungrejaAbsensiPage() {
         if (foundDoc) {
           userData = { id: foundDoc.id, ...foundDoc.data() } as KaryawanUser;
         } else {
-          // 3. Fallback: Cek di dokumen employee_credentials logins_kedungreja khusus Kedungreja
-          const credRef = doc(db, "employee_credentials", "logins_kedungreja");
-          const credSnap = await getDoc(credRef);
-
-          if (credSnap.exists()) {
-            const users = credSnap.data().users || [];
-            const credUser = users.find((u: any) => 
-              String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
-              String(u.password || "").trim() === inputPassword
-            );
-            if (credUser) {
-              userData = {
-                id: credUser.id || `emp_${credUser.username}`,
-                nama: credUser.nama || credUser.username,
-                username: credUser.username,
-                cabang: credUser.cabang || "kedungreja",
-                ...credUser
-              } as KaryawanUser;
+          // 3. Fallback: Cek di dokumen employee_credentials (absensi_logins_kedungreja & logins_kedungreja)
+          const docNames = ["absensi_logins_kedungreja", "logins_kedungreja"];
+          for (const docName of docNames) {
+            if (userData) break;
+            const credSnap = await getDoc(doc(db, "employee_credentials", docName));
+            if (credSnap.exists()) {
+              const users = credSnap.data().users || [];
+              const credUser = users.find((u: any) => 
+                String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
+                String(u.password || "").trim() === inputPassword
+              );
+              if (credUser) {
+                userData = {
+                  id: credUser.id || `emp_${credUser.username}`,
+                  nama: credUser.nama || credUser.username,
+                  username: credUser.username,
+                  cabang: credUser.cabang || "kedungreja",
+                  ...credUser
+                } as KaryawanUser;
+              }
             }
           }
         }

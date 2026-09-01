@@ -90,20 +90,29 @@ export default function PengaturanPage() {
   useEffect(() => {
     const fetchCredentials = async () => {
       try {
-        // 1. Fetch GDM credentials
+        // 1. Fetch GDM credentials (system_logins_gdm -> logins_gdm -> logins)
+        const gdmSysSnap = await getDoc(doc(db, "employee_credentials", "system_logins_gdm"));
         const gdmCredSnap = await getDoc(doc(db, "employee_credentials", "logins_gdm"));
         const gdmFallbackSnap = await getDoc(doc(db, "employee_credentials", "logins"));
-        const gdmUsers = gdmCredSnap.exists() 
-          ? (gdmCredSnap.data().users || []) 
-          : (gdmFallbackSnap.exists() ? (gdmFallbackSnap.data().users || []) : []);
+        const gdmUsers = gdmSysSnap.exists()
+          ? (gdmSysSnap.data().users || [])
+          : (gdmCredSnap.exists() 
+              ? (gdmCredSnap.data().users || []) 
+              : (gdmFallbackSnap.exists() ? (gdmFallbackSnap.data().users || []) : []));
 
-        // 2. Fetch Kedungreja credentials
+        // 2. Fetch Kedungreja credentials (system_logins_kedungreja -> logins_kedungreja)
+        const kdrjSysSnap = await getDoc(doc(db, "employee_credentials", "system_logins_kedungreja"));
         const kdrjCredSnap = await getDoc(doc(db, "employee_credentials", "logins_kedungreja"));
-        const kdrjUsers = kdrjCredSnap.exists() ? (kdrjCredSnap.data().users || []) : [];
+        const kdrjUsers = kdrjSysSnap.exists() 
+          ? (kdrjSysSnap.data().users || []) 
+          : (kdrjCredSnap.exists() ? (kdrjCredSnap.data().users || []) : []);
 
-        // 3. Fetch Teh Warga credentials
+        // 3. Fetch Teh Warga credentials (system_logins_tehwarga -> logins_tehwarga)
+        const tehSysSnap = await getDoc(doc(db, "employee_credentials", "system_logins_tehwarga"));
         const tehCredSnap = await getDoc(doc(db, "employee_credentials", "logins_tehwarga"));
-        const tehUsers = tehCredSnap.exists() ? (tehCredSnap.data().users || []) : [];
+        const tehUsers = tehSysSnap.exists() 
+          ? (tehSysSnap.data().users || []) 
+          : (tehCredSnap.exists() ? (tehCredSnap.data().users || []) : []);
 
         setCredentialsByBranch({
           gdm: gdmUsers,
@@ -140,6 +149,7 @@ export default function PengaturanPage() {
         console.error("Error fetching credentials:", err);
       }
     };
+
     fetchCredentials();
   }, [db]);
 
@@ -320,40 +330,103 @@ export default function PengaturanPage() {
       const branchUsers = credentialsByBranch[targetBranch] || [];
       const branchAdmin = adminByBranch[targetBranch];
 
+      // 1. Simpan daftar akun sistem/kasir murni ke system_logins_<targetBranch>
+      const systemDocName = `system_logins_${targetBranch}`;
+      await setDoc(doc(db, "employee_credentials", systemDocName), { 
+        users: branchUsers, 
+        totalUsers: branchUsers.length,
+        updatedAt: serverTimestamp() 
+      }, { merge: true });
+
+      // 2. Simpan kredensial admin khusus cabang ini
+      const adminDocName = `admin_${targetBranch}`;
+      await setDoc(doc(db, "employee_credentials", adminDocName), { 
+        username: branchAdmin.username.trim(), 
+        password: branchAdmin.password.trim(), 
+        updatedAt: serverTimestamp() 
+      }, { merge: true });
+
       if (targetBranch === "gdm") {
-        await setDoc(doc(db, "employee_credentials", "logins_gdm"), { users: branchUsers, updatedAt: serverTimestamp() }, { merge: true });
-        await setDoc(doc(db, "employee_credentials", "logins"), { users: branchUsers, updatedAt: serverTimestamp() }, { merge: true });
-        await setDoc(doc(db, "employee_credentials", "admin_gdm"), { username: branchAdmin.username.trim(), password: branchAdmin.password.trim(), updatedAt: serverTimestamp() }, { merge: true });
-        await setDoc(doc(db, "employee_credentials", "admin"), { username: branchAdmin.username.trim(), password: branchAdmin.password.trim(), updatedAt: serverTimestamp() }, { merge: true });
-      } else if (targetBranch === "kedungreja") {
-        await setDoc(doc(db, "employee_credentials", "logins_kedungreja"), { users: branchUsers, updatedAt: serverTimestamp() }, { merge: true });
-        await setDoc(doc(db, "employee_credentials", "admin_kedungreja"), { username: branchAdmin.username.trim(), password: branchAdmin.password.trim(), updatedAt: serverTimestamp() }, { merge: true });
-      } else if (targetBranch === "tehwarga") {
-        await setDoc(doc(db, "employee_credentials", "logins_tehwarga"), { users: branchUsers, updatedAt: serverTimestamp() }, { merge: true });
-        await setDoc(doc(db, "employee_credentials", "admin_tehwarga"), { username: branchAdmin.username.trim(), password: branchAdmin.password.trim(), updatedAt: serverTimestamp() }, { merge: true });
+        await setDoc(doc(db, "employee_credentials", "admin"), { 
+          username: branchAdmin.username.trim(), 
+          password: branchAdmin.password.trim(), 
+          updatedAt: serverTimestamp() 
+        }, { merge: true });
+      }
+
+      // 3. Ambil data absensi aktif khusus targetBranch dari Firestore
+      const kSnap = await getDocs(collection(db, "karyawan"));
+      const branchAbsensiUsers: any[] = [];
+      kSnap.docs.forEach((d) => {
+        const dData = d.data();
+        const dCabang = (dData.cabang || "gdm").toLowerCase();
+        if (dCabang === targetBranch) {
+          const u = String(dData.username || "").trim();
+          const p = String(dData.password || "").trim();
+          if (u && p) {
+            branchAbsensiUsers.push({
+              id: d.id,
+              username: u,
+              password: p,
+              nama: dData.nama || u,
+              role: "employee",
+              cabang: targetBranch,
+              gender: dData.gender || "Laki-laki",
+              team: dData.team || "tim1",
+              status: dData.status || "aktif"
+            });
+          }
+        }
+      });
+
+      // 4. Merge tanpa duplikasi antara kasir sistem dan absensi khusus targetBranch
+      const mergedMap = new Map<string, any>();
+      branchUsers.forEach(u => {
+        if (u.username) mergedMap.set(u.username.toLowerCase(), { ...u, cabang: targetBranch });
+      });
+      branchAbsensiUsers.forEach(u => {
+        if (u.username && !mergedMap.has(u.username.toLowerCase())) {
+          mergedMap.set(u.username.toLowerCase(), u);
+        }
+      });
+      const combinedUsers = Array.from(mergedMap.values());
+
+      // 5. Update HANYA dokumen logins_<targetBranch> (JANGAN SENTUH DOKUMEN TOKO LAIN!)
+      const loginDocName = `logins_${targetBranch}`;
+      await setDoc(doc(db, "employee_credentials", loginDocName), { 
+        users: combinedUsers, 
+        totalUsers: combinedUsers.length,
+        updatedAt: serverTimestamp() 
+      }, { merge: true });
+
+      if (targetBranch === "gdm") {
+        await setDoc(doc(db, "employee_credentials", "logins"), { 
+          users: combinedUsers, 
+          totalUsers: combinedUsers.length,
+          updatedAt: serverTimestamp() 
+        }, { merge: true });
       }
 
       toast({ 
-        title: "Sinkronisasi Berhasil", 
-        description: `Hak akses karyawan & admin untuk ${BRANCH_LIST[targetBranch]?.name} telah diperbarui & diisolasi.` 
+        title: "Perubahan Kredensial Tersimpan", 
+        description: `Hak akses untuk ${BRANCH_LIST[targetBranch]?.name} berhasil diperbarui tanpa mempengaruhi toko lainnya.` 
       });
     } catch (error) {
       console.error(error);
-      toast({ variant: "destructive", title: "Gagal Sinkronisasi", description: "Terjadi kesalahan saat menyimpan hak akses." });
+      toast({ variant: "destructive", title: "Gagal Menyimpan", description: "Terjadi kesalahan saat menyimpan hak akses." });
     } finally {
       setLoading(false);
     }
   };
 
-  // Helper sinkronisasi seluruh karyawan absensi ke employee_credentials per branch
-  const syncAllAbsensiKaryawan = async () => {
+  // Helper sinkronisasi karyawan absensi khusus cabang yang aktif (TIDAK menyentuh cabang lain)
+  const syncBranchAbsensiKaryawan = async (targetBranch: BranchId = credentialBranch) => {
     setSyncingAbsensi(true);
     try {
+      // 1. Ambil data karyawan absensi di targetBranch
       const snapshot = await getDocs(collection(db, "karyawan"));
-      const gdmUsers: any[] = [];
-      const kedungrejaUsers: any[] = [];
-      const tehwargaUsers: any[] = [];
-      let totalAll = 0;
+      const branchAbsensiUsers: any[] = [];
+      let totalBranch = 0;
 
       snapshot.docs.forEach((d) => {
         const data = d.data();
@@ -362,57 +435,63 @@ export default function PengaturanPage() {
         const cleanNama = String(data.nama || cleanUsername).trim();
         const userCabang = (data.cabang || "gdm").toLowerCase();
 
-        if (cleanUsername && cleanPassword) {
-          totalAll++;
-          const userObj = {
+        if (cleanUsername && cleanPassword && userCabang === targetBranch) {
+          totalBranch++;
+          branchAbsensiUsers.push({
             id: d.id,
             username: cleanUsername,
             password: cleanPassword,
             nama: cleanNama,
             role: "employee",
-            cabang: userCabang,
+            cabang: targetBranch,
             gender: data.gender || "Laki-laki",
             team: data.team || "tim1",
             status: data.status || "aktif"
-          };
-
-          if (userCabang === "kedungreja") {
-            kedungrejaUsers.push(userObj);
-          } else if (userCabang === "tehwarga") {
-            tehwargaUsers.push(userObj);
-          } else {
-            gdmUsers.push(userObj);
-          }
+          });
         }
       });
 
-      await setDoc(doc(db, "employee_credentials", "logins_gdm"), {
-        users: gdmUsers,
-        totalUsers: gdmUsers.length,
+      // 2. Simpan absensi khusus ke absensi_logins_<targetBranch>
+      await setDoc(doc(db, "employee_credentials", `absensi_logins_${targetBranch}`), {
+        users: branchAbsensiUsers,
+        totalUsers: branchAbsensiUsers.length,
         updatedAt: serverTimestamp()
       }, { merge: true });
 
-      await setDoc(doc(db, "employee_credentials", "logins"), {
-        users: gdmUsers,
-        totalUsers: gdmUsers.length,
+      // 3. Ambil system_logins_<targetBranch> yang sudah ada agar akun kasir tidak terhapus
+      const sysSnap = await getDoc(doc(db, "employee_credentials", `system_logins_${targetBranch}`));
+      const existingSystemUsers: any[] = sysSnap.exists() ? (sysSnap.data().users || []) : (credentialsByBranch[targetBranch] || []);
+
+      // 4. Merge system kasir users + absensi users untuk targetBranch
+      const mergedMap = new Map<string, any>();
+      existingSystemUsers.forEach(u => {
+        if (u.username) mergedMap.set(u.username.toLowerCase(), { ...u, cabang: targetBranch });
+      });
+      branchAbsensiUsers.forEach(u => {
+        if (u.username && !mergedMap.has(u.username.toLowerCase())) {
+          mergedMap.set(u.username.toLowerCase(), u);
+        }
+      });
+      const combinedUsers = Array.from(mergedMap.values());
+
+      // 5. Update logins_<targetBranch> HANYA untuk targetBranch!
+      await setDoc(doc(db, "employee_credentials", `logins_${targetBranch}`), {
+        users: combinedUsers,
+        totalUsers: combinedUsers.length,
         updatedAt: serverTimestamp()
       }, { merge: true });
 
-      await setDoc(doc(db, "employee_credentials", "logins_kedungreja"), {
-        users: kedungrejaUsers,
-        totalUsers: kedungrejaUsers.length,
-        updatedAt: serverTimestamp()
-      }, { merge: true });
-
-      await setDoc(doc(db, "employee_credentials", "logins_tehwarga"), {
-        users: tehwargaUsers,
-        totalUsers: tehwargaUsers.length,
-        updatedAt: serverTimestamp()
-      }, { merge: true });
+      if (targetBranch === "gdm") {
+        await setDoc(doc(db, "employee_credentials", "logins"), {
+          users: combinedUsers,
+          totalUsers: combinedUsers.length,
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      }
 
       toast({
-        title: "Sinkronisasi Kaderisasi Berhasil",
-        description: `${totalAll} akun karyawan absensi telah disinkronkan ke seluruh database toko & mobile.`
+        title: "Sinkronisasi Cabang Berhasil",
+        description: `${totalBranch} akun absensi ${BRANCH_LIST[targetBranch]?.name} berhasil disinkronkan tanpa mempengaruhi toko lain.`
       });
     } catch (err) {
       console.error(err);
@@ -446,11 +525,11 @@ export default function PengaturanPage() {
         updatedAt: serverTimestamp()
       });
 
-      await syncAllAbsensiKaryawan();
+      await syncBranchAbsensiKaryawan(credentialBranch);
 
       toast({
         title: "Akun Absensi Ditambahkan",
-        description: `Akun absensi ${nama} (${username}) untuk ${BRANCH_LIST[credentialBranch]?.name} berhasil dibuat & tersambung ke /pengaturan/absensi.`
+        description: `Akun absensi ${nama} (${username}) untuk ${BRANCH_LIST[credentialBranch]?.name} berhasil dibuat.`
       });
 
       setNewAbsensiForm({
@@ -469,11 +548,11 @@ export default function PengaturanPage() {
   };
 
   const handleDeleteAbsensiKaryawan = async (id: string, nama: string) => {
-    if (!window.confirm(`Hapus akun absensi untuk "${nama}"? Akun ini juga akan terhapus dari /pengaturan/absensi.`)) return;
+    if (!window.confirm(`Hapus akun absensi untuk "${nama}"? Akun ini juga akan terhapus dari database absensi ${BRANCH_LIST[credentialBranch]?.name}.`)) return;
     setLoading(true);
     try {
       await deleteDoc(doc(db, "karyawan", id));
-      await syncAllAbsensiKaryawan();
+      await syncBranchAbsensiKaryawan(credentialBranch);
       toast({ title: "Akun Absensi Dihapus", description: `Akun absensi ${nama} berhasil dihapus.` });
     } catch (error) {
       console.error(error);
@@ -936,12 +1015,12 @@ export default function PengaturanPage() {
                 </Button>
 
                 <Button
-                  onClick={syncAllAbsensiKaryawan}
+                  onClick={() => syncBranchAbsensiKaryawan(credentialBranch)}
                   disabled={syncingAbsensi}
                   className="rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase tracking-wider text-[10px] h-11 px-4 gap-2 shadow-sm"
                 >
                   <RefreshCw className={cn("h-3.5 w-3.5", syncingAbsensi && "animate-spin")} />
-                  {syncingAbsensi ? "Menyinkronkan..." : "Sinkronisasi Kaderisasi"}
+                  {syncingAbsensi ? "Menyinkronkan..." : `Sinkronisasi Cabang (${currentBranchInfo.shortName})`}
                 </Button>
               </div>
             </div>
