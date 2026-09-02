@@ -9,6 +9,7 @@ import { CupSoda, Loader2, ArrowLeft, Eye, EyeOff, Users } from "lucide-react";
 import { useFirestore, collection, doc } from "@/firebase";
 import { getDoc, query, where, getDocs } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
+import { normalizeBranchId } from "@/lib/branch-helper";
 
 export default function TehWargaEmployeeLoginPage() {
   const [username, setUsername] = useState("");
@@ -47,7 +48,7 @@ export default function TehWargaEmployeeLoginPage() {
 
       if (!kSnap.empty) {
         const kData = kSnap.docs[0].data();
-        const kCabang = (kData.cabang || "gdm").toLowerCase();
+        const kCabang = normalizeBranchId(kData.cabang);
         if (kCabang !== "tehwarga") {
           setError(`Akses Ditolak: Akun Anda terdaftar di Cabang ${kCabang === 'kedungreja' ? 'Kedungreja' : 'Zona Waktu Gandrungmangu'}. Akun tidak dapat digunakan di Outlet Teh Warga.`);
           return;
@@ -66,7 +67,7 @@ export default function TehWargaEmployeeLoginPage() {
 
         if (foundDoc) {
           const dData = foundDoc.data();
-          const kCabang = (dData.cabang || "gdm").toLowerCase();
+          const kCabang = normalizeBranchId(dData.cabang);
           if (kCabang !== "tehwarga") {
             setError(`Akses Ditolak: Akun Anda terdaftar di Cabang ${kCabang === 'kedungreja' ? 'Kedungreja' : 'Zona Waktu Gandrungmangu'}. Akun tidak dapat digunakan di Outlet Teh Warga.`);
             return;
@@ -85,7 +86,7 @@ export default function TehWargaEmployeeLoginPage() {
           if (docSnap.exists()) {
             const credentials = docSnap.data().users || [];
             const user = credentials.find(
-              (u: any) => 
+              (u: { username?: string; password?: string; nama?: string; role?: string }) => 
                 String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
                 String(u.password || "").trim() === inputPassword
             );
@@ -118,7 +119,7 @@ export default function TehWargaEmployeeLoginPage() {
       } else {
         setError("Username atau password salah. Pastikan huruf besar/kecil dan spasi sudah sesuai.");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
       setError("Terjadi kesalahan saat memproses login");
     } finally {

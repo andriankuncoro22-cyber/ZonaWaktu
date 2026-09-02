@@ -8,15 +8,11 @@ import {
   Camera,
   Users, 
   Monitor, 
-  Save, 
-  Plus, 
   Trash2, 
   RefreshCw,
-  Search,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
-  CheckCircle2,
   Pencil
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -25,13 +21,81 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFirestore, useCollection, useMemoFirebase, collection, doc } from "@/firebase";
-import { setDoc, addDoc, updateDoc, deleteDoc, query, orderBy, where, getDoc, getDocs, writeBatch, serverTimestamp } from "firebase/firestore";
+import { setDoc, addDoc, updateDoc, deleteDoc, query, orderBy, where, getDoc, getDocs, writeBatch, serverTimestamp, Firestore } from "firebase/firestore";
 import { cn } from "@/lib/utils";
-import { useToast } from "@/hooks/use-toast";
+import { normalizeBranchId } from "@/lib/branch-helper";
+import Image from "next/image";
+
+interface KaryawanData {
+  id: string;
+  nama?: string;
+  username?: string;
+  password?: string;
+  gender?: string;
+  team?: string;
+  cabang?: string;
+  status?: string;
+  [key: string]: unknown;
+}
+
+interface AbsensiLogData {
+  id: string;
+  nama?: string;
+  tanggal?: string;
+  shift?: string;
+  jamMasuk?: string;
+  jamPulang?: string;
+  selfieUrl?: string;
+  timestamp?: unknown;
+  [key: string]: unknown;
+}
+
+const calculateTotalWorkHours = (jamMasuk?: string, jamPulang?: string): string => {
+  if (!jamMasuk || !jamPulang || jamPulang === "-" || jamMasuk === "-") {
+    return "-";
+  }
+
+  const parseTimeToSeconds = (timeStr: string): number | null => {
+    const cleaned = timeStr.trim().replace(/\./g, ":");
+    const parts = cleaned.split(":");
+    if (parts.length < 2) return null;
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    const s = parts.length >= 3 ? parseInt(parts[2], 10) : 0;
+    if (isNaN(h) || isNaN(m)) return null;
+    return h * 3600 + m * 60 + (isNaN(s) ? 0 : s);
+  };
+
+  const startSec = parseTimeToSeconds(jamMasuk);
+  const endSec = parseTimeToSeconds(jamPulang);
+
+  if (startSec === null || endSec === null) return "-";
+
+  let diffSec = endSec - startSec;
+  if (diffSec < 0) {
+    diffSec += 24 * 3600;
+  }
+
+  const hours = Math.floor(diffSec / 3600);
+  const minutes = Math.floor((diffSec % 3600) / 60);
+
+  if (hours === 0 && minutes === 0) {
+    return "0 Menit";
+  }
+
+  if (hours === 0) {
+    return `${minutes} Menit`;
+  }
+
+  if (minutes === 0) {
+    return `${hours} Jam`;
+  }
+
+  return `${hours} Jam, ${minutes} Menit`;
+};
 
 export default function PengaturanAbsensiPage() {
   const db = useFirestore();
-  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("jam-kerja");
   const [syncing, setSyncing] = useState(false);
 
@@ -63,11 +127,11 @@ export default function PengaturanAbsensiPage() {
   const { data: karyawanList } = useCollection(karyawanQuery);
 
   const tim1Karyawan = useMemo(() => {
-    return (karyawanList as any[] || []).filter(k => k.team !== "tim2");
+    return ((karyawanList as KaryawanData[]) || []).filter(k => k.team !== "tim2");
   }, [karyawanList]);
 
   const tim2Karyawan = useMemo(() => {
-    return (karyawanList as any[] || []).filter(k => k.team === "tim2");
+    return ((karyawanList as KaryawanData[]) || []).filter(k => k.team === "tim2");
   }, [karyawanList]);
 
   // Fetch Schedules
@@ -86,7 +150,7 @@ export default function PengaturanAbsensiPage() {
 
   const todayLogs = useMemo(() => {
     if (!monitoringData) return [];
-    if (!selectedDateStr) return monitoringData as any[];
+    if (!selectedDateStr) return (monitoringData as AbsensiLogData[]);
 
     // Parse YYYY-MM-DD to DD/MM/YYYY and D/M/YYYY to match Firestore format
     const parts = selectedDateStr.split("-");
@@ -95,7 +159,7 @@ export default function PengaturanAbsensiPage() {
     const slash1 = `${Number(day)}/${Number(month)}/${year}`;
     const slash2 = `${day}/${month}/${year}`;
 
-    return (monitoringData as any[]).filter((log: any) => {
+    return ((monitoringData as AbsensiLogData[])).filter((log) => {
       const logDate = log.tanggal;
       return logDate === slash1 || logDate === slash2;
     });
@@ -133,7 +197,7 @@ export default function PengaturanAbsensiPage() {
   };
 
   const formRef = useRef<HTMLDivElement>(null);
-  const [editingKaryawan, setEditingKaryawan] = useState<any | null>(null);
+  const [editingKaryawan, setEditingKaryawan] = useState<KaryawanData | null>(null);
   const [formNama, setFormNama] = useState("");
   const [formUsername, setFormUsername] = useState("");
   const [formPassword, setFormPassword] = useState("");
@@ -142,20 +206,21 @@ export default function PengaturanAbsensiPage() {
   const [formCabang, setFormCabang] = useState<"gdm" | "kedungreja" | "tehwarga">("gdm");
   const [filterBranch, setFilterBranch] = useState<string>("all");
 
-  // Helper untuk sinkronisasi kredensial ke Firestore agar terisolasi per cabang & dapat digunakan di semua device (PC & Mobile Android)
-  const syncCredentialsToFirestore = async (firestoreDb: any, targetCabang?: "gdm" | "kedungreja" | "tehwarga") => {
+  // Helper untuk sinkronisasi kredensial ke Firestore untuk SEMUA TOKO (GDM, Kedungreja, Teh Warga)
+  // Menjamin seluruh cabang tersinkronisasi bersamaan tanpa saling menghapus kasir/absensi
+  const syncCredentialsToFirestore = async (firestoreDb: Firestore) => {
     const snapshot = await getDocs(collection(firestoreDb, "karyawan"));
-    const branchesToSync: ("gdm" | "kedungreja" | "tehwarga")[] = targetCabang ? [targetCabang] : ["gdm", "kedungreja", "tehwarga"];
+    const allBranches: ("gdm" | "kedungreja" | "tehwarga")[] = ["gdm", "kedungreja", "tehwarga"];
     let totalAll = 0;
 
-    for (const b of branchesToSync) {
-      const branchAbsensiUsers: any[] = [];
+    for (const b of allBranches) {
+      const branchAbsensiUsers: KaryawanData[] = [];
       snapshot.docs.forEach((d) => {
         const data = d.data();
         const cleanUsername = String(data.username || "").trim();
         const cleanPassword = String(data.password || "").trim();
         const cleanNama = String(data.nama || cleanUsername).trim();
-        const userCabang = (data.cabang || "gdm").toLowerCase();
+        const userCabang = normalizeBranchId(data.cabang);
 
         if (cleanUsername && cleanPassword && userCabang === b) {
           totalAll++;
@@ -182,10 +247,10 @@ export default function PengaturanAbsensiPage() {
 
       // 2. Ambil system_logins_<b> agar akun kasir/POS cabang ini tidak terhapus
       const sysSnap = await getDoc(doc(firestoreDb, "employee_credentials", `system_logins_${b}`));
-      const existingSystemUsers: any[] = sysSnap.exists() ? (sysSnap.data().users || []) : [];
+      const existingSystemUsers: KaryawanData[] = sysSnap.exists() ? (sysSnap.data().users || []) : [];
 
       // 3. Merge system kasir + absensi untuk cabang ini
-      const mergedMap = new Map<string, any>();
+      const mergedMap = new Map<string, KaryawanData>();
       existingSystemUsers.forEach(u => {
         if (u.username) mergedMap.set(u.username.toLowerCase(), { ...u, cabang: b });
       });
@@ -196,7 +261,7 @@ export default function PengaturanAbsensiPage() {
       });
       const combinedUsers = Array.from(mergedMap.values());
 
-      // 4. Update logins_<b> HANYA untuk cabang ini
+      // 4. Update logins_<b> untuk cabang ini
       await setDoc(doc(firestoreDb, "employee_credentials", `logins_${b}`), {
         users: combinedUsers,
         totalUsers: combinedUsers.length,
@@ -253,13 +318,10 @@ export default function PengaturanAbsensiPage() {
         });
       }
 
-      // Otomatis sinkronisasi kredensial HANYA ke branch yang bersangkutan
-      await syncCredentialsToFirestore(db, formCabang);
-      if (editingKaryawan && editingKaryawan.cabang && editingKaryawan.cabang !== formCabang) {
-        await syncCredentialsToFirestore(db, editingKaryawan.cabang);
-      }
+      // Otomatis sinkronisasi kredensial ke SELURUH CABANG
+      await syncCredentialsToFirestore(db);
 
-      alert(editingKaryawan ? "Data karyawan berhasil diupdate & disinkronkan ke cabang terkait!" : "Karyawan baru berhasil ditambahkan & disinkronkan ke cabang terkait!");
+      alert(editingKaryawan ? "Data karyawan berhasil diupdate & disinkronkan ke seluruh cabang!" : "Karyawan baru berhasil ditambahkan & disinkronkan ke seluruh cabang!");
 
       // Reset Form
       setEditingKaryawan(null);
@@ -286,11 +348,13 @@ export default function PengaturanAbsensiPage() {
         const cleanUsername = String(data.username || "").trim();
         const cleanPassword = String(data.password || "").trim();
         const cleanNama = String(data.nama || cleanUsername).trim();
+        const cleanCabang = normalizeBranchId(data.cabang);
 
         batch.update(d.ref, { 
           nama: cleanNama,
           username: cleanUsername,
           password: cleanPassword,
+          cabang: cleanCabang,
           status: "aktif",
           lastSynced: serverTimestamp() 
         });
@@ -298,10 +362,10 @@ export default function PengaturanAbsensiPage() {
       
       await batch.commit();
       
-      // Sinkronkan seluruh kredensial logins multi-device
+      // Sinkronkan seluruh kredensial logins untuk SEMUA TOKO (GDM, Kedungreja, Teh Warga)
       const totalSynced = await syncCredentialsToFirestore(db);
 
-      alert(`Sinkronisasi Kaderisasi Berhasil!\n${totalSynced} akun karyawan aktif telah disinkronkan ke Firestore untuk semua perangkat (PC, Mobile Android, dan POS).`);
+      alert(`Sinkronisasi Kaderisasi Berhasil!\n${totalSynced} akun karyawan aktif telah disinkronkan ke Firestore untuk SEMUA TOKO (PC, Mobile Android, dan POS).`);
     } catch (err) {
       console.error("Error syncing kaderisasi:", err);
       alert("Gagal melakukan sinkronisasi kaderisasi.");
@@ -333,7 +397,7 @@ export default function PengaturanAbsensiPage() {
     try {
       const batch = writeBatch(db);
       
-      (karyawanList as any[]).forEach((k) => {
+      (karyawanList as KaryawanData[]).forEach((k) => {
         const isTim2 = k.team === "tim2";
         for (let day = 1; day <= daysInMonth; day++) {
           const isOddDay = day % 2 !== 0;
@@ -588,7 +652,7 @@ export default function PengaturanAbsensiPage() {
                     <Label className="text-[10px] font-black uppercase">Cabang Penempatan</Label>
                     <select 
                       value={formCabang} 
-                      onChange={(e) => setFormCabang(e.target.value as any)} 
+                      onChange={(e) => setFormCabang(e.target.value as "gdm" | "kedungreja" | "tehwarga")} 
                       required 
                       className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold focus-visible:outline-none"
                     >
@@ -685,9 +749,9 @@ export default function PengaturanAbsensiPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {karyawanList
-                      ?.filter((k: any) => filterBranch === "all" || (k.cabang || "gdm") === filterBranch)
-                      ?.map((k: any) => (
+                    {(karyawanList as KaryawanData[])
+                      ?.filter((k: KaryawanData) => filterBranch === "all" || normalizeBranchId(k.cabang) === filterBranch)
+                      ?.map((k: KaryawanData) => (
                       <tr key={k.id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-8 py-4">
                           <p className="text-sm font-black text-slate-900">{k.nama}</p>
@@ -735,7 +799,7 @@ export default function PengaturanAbsensiPage() {
                                 setFormPassword(k.password || "");
                                 setFormGender(k.gender || "Laki-laki");
                                 setFormTeam(k.team || "tim1");
-                                setFormCabang(k.cabang || "gdm");
+                                setFormCabang(normalizeBranchId(k.cabang));
                                 setTimeout(() => {
                                   formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
                                 }, 50);
@@ -749,10 +813,9 @@ export default function PengaturanAbsensiPage() {
                               size="icon" 
                               onClick={async () => {
                                 if (window.confirm(`Hapus karyawan ${k.nama}?`)) {
-                                  const targetCabang = (k.cabang || "gdm") as "gdm" | "kedungreja" | "tehwarga";
                                   await deleteDoc(doc(db, "karyawan", k.id));
-                                  await syncCredentialsToFirestore(db, targetCabang);
-                                  alert(`Data karyawan ${k.nama} berhasil dihapus & kredensial tersinkronisasi.`);
+                                  await syncCredentialsToFirestore(db);
+                                  alert(`Data karyawan ${k.nama} berhasil dihapus & kredensial seluruh toko tersinkronisasi.`);
                                 }
                               }} 
                               className="text-slate-400 hover:text-rose-600"
@@ -829,7 +892,7 @@ export default function PengaturanAbsensiPage() {
                     </td>
                   </tr>
                   
-                  {tim1Karyawan.map((k: any) => (
+                  {tim1Karyawan.map((k: KaryawanData) => (
                     <tr key={k.id} className="hover:bg-slate-50/30 transition-colors">
                       <td className="sticky left-0 bg-white z-10 px-6 py-4 border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.02)]">
                         <p className="text-xs font-black text-slate-900 uppercase truncate">{k.nama}</p>
@@ -875,7 +938,7 @@ export default function PengaturanAbsensiPage() {
                     </td>
                   </tr>
 
-                  {tim2Karyawan.map((k: any) => (
+                  {tim2Karyawan.map((k: KaryawanData) => (
                     <tr key={k.id} className="hover:bg-slate-50/30 transition-colors">
                       <td className="sticky left-0 bg-white z-10 px-6 py-4 border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.02)]">
                         <p className="text-xs font-black text-slate-900 uppercase truncate">{k.nama}</p>
@@ -968,12 +1031,12 @@ export default function PengaturanAbsensiPage() {
                 }
               </div>
               {todayLogs.length > 0 ? (
-                todayLogs.map((log: any) => (
+                todayLogs.map((log: AbsensiLogData) => (
                   <Card key={log.id} className="p-4 rounded-3xl border border-slate-100 bg-slate-50/50 flex gap-4 items-center shadow-none">
                     {/* Selfie Image */}
                     <div className="relative h-20 w-20 rounded-2xl overflow-hidden border border-slate-200 shrink-0 bg-slate-100 flex items-center justify-center">
                       {log.selfieUrl ? (
-                        <img src={log.selfieUrl} alt="Selfie" className="h-full w-full object-cover" />
+                        <Image src={log.selfieUrl as string} alt="Selfie" fill className="object-cover" unoptimized />
                       ) : (
                         <span className="text-[8px] font-black uppercase text-slate-400 text-center">No Photo</span>
                       )}
@@ -991,7 +1054,7 @@ export default function PengaturanAbsensiPage() {
                         <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md text-[8px] font-bold shrink-0">{log.tanggal}</span>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100">
+                      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
                         <div>
                           <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Masuk</p>
                           <p className="text-xs font-black text-emerald-600 tabular-nums">{log.jamMasuk || "-"}</p>
@@ -999,6 +1062,12 @@ export default function PengaturanAbsensiPage() {
                         <div>
                           <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Pulang</p>
                           <p className="text-xs font-black text-rose-600 tabular-nums">{log.jamPulang || "-"}</p>
+                        </div>
+                        <div>
+                          <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Total Kerja</p>
+                          <p className="text-[11px] font-black text-indigo-600 tabular-nums leading-tight">
+                            {calculateTotalWorkHours(log.jamMasuk, log.jamPulang)}
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -1021,12 +1090,13 @@ export default function PengaturanAbsensiPage() {
                       <th className="px-6 py-5 text-[9px] font-black uppercase text-slate-500">Tanggal</th>
                       <th className="px-6 py-5 text-[9px] font-black uppercase text-slate-500">Masuk</th>
                       <th className="px-6 py-5 text-[9px] font-black uppercase text-slate-500">Pulang</th>
+                      <th className="px-6 py-5 text-[9px] font-black uppercase text-slate-500">Total Jam Kerja</th>
                       <th className="px-8 py-5 text-[9px] font-black uppercase text-slate-500">Selfie</th>
                       <th className="px-8 py-5 text-[9px] font-black uppercase text-slate-500 text-right">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {monitoringData?.length > 0 ? monitoringData.map((log: any) => (
+                    {(monitoringData as AbsensiLogData[])?.length > 0 ? (monitoringData as AbsensiLogData[]).map((log: AbsensiLogData) => (
                       <tr key={log.id} className="hover:bg-slate-50/20">
                         <td className="px-8 py-4">
                           <p className="font-black text-sm text-slate-900 uppercase">{log.nama}</p>
@@ -1035,9 +1105,24 @@ export default function PengaturanAbsensiPage() {
                         <td className="px-6 py-4 text-xs font-medium">{log.tanggal}</td>
                         <td className="px-6 py-4 text-sm font-black text-emerald-600 tabular-nums">{log.jamMasuk}</td>
                         <td className="px-6 py-4 text-sm font-black text-rose-600 tabular-nums">{log.jamPulang}</td>
+                        <td className="px-6 py-4">
+                          {log.jamPulang && log.jamPulang !== "-" ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-100 font-black text-xs tabular-nums">
+                              <Clock className="h-3 w-3 text-indigo-500" />
+                              {calculateTotalWorkHours(log.jamMasuk, log.jamPulang)}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-50 text-amber-700 border border-amber-100 text-[10px] font-bold">
+                              <Clock className="h-3 w-3 text-amber-500 animate-spin" />
+                              Sedang Bekerja
+                            </span>
+                          )}
+                        </td>
                         <td className="px-8 py-4">
                           {log.selfieUrl ? (
-                            <img src={log.selfieUrl} alt="Selfie absensi" className="h-16 w-16 object-cover rounded-xl border border-slate-200" />
+                            <div className="relative h-16 w-16 rounded-xl overflow-hidden border border-slate-200">
+                              <Image src={log.selfieUrl as string} alt="Selfie absensi" fill className="object-cover" unoptimized />
+                            </div>
                           ) : (
                             <span className="text-[10px] font-black uppercase text-slate-400">Tidak ada</span>
                           )}
@@ -1048,7 +1133,7 @@ export default function PengaturanAbsensiPage() {
                       </tr>
                     )) : (
                       <tr>
-                        <td colSpan={6} className="py-20 text-center opacity-30 italic text-xs">Belum ada data absensi untuk periode ini</td>
+                        <td colSpan={7} className="py-20 text-center opacity-30 italic text-xs">Belum ada data absensi untuk periode ini</td>
                       </tr>
                     )}
                   </tbody>

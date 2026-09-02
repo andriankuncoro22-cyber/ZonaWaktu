@@ -1,4 +1,4 @@
-import { useState, useEffect, useSyncExternalStore } from 'react';
+import { useSyncExternalStore } from 'react';
 import { 
   collection as fsCollection, 
   doc as fsDoc, 
@@ -51,17 +51,27 @@ export const BRANCH_LIST: Record<BranchId, BranchInfo> = {
 };
 
 /**
+ * Normalize any branch string to standard BranchId ('gdm' | 'kedungreja' | 'tehwarga')
+ */
+export function normalizeBranchId(raw: unknown): BranchId {
+  if (!raw) return 'gdm';
+  const str = String(raw).trim().toLowerCase();
+  if (str === 'kedungreja' || str === 'kdrj' || str === 'zw-02' || str.includes('kedungreja')) return 'kedungreja';
+  if (str === 'tehwarga' || str === 'teh_warga' || str === 'teh_warga_gdm' || str === 'tw-01' || str.includes('teh') || str.includes('warga')) return 'tehwarga';
+  return 'gdm';
+}
+
+/**
  * Get current active branch ('gdm' | 'kedungreja' | 'tehwarga')
  */
 export function getActiveBranch(): BranchId {
   if (typeof window === 'undefined') return 'gdm';
   const saved = localStorage.getItem('current_branch');
-  if (saved === 'tehwarga' || saved === 'teh_warga_gdm') return 'tehwarga';
-  if (saved === 'kedungreja') return 'kedungreja';
+  if (saved) return normalizeBranchId(saved);
   if (window.location.pathname.startsWith('/teh_warga_gdm')) return 'tehwarga';
   if (window.location.pathname.startsWith('/zona_kedungreja')) return 'kedungreja';
   if (window.location.pathname.startsWith('/zona_gdm')) return 'gdm';
-  return (saved as BranchId) || 'gdm';
+  return 'gdm';
 }
 
 function subscribeBranch(callback: () => void) {
@@ -169,9 +179,9 @@ export function branchCollection(
 ): CollectionReference<DocumentData> {
   const scopedPath = getBranchScopedCollectionName(path);
   if (pathSegments.length > 0) {
-    return (fsCollection as any)(firestoreOrRef, scopedPath, ...pathSegments);
+    return fsCollection(firestoreOrRef as Firestore, scopedPath, ...pathSegments);
   }
-  return (fsCollection as any)(firestoreOrRef, scopedPath);
+  return fsCollection(firestoreOrRef as Firestore, scopedPath);
 }
 
 /**
@@ -184,7 +194,7 @@ export function branchDoc(
 ): DocumentReference<DocumentData> {
   // If called without path (e.g. doc(collectionRef) for generating an auto ID)
   if (path === undefined) {
-    return (fsDoc as any)(firestoreOrRefOrCol);
+    return fsDoc(firestoreOrRefOrCol as CollectionReference<DocumentData>);
   }
 
   // If path is a string
@@ -193,10 +203,10 @@ export function branchDoc(
     parts[0] = getBranchScopedCollectionName(parts[0]);
     const fullPath = parts.join('/');
     if (pathSegments.length > 0) {
-      return (fsDoc as any)(firestoreOrRefOrCol, fullPath, ...pathSegments);
+      return fsDoc(firestoreOrRefOrCol as Firestore, fullPath, ...pathSegments);
     }
-    return (fsDoc as any)(firestoreOrRefOrCol, fullPath);
+    return fsDoc(firestoreOrRefOrCol as Firestore, fullPath);
   }
 
-  return (fsDoc as any)(firestoreOrRefOrCol, path, ...pathSegments);
+  return fsDoc(firestoreOrRefOrCol as Firestore, path, ...pathSegments);
 }

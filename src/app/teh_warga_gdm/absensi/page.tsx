@@ -2,12 +2,10 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { 
-  Clock, 
   MapPin, 
   LogOut, 
   Home, 
   CheckCircle2, 
-  XCircle, 
   RefreshCw, 
   CalendarDays, 
   User,
@@ -22,9 +20,10 @@ import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import Image from "next/image";
 import { useFirestore, collection, doc } from "@/firebase";
-import { addDoc, query, where, getDocs, serverTimestamp, orderBy, limit, getDoc } from "firebase/firestore";
+import { addDoc, updateDoc, query, where, getDocs, serverTimestamp, orderBy, limit, getDoc } from "firebase/firestore";
 import { cn } from "@/lib/utils";
 import { uploadToCloudinary } from "@/lib/cloudinary";
+import { normalizeBranchId } from "@/lib/branch-helper";
 
 interface KaryawanUser {
   id: string;
@@ -145,18 +144,20 @@ export default function TehWargaAbsensiPage() {
     document.documentElement.setAttribute("data-branch", "tehwarga");
     window.dispatchEvent(new Event("branch_changed"));
 
-    fetchConfig();
-    const savedUser = localStorage.getItem("karyawan_user_tehwarga") || localStorage.getItem("karyawan_user");
-    if (savedUser) {
-      try {
-        const parsed = JSON.parse(savedUser);
-        setUser(parsed);
-        fetchAttendanceData(parsed.id);
-      } catch (e) {
-        console.error(e);
+    queueMicrotask(() => {
+      fetchConfig();
+      const savedUser = localStorage.getItem("karyawan_user_tehwarga") || localStorage.getItem("karyawan_user");
+      if (savedUser) {
+        try {
+          const parsed = JSON.parse(savedUser);
+          setUser(parsed);
+          fetchAttendanceData(parsed.id);
+        } catch (e) {
+          console.error(e);
+        }
       }
-    }
-    setCheckingAuth(false);
+      setCheckingAuth(false);
+    });
   }, [fetchAttendanceData, fetchConfig]);
 
   useEffect(() => {
@@ -177,56 +178,61 @@ export default function TehWargaAbsensiPage() {
     try {
       let userData: KaryawanUser | null = null;
 
-      // 1. Cek langsung ke koleksi karyawan dengan exact match
-      const q = query(
-        collection(db, "karyawan"), 
-        where("username", "==", inputUsername),
-        where("password", "==", inputPassword)
-      );
-      const querySnapshot = await getDocs(q);
-      if (!querySnapshot.empty) {
-        userData = { id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() } as KaryawanUser;
-      } else {
-        // 2. Fallback: Case-insensitive username match di koleksi karyawan
-        const allKaryawanSnap = await getDocs(collection(db, "karyawan"));
-        const foundDoc = allKaryawanSnap.docs.find(d => {
-          const dData = d.data();
-          return (
-            String(dData.username || "").trim().toLowerCase() === inputUsername.toLowerCase() &&
-            String(dData.password || "").trim() === inputPassword
-          );
-        });
-
-        if (foundDoc) {
-          userData = { id: foundDoc.id, ...foundDoc.data() } as KaryawanUser;
-        } else {
-          // 3. Fallback: Cek di dokumen employee_credentials (absensi_logins_tehwarga & logins_tehwarga)
-          const docNames = ["absensi_logins_tehwarga", "logins_tehwarga"];
-          for (const docName of docNames) {
-            if (userData) break;
-            const credSnap = await getDoc(doc(db, "employee_credentials", docName));
-            if (credSnap.exists()) {
-              const users = credSnap.data().users || [];
-              const credUser = users.find((u: any) => 
-                String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() &&
-                String(u.password || "").trim() === inputPassword
-              );
-              if (credUser) {
-                userData = {
-                  id: credUser.id || `emp_${credUser.username}`,
-                  nama: credUser.nama || credUser.username,
-                  username: credUser.username,
-                  cabang: credUser.cabang || "tehwarga",
-                  ...credUser
-                } as KaryawanUser;
-              }
+      // 1. FAST PATH (Super Fast Single Doc Read & Low Traffic): Cek dokumen employee_credentials Teh Warga
+      const docNames = ["absensi_logins_tehwarga", "logins_tehwarga"];
+      for (const docName of docNames) {
+        if (userData) break;
+        try {
+          const credSnap = await getDoc(doc(db, "employee_credentials", docName));
+          if (credSnap.exists()) {
+            const users = credSnap.data().users || [];
+            const credUser = users.find((u: Record<string, unknown>) => 
+              String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() &&
+              String(u.password || "").trim() === inputPassword
+            );
+            if (credUser) {
+              userData = {
+                id: credUser.id || `emp_${credUser.username}`,
+                nama: credUser.nama || credUser.username,
+                username: credUser.username,
+                cabang: credUser.cabang || "tehwarga",
+                ...credUser
+              } as KaryawanUser;
             }
+          }
+        } catch (credErr) {
+          console.warn("Fast cred read warning:", credErr);
+        }
+      }
+
+      // 2. FALLBACK: Jika belum ketemu di kredensial cepat, query langsung ke koleksi karyawan
+      if (!userData) {
+        const q = query(
+          collection(db, "karyawan"), 
+          where("username", "==", inputUsername),
+          where("password", "==", inputPassword)
+        );
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          userData = { id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() } as KaryawanUser;
+        } else {
+          // Fallback case-insensitive
+          const allKaryawanSnap = await getDocs(collection(db, "karyawan"));
+          const foundDoc = allKaryawanSnap.docs.find(d => {
+            const dData = d.data();
+            return (
+              String(dData.username || "").trim().toLowerCase() === inputUsername.toLowerCase() &&
+              String(dData.password || "").trim() === inputPassword
+            );
+          });
+          if (foundDoc) {
+            userData = { id: foundDoc.id, ...foundDoc.data() } as KaryawanUser;
           }
         }
       }
 
       if (userData) {
-        const userCabang = (userData.cabang || "gdm").toLowerCase();
+        const userCabang = normalizeBranchId(userData.cabang);
         if (userCabang !== "tehwarga") {
           alert(`Akses Ditolak: Akun Anda terdaftar di Cabang ${userCabang === 'kedungreja' ? 'Kedungreja' : 'Zona Waktu Gandrungmangu'}. Akun tidak dapat digunakan di Portal Absensi Teh Warga.`);
           return;
@@ -240,13 +246,13 @@ export default function TehWargaAbsensiPage() {
           console.warn("Storage error on mobile webview:", storageErr);
         }
         setLoginData({ username: "", password: "" });
-        fetchAttendanceData(userData.id);
+        await fetchAttendanceData(userData.id);
       } else {
-        alert("Username atau password salah! Pastikan huruf besar/kecil dan spasi sudah sesuai.");
+        alert("Username atau Password salah! Pastikan huruf besar/kecil dan spasi sudah sesuai.");
       }
-    } catch (e) {
-      console.error("Login failed", e);
-      alert("Terjadi kesalahan saat login. Periksa koneksi internet Anda.");
+    } catch (err) {
+      console.error("Login error", err);
+      alert("Terjadi kesalahan sistem saat login. Periksa koneksi internet Anda.");
     } finally {
       setLoading(false);
     }
@@ -318,9 +324,15 @@ export default function TehWargaAbsensiPage() {
       return;
     }
 
-    if (!selfiePreview) {
-      const uploadedUrl = await captureSelfie();
-      if (!uploadedUrl) {
+    if (!user?.id) {
+      alert("Sesi user tidak valid. Silakan login kembali.");
+      return;
+    }
+
+    let currentSelfie = selfiePreview;
+    if (!currentSelfie) {
+      currentSelfie = await captureSelfie();
+      if (!currentSelfie) {
         alert("Foto selfie wajib diambil sebelum absen.");
         return;
       }
@@ -331,37 +343,95 @@ export default function TehWargaAbsensiPage() {
     
     try {
       if (type === 'masuk') {
-        await addDoc(collection(db, "absensi_logs"), {
-          karyawanId: user?.id,
-          nama: user?.nama,
-          shift: user?.shift || 'default',
+        const docRef = await addDoc(collection(db, "absensi_logs"), {
+          karyawanId: user.id,
+          nama: user.nama,
+          shift: user.shift || 'default',
           cabang: "tehwarga",
           cabangName: "Teh Warga Gandrungmangu",
           tanggal: today,
           jamMasuk: time,
           jamPulang: "-",
-          selfieUrl: selfiePreview,
+          selfieUrl: currentSelfie,
           timestamp: serverTimestamp()
         });
         setAttendanceToday({ 
-          id: "", 
-          karyawanId: user?.id || "", 
-          nama: user?.nama || "", 
+          id: docRef.id, 
+          karyawanId: user.id, 
+          nama: user.nama, 
           tanggal: today, 
           jamMasuk: time, 
           jamPulang: "-", 
-          selfieUrl: selfiePreview ?? undefined,
+          selfieUrl: currentSelfie ?? undefined,
           cabang: "tehwarga"
         });
+        alert(`Absen Masuk Berhasil! Jam: ${time}`);
       } else {
-        alert("Sesi Absen Pulang Tercatat.");
+        // type === 'pulang'
+        let logDocId = attendanceToday?.id;
+        if (!logDocId) {
+          const qToday = query(
+            collection(db, "absensi_logs"),
+            where("karyawanId", "==", user.id),
+            where("tanggal", "==", today),
+            orderBy("timestamp", "desc"),
+            limit(1)
+          );
+          const snapToday = await getDocs(qToday);
+          if (!snapToday.empty) {
+            logDocId = snapToday.docs[0].id;
+          }
+        }
+
+        if (logDocId) {
+          await updateDoc(doc(db, "absensi_logs", logDocId), {
+            jamPulang: time,
+            selfiePulangUrl: currentSelfie || null,
+            updatedAt: serverTimestamp()
+          });
+          setAttendanceToday((prev) => prev ? { ...prev, jamPulang: time } : {
+            id: logDocId!,
+            karyawanId: user.id,
+            nama: user.nama,
+            tanggal: today,
+            jamMasuk: attendanceToday?.jamMasuk || "-",
+            jamPulang: time,
+            selfieUrl: currentSelfie ?? undefined,
+            cabang: "tehwarga"
+          });
+          alert(`Absen Pulang Berhasil! Jam: ${time}`);
+        } else {
+          const docRef = await addDoc(collection(db, "absensi_logs"), {
+            karyawanId: user.id,
+            nama: user.nama,
+            shift: user.shift || 'default',
+            cabang: "tehwarga",
+            cabangName: "Teh Warga Gandrungmangu",
+            tanggal: today,
+            jamMasuk: "-",
+            jamPulang: time,
+            selfieUrl: currentSelfie,
+            timestamp: serverTimestamp()
+          });
+          setAttendanceToday({ 
+            id: docRef.id, 
+            karyawanId: user.id, 
+            nama: user.nama, 
+            tanggal: today, 
+            jamMasuk: "-", 
+            jamPulang: time, 
+            selfieUrl: currentSelfie ?? undefined,
+            cabang: "tehwarga"
+          });
+          alert(`Absen Pulang Berhasil! Jam: ${time}`);
+        }
       }
-      if (user?.id) {
-        await fetchAttendanceData(user.id);
-      }
+      setSelfiePreview(null);
+      await fetchAttendanceData(user.id);
       stopCamera();
     } catch (e) {
       console.error("Absen failed", e);
+      alert("Terjadi kesalahan saat memproses absensi. Silakan coba lagi.");
     }
   };
 
@@ -396,9 +466,12 @@ export default function TehWargaAbsensiPage() {
 
   useEffect(() => {
     if (user && config) {
-      validateLocation();
+      const timer = setTimeout(() => validateLocation(), 0);
       const interval = setInterval(validateLocation, 10000);
-      return () => clearInterval(interval);
+      return () => {
+        clearTimeout(timer);
+        clearInterval(interval);
+      };
     }
   }, [user, config, validateLocation]);
 

@@ -19,9 +19,10 @@ import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import Image from "next/image";
 import { useFirestore, collection, doc } from "@/firebase";
-import { addDoc, query, where, getDocs, serverTimestamp, orderBy, limit, getDoc } from "firebase/firestore";
+import { addDoc, updateDoc, query, where, getDocs, serverTimestamp, orderBy, limit, getDoc } from "firebase/firestore";
 import { cn } from "@/lib/utils";
 import { uploadToCloudinary } from "@/lib/cloudinary";
+import { normalizeBranchId } from "@/lib/branch-helper";
 
 // --- Types ---
 interface KaryawanUser {
@@ -165,57 +166,61 @@ export default function KedungrejaAbsensiPage() {
     try {
       let userData: KaryawanUser | null = null;
 
-      // 1. Cek langsung ke koleksi karyawan dengan exact match
-      const q = query(
-        collection(db, "karyawan"), 
-        where("username", "==", inputUsername), 
-        where("password", "==", inputPassword)
-      );
-      const snapshot = await getDocs(q);
-      
-      if (!snapshot.empty) {
-        userData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as KaryawanUser;
-      } else {
-        // 2. Fallback: Case-insensitive username match di koleksi karyawan
-        const allKaryawanSnap = await getDocs(collection(db, "karyawan"));
-        const foundDoc = allKaryawanSnap.docs.find(d => {
-          const dData = d.data();
-          return (
-            String(dData.username || "").trim().toLowerCase() === inputUsername.toLowerCase() &&
-            String(dData.password || "").trim() === inputPassword
-          );
-        });
-
-        if (foundDoc) {
-          userData = { id: foundDoc.id, ...foundDoc.data() } as KaryawanUser;
-        } else {
-          // 3. Fallback: Cek di dokumen employee_credentials (absensi_logins_kedungreja & logins_kedungreja)
-          const docNames = ["absensi_logins_kedungreja", "logins_kedungreja"];
-          for (const docName of docNames) {
-            if (userData) break;
-            const credSnap = await getDoc(doc(db, "employee_credentials", docName));
-            if (credSnap.exists()) {
-              const users = credSnap.data().users || [];
-              const credUser = users.find((u: any) => 
-                String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
-                String(u.password || "").trim() === inputPassword
-              );
-              if (credUser) {
-                userData = {
-                  id: credUser.id || `emp_${credUser.username}`,
-                  nama: credUser.nama || credUser.username,
-                  username: credUser.username,
-                  cabang: credUser.cabang || "kedungreja",
-                  ...credUser
-                } as KaryawanUser;
-              }
+      // 1. FAST PATH (Super Fast Single Doc Read & Low Traffic): Cek dokumen employee_credentials Kedungreja
+      const docNames = ["absensi_logins_kedungreja", "logins_kedungreja"];
+      for (const docName of docNames) {
+        if (userData) break;
+        try {
+          const credSnap = await getDoc(doc(db, "employee_credentials", docName));
+          if (credSnap.exists()) {
+            const users = credSnap.data().users || [];
+            const credUser = users.find((u: Record<string, unknown>) => 
+              String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
+              String(u.password || "").trim() === inputPassword
+            );
+            if (credUser) {
+              userData = {
+                id: credUser.id || `emp_${credUser.username}`,
+                nama: credUser.nama || credUser.username,
+                username: credUser.username,
+                cabang: credUser.cabang || "kedungreja",
+                ...credUser
+              } as KaryawanUser;
             }
+          }
+        } catch (credErr) {
+          console.warn("Fast cred read warning:", credErr);
+        }
+      }
+
+      // 2. FALLBACK: Jika belum ketemu di kredensial cepat, query langsung ke koleksi karyawan
+      if (!userData) {
+        const q = query(
+          collection(db, "karyawan"), 
+          where("username", "==", inputUsername), 
+          where("password", "==", inputPassword)
+        );
+        const snapshot = await getDocs(q);
+        if (!snapshot.empty) {
+          userData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as KaryawanUser;
+        } else {
+          // Fallback case-insensitive
+          const allKaryawanSnap = await getDocs(collection(db, "karyawan"));
+          const foundDoc = allKaryawanSnap.docs.find(d => {
+            const dData = d.data();
+            return (
+              String(dData.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
+              String(dData.password || "").trim() === inputPassword
+            );
+          });
+          if (foundDoc) {
+            userData = { id: foundDoc.id, ...foundDoc.data() } as KaryawanUser;
           }
         }
       }
 
       if (userData) {
-        const userCabang = (userData.cabang || "gdm").toLowerCase();
+        const userCabang = normalizeBranchId(userData.cabang);
         if (userCabang !== "kedungreja") {
           alert(`Akses Ditolak: Akun Anda terdaftar di Cabang ${userCabang === 'tehwarga' ? 'Teh Warga' : 'Zona Waktu Gandrungmangu'}. Akun tidak dapat digunakan di Portal Absensi Kedungreja.`);
           return;
@@ -310,13 +315,19 @@ export default function KedungrejaAbsensiPage() {
 
   const handleAbsen = async (type: 'masuk' | 'pulang') => {
     if (!isWithinRadius) {
-      alert("Anda berada di luar jangkauan lokasi outlet Kedungreja. Silakan mendekat ke area toko.");
+      alert("Anda berada di luar jangkauan lokasi kantor. Silakan mendekat ke area toko.");
       return;
     }
 
-    if (!selfiePreview) {
-      const uploadedUrl = await captureSelfie();
-      if (!uploadedUrl) {
+    if (!user?.id) {
+      alert("Sesi user tidak valid. Silakan login kembali.");
+      return;
+    }
+
+    let currentSelfie = selfiePreview;
+    if (!currentSelfie) {
+      currentSelfie = await captureSelfie();
+      if (!currentSelfie) {
         alert("Foto selfie wajib diambil sebelum absen.");
         return;
       }
@@ -327,37 +338,95 @@ export default function KedungrejaAbsensiPage() {
     
     try {
       if (type === 'masuk') {
-        await addDoc(collection(db, "absensi_logs"), {
-          karyawanId: user?.id,
-          nama: user?.nama,
-          shift: user?.shift || 'default',
+        const docRef = await addDoc(collection(db, "absensi_logs"), {
+          karyawanId: user.id,
+          nama: user.nama,
+          shift: user.shift || 'default',
           cabang: "kedungreja",
           cabangName: "Cabang Kedungreja",
           tanggal: today,
           jamMasuk: time,
           jamPulang: "-",
-          selfieUrl: selfiePreview,
+          selfieUrl: currentSelfie,
           timestamp: serverTimestamp()
         });
         setAttendanceToday({ 
-          id: "", 
-          karyawanId: user?.id || "", 
-          nama: user?.nama || "", 
+          id: docRef.id, 
+          karyawanId: user.id, 
+          nama: user.nama, 
           tanggal: today, 
           jamMasuk: time, 
           jamPulang: "-", 
-          selfieUrl: selfiePreview ?? undefined,
+          selfieUrl: currentSelfie ?? undefined,
           cabang: "kedungreja"
         });
+        alert(`Absen Masuk Berhasil! Jam: ${time}`);
       } else {
-        alert("Sesi Absen Pulang Tercatat.");
+        // type === 'pulang'
+        let logDocId = attendanceToday?.id;
+        if (!logDocId) {
+          const qToday = query(
+            collection(db, "absensi_logs"),
+            where("karyawanId", "==", user.id),
+            where("tanggal", "==", today),
+            orderBy("timestamp", "desc"),
+            limit(1)
+          );
+          const snapToday = await getDocs(qToday);
+          if (!snapToday.empty) {
+            logDocId = snapToday.docs[0].id;
+          }
+        }
+
+        if (logDocId) {
+          await updateDoc(doc(db, "absensi_logs", logDocId), {
+            jamPulang: time,
+            selfiePulangUrl: currentSelfie || null,
+            updatedAt: serverTimestamp()
+          });
+          setAttendanceToday((prev) => prev ? { ...prev, jamPulang: time } : {
+            id: logDocId!,
+            karyawanId: user.id,
+            nama: user.nama,
+            tanggal: today,
+            jamMasuk: attendanceToday?.jamMasuk || "-",
+            jamPulang: time,
+            selfieUrl: currentSelfie ?? undefined,
+            cabang: "kedungreja"
+          });
+          alert(`Absen Pulang Berhasil! Jam: ${time}`);
+        } else {
+          const docRef = await addDoc(collection(db, "absensi_logs"), {
+            karyawanId: user.id,
+            nama: user.nama,
+            shift: user.shift || 'default',
+            cabang: "kedungreja",
+            cabangName: "Cabang Kedungreja",
+            tanggal: today,
+            jamMasuk: "-",
+            jamPulang: time,
+            selfieUrl: currentSelfie,
+            timestamp: serverTimestamp()
+          });
+          setAttendanceToday({ 
+            id: docRef.id, 
+            karyawanId: user.id, 
+            nama: user.nama, 
+            tanggal: today, 
+            jamMasuk: "-", 
+            jamPulang: time, 
+            selfieUrl: currentSelfie ?? undefined,
+            cabang: "kedungreja"
+          });
+          alert(`Absen Pulang Berhasil! Jam: ${time}`);
+        }
       }
-      if (user?.id) {
-        await fetchAttendanceData(user.id);
-      }
+      setSelfiePreview(null);
+      await fetchAttendanceData(user.id);
       stopCamera();
     } catch (e) {
       console.error("Absen failed", e);
+      alert("Terjadi kesalahan saat memproses absensi. Silakan coba lagi.");
     }
   };
 
@@ -446,9 +515,12 @@ export default function KedungrejaAbsensiPage() {
 
   useEffect(() => {
     if (user && config) {
-      validateLocation(false);
+      const timer = setTimeout(() => validateLocation(false), 0);
       const interval = setInterval(() => validateLocation(false), 15000);
-      return () => clearInterval(interval);
+      return () => {
+        clearTimeout(timer);
+        clearInterval(interval);
+      };
     }
   }, [user, config, validateLocation]);
 

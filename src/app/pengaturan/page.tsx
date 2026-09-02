@@ -21,7 +21,6 @@ import {
   Smartphone,
   ArrowRight,
   RefreshCw,
-  UserCheck,
   CalendarDays
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -34,11 +33,40 @@ import { useToast } from "@/hooks/use-toast";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 
-import { useActiveBranch, getStoreConfigDocId, getDefaultStoreIdentity, BRANCH_LIST, BranchId } from "@/lib/branch-helper";
+import { useActiveBranch, getStoreConfigDocId, getDefaultStoreIdentity, BRANCH_LIST, BranchId, normalizeBranchId } from "@/lib/branch-helper";
 
 interface EmployeeCredential {
   username: string;
   password: string;
+}
+
+interface KaryawanItem {
+  id: string;
+  nama?: string;
+  username?: string;
+  password?: string;
+  cabang?: string;
+  gender?: string;
+  team?: string;
+  status?: string;
+  kode?: string;
+  jabatan?: string;
+  freeQuota?: number;
+  quotaFreeBulanan?: number;
+  [key: string]: unknown;
+}
+
+interface SystemUserItem {
+  id?: string;
+  username: string;
+  password?: string;
+  nama?: string;
+  role?: string;
+  cabang?: string;
+  gender?: string;
+  team?: string;
+  status?: string;
+  [key: string]: unknown;
 }
 
 export default function PengaturanPage() {
@@ -64,10 +92,12 @@ export default function PengaturanPage() {
   // Branch-isolated Store Settings
   const activeBranch = useActiveBranch();
   const [selectedBranch, setSelectedBranch] = useState<BranchId>(activeBranch);
+  const [prevActiveBranch, setPrevActiveBranch] = useState(activeBranch);
 
-  useEffect(() => {
+  if (prevActiveBranch !== activeBranch) {
+    setPrevActiveBranch(activeBranch);
     setSelectedBranch(activeBranch);
-  }, [activeBranch]);
+  }
 
   const configDocId = getStoreConfigDocId(selectedBranch);
   const settingsRef = useMemoFirebase(() => doc(db, "settings", configDocId), [db, configDocId]);
@@ -153,31 +183,44 @@ export default function PengaturanPage() {
     fetchCredentials();
   }, [db]);
 
-  const [formData, setFormData] = useState({
-    name: "Zona Waktu",
-    tagline: "Coffee & Teh Bakar Autentik",
-    logoLanding: "",
-    logoHeader: ""
-  });
+  const [formOverrides, setFormOverrides] = useState<{
+    branch: BranchId;
+    name: string;
+    tagline: string;
+    logoLanding: string;
+    logoHeader: string;
+  } | null>(null);
 
-  useEffect(() => {
-    const defaults = getDefaultStoreIdentity(selectedBranch);
-    if (storeSettings) {
-      setFormData({
-        name: storeSettings.name || defaults.name,
-        tagline: storeSettings.tagline || defaults.tagline,
-        logoLanding: storeSettings.logoLanding || "",
-        logoHeader: storeSettings.logoHeader || ""
-      });
-    } else {
-      setFormData({
-        name: defaults.name,
-        tagline: defaults.tagline,
-        logoLanding: "",
-        logoHeader: ""
-      });
-    }
-  }, [storeSettings, selectedBranch]);
+  const defaults = getDefaultStoreIdentity(selectedBranch);
+  const formData = (formOverrides && formOverrides.branch === selectedBranch)
+    ? {
+        name: formOverrides.name,
+        tagline: formOverrides.tagline,
+        logoLanding: formOverrides.logoLanding,
+        logoHeader: formOverrides.logoHeader,
+      }
+    : {
+        name: storeSettings?.name || defaults.name,
+        tagline: storeSettings?.tagline || defaults.tagline,
+        logoLanding: storeSettings?.logoLanding || "",
+        logoHeader: storeSettings?.logoHeader || ""
+      };
+
+  const setFormData = (
+    newData: Partial<typeof formData> | ((prev: typeof formData) => typeof formData)
+  ) => {
+    setFormOverrides(prev => {
+      const current = (prev && prev.branch === selectedBranch) ? prev : formData;
+      const updated = typeof newData === 'function' ? newData(current) : { ...current, ...newData };
+      return {
+        branch: selectedBranch,
+        name: updated.name ?? "",
+        tagline: updated.tagline ?? "",
+        logoLanding: updated.logoLanding ?? "",
+        logoHeader: updated.logoHeader ?? ""
+      };
+    });
+  };
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'logoLanding' | 'logoHeader') => {
     const file = e.target.files?.[0];
@@ -226,23 +269,15 @@ export default function PengaturanPage() {
   const [quotaSearch, setQuotaSearch] = useState("");
   const [globalQuotaBatch, setGlobalQuotaBatch] = useState<string>("");
 
-  useEffect(() => {
-    if (listKaryawan) {
-      const initial: Record<string, number> = {};
-      (listKaryawan as any[]).forEach((k) => {
-        initial[k.id] = Number(k.freeQuota ?? k.quotaFreeBulanan ?? 0);
-      });
-      setFreeQuotas(initial);
-    }
-  }, [listKaryawan]);
-
   const handleSaveFreeQuotas = async () => {
     setLoading(true);
     try {
       const batch = writeBatch(db);
-      Object.entries(freeQuotas).forEach(([karyawanId, quotaVal]) => {
-        const ref = doc(db, "karyawan", karyawanId);
-        const qNum = Math.max(0, Number(quotaVal || 0));
+      const mergedQuotas: Record<string, number> = {};
+      (listKaryawan as KaryawanItem[])?.forEach((k) => {
+        const qNum = freeQuotas[k.id] ?? Number(k.freeQuota ?? k.quotaFreeBulanan ?? 0);
+        mergedQuotas[k.id] = qNum;
+        const ref = doc(db, "karyawan", k.id);
         batch.set(ref, { 
           freeQuota: qNum,
           quotaFreeBulanan: qNum,
@@ -252,7 +287,7 @@ export default function PengaturanPage() {
 
       const configRef = doc(db, "settings", "free_karyawan_config");
       batch.set(configRef, {
-        quotas: freeQuotas,
+        quotas: mergedQuotas,
         updatedAt: serverTimestamp()
       }, { merge: true });
 
@@ -280,7 +315,7 @@ export default function PengaturanPage() {
       return;
     }
     const updated: Record<string, number> = {};
-    (listKaryawan as any[])?.forEach((k) => {
+    (listKaryawan as KaryawanItem[])?.forEach((k) => {
       updated[k.id] = num;
     });
     setFreeQuotas(updated);
@@ -356,10 +391,10 @@ export default function PengaturanPage() {
 
       // 3. Ambil data absensi aktif khusus targetBranch dari Firestore
       const kSnap = await getDocs(collection(db, "karyawan"));
-      const branchAbsensiUsers: any[] = [];
+      const branchAbsensiUsers: SystemUserItem[] = [];
       kSnap.docs.forEach((d) => {
         const dData = d.data();
-        const dCabang = (dData.cabang || "gdm").toLowerCase();
+        const dCabang = normalizeBranchId(dData.cabang);
         if (dCabang === targetBranch) {
           const u = String(dData.username || "").trim();
           const p = String(dData.password || "").trim();
@@ -380,7 +415,7 @@ export default function PengaturanPage() {
       });
 
       // 4. Merge tanpa duplikasi antara kasir sistem dan absensi khusus targetBranch
-      const mergedMap = new Map<string, any>();
+      const mergedMap = new Map<string, SystemUserItem>();
       branchUsers.forEach(u => {
         if (u.username) mergedMap.set(u.username.toLowerCase(), { ...u, cabang: targetBranch });
       });
@@ -425,7 +460,7 @@ export default function PengaturanPage() {
     try {
       // 1. Ambil data karyawan absensi di targetBranch
       const snapshot = await getDocs(collection(db, "karyawan"));
-      const branchAbsensiUsers: any[] = [];
+      const branchAbsensiUsers: SystemUserItem[] = [];
       let totalBranch = 0;
 
       snapshot.docs.forEach((d) => {
@@ -433,7 +468,7 @@ export default function PengaturanPage() {
         const cleanUsername = String(data.username || "").trim();
         const cleanPassword = String(data.password || "").trim();
         const cleanNama = String(data.nama || cleanUsername).trim();
-        const userCabang = (data.cabang || "gdm").toLowerCase();
+        const userCabang = normalizeBranchId(data.cabang);
 
         if (cleanUsername && cleanPassword && userCabang === targetBranch) {
           totalBranch++;
@@ -460,10 +495,10 @@ export default function PengaturanPage() {
 
       // 3. Ambil system_logins_<targetBranch> yang sudah ada agar akun kasir tidak terhapus
       const sysSnap = await getDoc(doc(db, "employee_credentials", `system_logins_${targetBranch}`));
-      const existingSystemUsers: any[] = sysSnap.exists() ? (sysSnap.data().users || []) : (credentialsByBranch[targetBranch] || []);
+      const existingSystemUsers: SystemUserItem[] = sysSnap.exists() ? (sysSnap.data().users || []) : (credentialsByBranch[targetBranch] || []);
 
       // 4. Merge system kasir users + absensi users untuk targetBranch
-      const mergedMap = new Map<string, any>();
+      const mergedMap = new Map<string, SystemUserItem>();
       existingSystemUsers.forEach(u => {
         if (u.username) mergedMap.set(u.username.toLowerCase(), { ...u, cabang: targetBranch });
       });
@@ -569,7 +604,7 @@ export default function PengaturanPage() {
     { id: "hardware", title: "Hardware", icon: Printer, desc: "Printer thermal dan integrasi scanner" },
   ];
   if (activeSection === "free-karyawan") {
-    const filteredKaryawanList = (listKaryawan as any[])?.filter((k) => {
+    const filteredKaryawanList = (listKaryawan as KaryawanItem[])?.filter((k) => {
       const term = quotaSearch.toLowerCase();
       return (
         k.nama?.toLowerCase().includes(term) ||
@@ -681,7 +716,7 @@ export default function PengaturanPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {filteredKaryawanList.map((karyawan: any) => {
+              {filteredKaryawanList.map((karyawan: KaryawanItem) => {
                 const currentVal = freeQuotas[karyawan.id] ?? Number(karyawan.freeQuota ?? karyawan.quotaFreeBulanan ?? 0);
                 return (
                   <div
@@ -746,8 +781,8 @@ export default function PengaturanPage() {
     const currentBranchInfo = BRANCH_LIST[credentialBranch] || BRANCH_LIST.gdm;
 
     // Filter absensi karyawan untuk cabang aktif (berhubungan langsung dengan /pengaturan/absensi - karyawan)
-    const branchAbsensiList = (listKaryawan as any[])?.filter(
-      (k) => (k.cabang || "gdm").toLowerCase() === credentialBranch
+    const branchAbsensiList = (listKaryawan as KaryawanItem[])?.filter(
+      (k) => normalizeBranchId(k.cabang) === credentialBranch
     ) || [];
 
     return (
@@ -1136,7 +1171,7 @@ export default function PengaturanPage() {
                       </p>
                     </div>
                   ) : (
-                    branchAbsensiList.map((karyawan: any) => (
+                    branchAbsensiList.map((karyawan: KaryawanItem) => (
                       <div 
                         key={karyawan.id} 
                         className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:border-slate-200 transition-colors"

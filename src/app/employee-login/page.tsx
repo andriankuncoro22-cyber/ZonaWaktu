@@ -9,6 +9,7 @@ import { Coffee, Loader2, ArrowLeft, Eye, EyeOff } from "lucide-react";
 import { useFirestore, doc, collection } from "@/firebase";
 import { getDoc, getDocs, query, where } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
+import { normalizeBranchId } from "@/lib/branch-helper";
 
 export default function EmployeeLoginPage() {
   const [username, setUsername] = useState("");
@@ -70,7 +71,7 @@ export default function EmployeeLoginPage() {
 
         if (foundDoc) {
           const dData = foundDoc.data();
-          const kCabang = (dData.cabang || "gdm").toLowerCase();
+          const kCabang = normalizeBranchId(dData.cabang);
           if (kCabang === "kedungreja") {
             setError("Akses Ditolak: Akun Anda terdaftar di Cabang Kedungreja (/zona_kedungreja/employee-login).");
             return;
@@ -93,13 +94,13 @@ export default function EmployeeLoginPage() {
           if (docSnap.exists()) {
             const credentials = docSnap.data().users || [];
             const user = credentials.find(
-              (u: any) => 
+              (u: { username?: string; password?: string; nama?: string; cabang?: string }) => 
                 String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
                 String(u.password || "").trim() === inputPassword
             );
 
             if (user) {
-              const uCabang = (user.cabang || "gdm").toLowerCase();
+              const uCabang = normalizeBranchId(user.cabang);
               if (uCabang === "kedungreja" || uCabang === "tehwarga") {
                 setError(`Akses Ditolak: Akun Anda terdaftar di Cabang ${uCabang === 'tehwarga' ? 'Teh Warga' : 'Kedungreja'}. Akun tidak dapat digunakan di Outlet Gandrungmangu.`);
                 return;

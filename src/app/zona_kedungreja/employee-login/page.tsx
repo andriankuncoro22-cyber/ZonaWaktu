@@ -9,6 +9,7 @@ import { Coffee, Loader2, ArrowLeft, Eye, EyeOff } from "lucide-react";
 import { useFirestore, collection, doc } from "@/firebase";
 import { getDoc, query, where, getDocs } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
+import { normalizeBranchId } from "@/lib/branch-helper";
 
 export default function KedungrejaEmployeeLoginPage() {
   const [username, setUsername] = useState("");
@@ -42,11 +43,12 @@ export default function KedungrejaEmployeeLoginPage() {
         where("username", "==", inputUsername),
         where("password", "==", inputPassword)
       );
-      const kSnap = await getDocs(q);
+      const snapshot = await getDocs(q);
 
-      if (!kSnap.empty) {
-        const kData = kSnap.docs[0].data();
-        const kCabang = (kData.cabang || "gdm").toLowerCase();
+      if (!snapshot.empty) {
+        const kDoc = snapshot.docs[0];
+        const kData = kDoc.data();
+        const kCabang = normalizeBranchId(kData.cabang);
         if (kCabang !== "kedungreja") {
           setError(`Akses Ditolak: Akun Anda terdaftar di Cabang ${kCabang === 'tehwarga' ? 'Teh Warga' : 'Zona Waktu Gandrungmangu'}. Akun tidak dapat digunakan di Outlet Kedungreja.`);
           return;
@@ -65,7 +67,7 @@ export default function KedungrejaEmployeeLoginPage() {
 
         if (foundDoc) {
           const dData = foundDoc.data();
-          const kCabang = (dData.cabang || "gdm").toLowerCase();
+          const kCabang = normalizeBranchId(dData.cabang);
           if (kCabang !== "kedungreja") {
             setError(`Akses Ditolak: Akun Anda terdaftar di Cabang ${kCabang === 'tehwarga' ? 'Teh Warga' : 'Zona Waktu Gandrungmangu'}. Akun tidak dapat digunakan di Outlet Kedungreja.`);
             return;
@@ -84,7 +86,7 @@ export default function KedungrejaEmployeeLoginPage() {
           if (docSnap.exists()) {
             const credentials = docSnap.data().users || [];
             const user = credentials.find(
-              (u: any) => 
+              (u: { username?: string; password?: string; nama?: string; cabang?: string }) => 
                 String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
                 String(u.password || "").trim() === inputPassword
             );
