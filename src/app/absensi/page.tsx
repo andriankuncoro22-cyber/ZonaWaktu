@@ -119,11 +119,17 @@ export default function AbsensiKaryawanPage() {
   const checkPersistedUser = useCallback(async () => {
     await Promise.resolve();
     try {
-      const saved = localStorage.getItem("absensi_user");
+      const saved = localStorage.getItem("absensi_user") || localStorage.getItem("absensi_user_gdm");
       if (saved) {
         const userData = JSON.parse(saved) as KaryawanUser;
-        setUser(userData);
-        await fetchAttendanceData(userData.id);
+        const userCabang = normalizeBranchId(userData.cabang);
+        if (userCabang === "gdm") {
+          setUser(userData);
+          await fetchAttendanceData(userData.id);
+        } else {
+          localStorage.removeItem("absensi_user");
+          localStorage.removeItem("absensi_user_gdm");
+        }
       }
     } catch (e) {
       console.error("Auth check failed", e);

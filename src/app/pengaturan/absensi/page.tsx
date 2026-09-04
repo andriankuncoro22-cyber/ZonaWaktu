@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { 
   Clock, 
   MapPin, 
@@ -40,12 +40,14 @@ interface KaryawanData {
 
 interface AbsensiLogData {
   id: string;
+  karyawanId?: string;
   nama?: string;
   tanggal?: string;
   shift?: string;
   jamMasuk?: string;
   jamPulang?: string;
   selfieUrl?: string;
+  cabang?: string;
   timestamp?: unknown;
   [key: string]: unknown;
 }
@@ -97,6 +99,7 @@ const calculateTotalWorkHours = (jamMasuk?: string, jamPulang?: string): string 
 export default function PengaturanAbsensiPage() {
   const db = useFirestore();
   const [activeTab, setActiveTab] = useState("jam-kerja");
+  const [selectedBranch, setSelectedBranch] = useState<"all" | "gdm" | "kedungreja" | "tehwarga">("all");
   const [syncing, setSyncing] = useState(false);
 
   // State for Jam Kerja
@@ -126,13 +129,45 @@ export default function PengaturanAbsensiPage() {
   const karyawanQuery = useMemoFirebase(() => query(collection(db, "karyawan"), orderBy("nama", "asc")), [db]);
   const { data: karyawanList } = useCollection(karyawanQuery);
 
-  const tim1Karyawan = useMemo(() => {
-    return ((karyawanList as KaryawanData[]) || []).filter(k => k.team !== "tim2");
+  const karyawanMap = useMemo(() => {
+    const map: Record<string, KaryawanData> = {};
+    ((karyawanList as KaryawanData[]) || []).forEach(k => {
+      if (k.id) map[k.id] = k;
+      if (k.username) map[k.username.toLowerCase()] = k;
+      if (k.nama) map[k.nama.toLowerCase()] = k;
+    });
+    return map;
   }, [karyawanList]);
 
+  // Map each attendance log to its real branch (prioritizing employee master data, then log.cabang)
+  const getLogBranch = useCallback((log: AbsensiLogData): "gdm" | "kedungreja" | "tehwarga" => {
+    const kId = log.karyawanId ? String(log.karyawanId) : "";
+    if (kId && karyawanMap[kId]?.cabang) {
+      return normalizeBranchId(karyawanMap[kId].cabang);
+    }
+    const kNama = log.nama ? String(log.nama).trim().toLowerCase() : "";
+    if (kNama && karyawanMap[kNama]?.cabang) {
+      return normalizeBranchId(karyawanMap[kNama].cabang);
+    }
+    if (log.cabang) {
+      return normalizeBranchId(log.cabang);
+    }
+    return "gdm";
+  }, [karyawanMap]);
+
+  const filteredKaryawanList = useMemo(() => {
+    const all = (karyawanList as KaryawanData[]) || [];
+    if (selectedBranch === "all") return all;
+    return all.filter((k) => normalizeBranchId(k.cabang) === selectedBranch);
+  }, [karyawanList, selectedBranch]);
+
+  const tim1Karyawan = useMemo(() => {
+    return filteredKaryawanList.filter(k => k.team !== "tim2");
+  }, [filteredKaryawanList]);
+
   const tim2Karyawan = useMemo(() => {
-    return ((karyawanList as KaryawanData[]) || []).filter(k => k.team === "tim2");
-  }, [karyawanList]);
+    return filteredKaryawanList.filter(k => k.team === "tim2");
+  }, [filteredKaryawanList]);
 
   // Fetch Schedules
   const monthKey = `${selectedDate.getFullYear()}-${(selectedDate.getMonth() + 1).toString().padStart(2, '0')}`;
@@ -148,9 +183,16 @@ export default function PengaturanAbsensiPage() {
 
   const [selectedDateStr, setSelectedDateStr] = useState("");
 
-  const todayLogs = useMemo(() => {
+  const filteredMonitoringLogs = useMemo(() => {
     if (!monitoringData) return [];
-    if (!selectedDateStr) return (monitoringData as AbsensiLogData[]);
+    const logs = monitoringData as AbsensiLogData[];
+    if (selectedBranch === "all") return logs;
+    return logs.filter((log) => getLogBranch(log) === selectedBranch);
+  }, [monitoringData, selectedBranch, getLogBranch]);
+
+  const todayLogs = useMemo(() => {
+    if (!filteredMonitoringLogs) return [];
+    if (!selectedDateStr) return filteredMonitoringLogs;
 
     // Parse YYYY-MM-DD to DD/MM/YYYY and D/M/YYYY to match Firestore format
     const parts = selectedDateStr.split("-");
@@ -159,16 +201,21 @@ export default function PengaturanAbsensiPage() {
     const slash1 = `${Number(day)}/${Number(month)}/${year}`;
     const slash2 = `${day}/${month}/${year}`;
 
-    return ((monitoringData as AbsensiLogData[])).filter((log) => {
+    return filteredMonitoringLogs.filter((log) => {
       const logDate = log.tanggal;
       return logDate === slash1 || logDate === slash2;
     });
-  }, [monitoringData, selectedDateStr]);
+  }, [filteredMonitoringLogs, selectedDateStr]);
 
-  // Load Initial Config
+  // Load Initial Config based on branch
   useEffect(() => {
     const loadConfig = async () => {
-      const docRef = doc(db, "settings", "absensi_config");
+      const configDocName = 
+        selectedBranch === "tehwarga" ? "absensi_config_tehwarga" :
+        selectedBranch === "kedungreja" ? "absensi_config_kedungreja" :
+        "absensi_config";
+
+      const docRef = doc(db, "settings", configDocName);
       const snap = await getDoc(docRef);
       if (snap.exists()) {
         const data = snap.data();
@@ -178,10 +225,15 @@ export default function PengaturanAbsensiPage() {
       }
     };
     loadConfig();
-  }, [db]);
+  }, [db, selectedBranch]);
 
   const handleSaveConfig = async (type: string) => {
-    const configRef = doc(db, "settings", "absensi_config");
+    const configDocName = 
+      selectedBranch === "tehwarga" ? "absensi_config_tehwarga" :
+      selectedBranch === "kedungreja" ? "absensi_config_kedungreja" :
+      "absensi_config";
+
+    const configRef = doc(db, "settings", configDocName);
     try {
       if (type === 'jam-kerja') {
         await setDoc(configRef, { shifts }, { merge: true });
@@ -190,7 +242,7 @@ export default function PengaturanAbsensiPage() {
       } else if (type === 'cloudinary') {
         await setDoc(configRef, { cloudinaryConfig }, { merge: true });
       }
-      alert("Konfigurasi berhasil disimpan!");
+      alert(`Konfigurasi untuk ${selectedBranch === 'all' ? 'Default / Semua Toko' : selectedBranch.toUpperCase()} berhasil disimpan!`);
     } catch (e) {
       console.error(e);
     }
@@ -472,11 +524,94 @@ export default function PengaturanAbsensiPage() {
     setSelectedDate(newDate);
   };
 
+  const renderBranchBadge = (log: AbsensiLogData) => {
+    const branch = getLogBranch(log);
+    if (branch === "kedungreja") {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-50 text-cyan-700 border border-cyan-200 text-[8px] font-black uppercase">
+          <span className="h-1.5 w-1.5 rounded-full bg-cyan-500" />
+          Zona Kedungreja
+        </span>
+      );
+    }
+    if (branch === "tehwarga") {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 text-[8px] font-black uppercase">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+          Teh Warga GDM
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-[8px] font-black uppercase">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        Zona Waktu GDM
+      </span>
+    );
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
-      <div>
-        <h1 className="text-4xl font-black tracking-tighter text-slate-900 uppercase italic">Pengaturan Absensi</h1>
-        <p className="text-xs text-slate-600 font-black uppercase tracking-[0.2em] mt-1">Sistem Kehadiran Zona Waktu</p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-4xl font-black tracking-tighter text-slate-900 uppercase italic">Pengaturan Absensi</h1>
+          <p className="text-xs text-slate-600 font-black uppercase tracking-[0.2em] mt-1">Sistem Kehadiran Zona Waktu</p>
+        </div>
+
+        {/* Store / Branch Selector Bar */}
+        <div className="flex flex-wrap items-center gap-1.5 p-1.5 bg-white/90 backdrop-blur-md rounded-2xl border border-slate-200 shadow-sm">
+          <button
+            type="button"
+            onClick={() => setSelectedBranch("all")}
+            className={cn(
+              "px-3 py-2 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-wider transition-all duration-200",
+              selectedBranch === "all"
+                ? "bg-slate-900 text-white shadow-sm"
+                : "text-slate-500 hover:text-slate-900 hover:bg-slate-100/60"
+            )}
+          >
+            Semua Toko
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedBranch("gdm")}
+            className={cn(
+              "px-3 py-2 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-wider transition-all duration-200 flex items-center gap-1.5",
+              selectedBranch === "gdm"
+                ? "bg-emerald-600 text-white shadow-sm font-black"
+                : "text-slate-600 hover:text-emerald-700 hover:bg-emerald-50/60"
+            )}
+          >
+            <span className={cn("h-2 w-2 rounded-full", selectedBranch === "gdm" ? "bg-white" : "bg-emerald-500")} />
+            Zona Waktu GDM
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedBranch("kedungreja")}
+            className={cn(
+              "px-3 py-2 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-wider transition-all duration-200 flex items-center gap-1.5",
+              selectedBranch === "kedungreja"
+                ? "bg-cyan-600 text-white shadow-sm font-black"
+                : "text-slate-600 hover:text-cyan-700 hover:bg-cyan-50/60"
+            )}
+          >
+            <span className={cn("h-2 w-2 rounded-full", selectedBranch === "kedungreja" ? "bg-white" : "bg-cyan-500")} />
+            Zona Kedungreja
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedBranch("tehwarga")}
+            className={cn(
+              "px-3 py-2 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-wider transition-all duration-200 flex items-center gap-1.5",
+              selectedBranch === "tehwarga"
+                ? "bg-amber-600 text-white shadow-sm font-black"
+                : "text-slate-600 hover:text-amber-700 hover:bg-amber-50/60"
+            )}
+          >
+            <span className={cn("h-2 w-2 rounded-full", selectedBranch === "tehwarga" ? "bg-white" : "bg-amber-500")} />
+            Teh Warga GDM
+          </button>
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -991,24 +1126,32 @@ export default function PengaturanAbsensiPage() {
           <Card className="rounded-[2.5rem] border-none shadow-sm bg-white overflow-hidden p-4 sm:p-8">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
               <div>
-                <h3 className="text-xl font-black uppercase italic tracking-tight">Monitoring Absensi</h3>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 block md:hidden">Hari Ini: {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                <div className="flex items-center gap-3">
+                  <h3 className="text-xl font-black uppercase italic tracking-tight">Monitoring Absensi</h3>
+                  {selectedBranch !== "all" && (
+                    <span className={cn(
+                      "px-3 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider",
+                      selectedBranch === "gdm" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" :
+                      selectedBranch === "kedungreja" ? "bg-cyan-50 text-cyan-700 border border-cyan-200" :
+                      "bg-amber-50 text-amber-700 border border-amber-200"
+                    )}>
+                      {selectedBranch === "gdm" ? "Zona Waktu GDM" : selectedBranch === "kedungreja" ? "Zona Kedungreja" : "Teh Warga GDM"}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
+                  {selectedDateStr ? `Filter Tanggal: ${selectedDateStr.split("-").reverse().join("/")}` : `Menampilkan Semua Catatan (${todayLogs.length})`}
+                </p>
               </div>
-              <div className="flex items-center gap-4 bg-slate-50 p-2 rounded-2xl">
-                <Input type="month" className="border-none bg-transparent font-black uppercase text-[10px]" />
-                <Button className="rounded-xl bg-white shadow-sm border border-slate-100 text-slate-700 h-10 px-6 font-black uppercase text-[10px]">Cari</Button>
-              </div>
-            </div>
 
-            {/* Mobile Date Picker Selection */}
-            <div className="block md:hidden mb-4 flex items-center justify-between gap-4 bg-slate-50/50 p-3 rounded-2xl border border-slate-100">
-              <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Filter Tanggal</span>
-              <div className="flex items-center gap-2">
+              {/* Date Filter */}
+              <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-100">
+                <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider pl-2 hidden sm:inline">Pilih Tanggal:</span>
                 <Input 
                   type="date" 
                   value={selectedDateStr} 
                   onChange={(e) => setSelectedDateStr(e.target.value)} 
-                  className="bg-white border-none text-xs font-black rounded-xl h-10 px-3 w-36 text-slate-700 shadow-sm" 
+                  className="bg-white border border-slate-200 text-xs font-black rounded-xl h-10 px-3 w-40 text-slate-700 shadow-sm" 
                 />
                 {selectedDateStr && (
                   <Button 
@@ -1016,7 +1159,7 @@ export default function PengaturanAbsensiPage() {
                     onClick={() => setSelectedDateStr("")}
                     className="h-10 px-3 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 rounded-xl bg-white shadow-sm border border-slate-100"
                   >
-                    Clear
+                    Reset
                   </Button>
                 )}
               </div>
@@ -1027,55 +1170,61 @@ export default function PengaturanAbsensiPage() {
               <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">
                 {selectedDateStr 
                   ? `Absensi Tanggal ${selectedDateStr.split("-").reverse().join("-")} (${todayLogs.length})`
-                  : `Histori Semua Absensi (${todayLogs.length})`
+                  : `Histori Absensi (${todayLogs.length})`
                 }
               </div>
               {todayLogs.length > 0 ? (
                 todayLogs.map((log: AbsensiLogData) => (
-                  <Card key={log.id} className="p-4 rounded-3xl border border-slate-100 bg-slate-50/50 flex gap-4 items-center shadow-none">
-                    {/* Selfie Image */}
-                    <div className="relative h-20 w-20 rounded-2xl overflow-hidden border border-slate-200 shrink-0 bg-slate-100 flex items-center justify-center">
-                      {log.selfieUrl ? (
-                        <Image src={log.selfieUrl as string} alt="Selfie" fill className="object-cover" unoptimized />
-                      ) : (
-                        <span className="text-[8px] font-black uppercase text-slate-400 text-center">No Photo</span>
-                      )}
+                  <Card key={log.id} className="p-4 rounded-3xl border border-slate-100 bg-slate-50/50 flex flex-col gap-3 shadow-none">
+                    <div className="flex gap-4 items-center">
+                      {/* Selfie Image */}
+                      <div className="relative h-20 w-20 rounded-2xl overflow-hidden border border-slate-200 shrink-0 bg-slate-100 flex items-center justify-center">
+                        {log.selfieUrl ? (
+                          <Image src={log.selfieUrl as string} alt="Selfie" fill className="object-cover" unoptimized />
+                        ) : (
+                          <span className="text-[8px] font-black uppercase text-slate-400 text-center">No Photo</span>
+                        )}
+                      </div>
+
+                      {/* Details */}
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <h4 className="font-black text-sm text-slate-900 uppercase italic truncate">{log.nama}</h4>
+                          <span className="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full text-[8px] font-black uppercase border border-emerald-100 shrink-0">Hadir</span>
+                        </div>
+                        
+                        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                          {renderBranchBadge(log)}
+                          <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md text-[8px] font-bold shrink-0">{log.tanggal}</span>
+                        </div>
+
+                        <p className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">
+                          {log.shift === 'shift1' ? 'Shift 1 (Pagi)' : 'Shift 2 (Siang)'}
+                        </p>
+                      </div>
                     </div>
 
-                    {/* Details */}
-                    <div className="flex-1 min-w-0 space-y-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <h4 className="font-black text-sm text-slate-900 uppercase italic truncate">{log.nama}</h4>
-                        <span className="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full text-[8px] font-black uppercase border border-emerald-100 shrink-0">Hadir</span>
+                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-200/60">
+                      <div>
+                        <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Masuk</p>
+                        <p className="text-xs font-black text-emerald-600 tabular-nums">{log.jamMasuk || "-"}</p>
                       </div>
-                      
-                      <div className="flex items-center justify-between gap-2 text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                        <span>{log.shift === 'shift1' ? 'Shift 1 (Pagi)' : 'Shift 2 (Siang)'}</span>
-                        <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md text-[8px] font-bold shrink-0">{log.tanggal}</span>
+                      <div>
+                        <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Pulang</p>
+                        <p className="text-xs font-black text-rose-600 tabular-nums">{log.jamPulang || "-"}</p>
                       </div>
-
-                      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
-                        <div>
-                          <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Masuk</p>
-                          <p className="text-xs font-black text-emerald-600 tabular-nums">{log.jamMasuk || "-"}</p>
-                        </div>
-                        <div>
-                          <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Pulang</p>
-                          <p className="text-xs font-black text-rose-600 tabular-nums">{log.jamPulang || "-"}</p>
-                        </div>
-                        <div>
-                          <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Total Kerja</p>
-                          <p className="text-[11px] font-black text-indigo-600 tabular-nums leading-tight">
-                            {calculateTotalWorkHours(log.jamMasuk, log.jamPulang)}
-                          </p>
-                        </div>
+                      <div>
+                        <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest">Total Kerja</p>
+                        <p className="text-[11px] font-black text-indigo-600 tabular-nums leading-tight">
+                          {calculateTotalWorkHours(log.jamMasuk, log.jamPulang)}
+                        </p>
                       </div>
                     </div>
                   </Card>
                 ))
               ) : (
                 <div className="py-12 text-center text-slate-400 text-xs font-black uppercase border border-dashed rounded-3xl p-6">
-                  Tidak ada absensi hari ini.
+                  Tidak ada data absensi untuk filter toko & tanggal ini.
                 </div>
               )}
             </div>
@@ -1083,10 +1232,11 @@ export default function PengaturanAbsensiPage() {
             {/* Desktop View: Full History Table */}
             <div className="hidden md:block rounded-[2rem] border border-slate-100 overflow-hidden">
               <div className="overflow-x-auto custom-scrollbar">
-                <table className="w-full text-left min-w-[800px]">
+                <table className="w-full text-left min-w-[850px]">
                   <thead>
-                    <tr className="bg-slate-50">
+                    <tr className="bg-slate-50 border-b border-slate-100">
                       <th className="px-8 py-5 text-[9px] font-black uppercase text-slate-500">Nama Karyawan</th>
+                      <th className="px-6 py-5 text-[9px] font-black uppercase text-slate-500">Toko / Cabang</th>
                       <th className="px-6 py-5 text-[9px] font-black uppercase text-slate-500">Tanggal</th>
                       <th className="px-6 py-5 text-[9px] font-black uppercase text-slate-500">Masuk</th>
                       <th className="px-6 py-5 text-[9px] font-black uppercase text-slate-500">Pulang</th>
@@ -1096,13 +1246,16 @@ export default function PengaturanAbsensiPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {(monitoringData as AbsensiLogData[])?.length > 0 ? (monitoringData as AbsensiLogData[]).map((log: AbsensiLogData) => (
-                      <tr key={log.id} className="hover:bg-slate-50/20">
+                    {todayLogs.length > 0 ? todayLogs.map((log: AbsensiLogData) => (
+                      <tr key={log.id} className="hover:bg-slate-50/40 transition-colors">
                         <td className="px-8 py-4">
                           <p className="font-black text-sm text-slate-900 uppercase">{log.nama}</p>
                           <p className="text-[8px] font-bold text-slate-400 uppercase">{log.shift === 'shift1' ? 'Shift 1' : 'Shift 2'}</p>
                         </td>
-                        <td className="px-6 py-4 text-xs font-medium">{log.tanggal}</td>
+                        <td className="px-6 py-4">
+                          {renderBranchBadge(log)}
+                        </td>
+                        <td className="px-6 py-4 text-xs font-bold text-slate-700 tabular-nums">{log.tanggal}</td>
                         <td className="px-6 py-4 text-sm font-black text-emerald-600 tabular-nums">{log.jamMasuk}</td>
                         <td className="px-6 py-4 text-sm font-black text-rose-600 tabular-nums">{log.jamPulang}</td>
                         <td className="px-6 py-4">
@@ -1120,7 +1273,7 @@ export default function PengaturanAbsensiPage() {
                         </td>
                         <td className="px-8 py-4">
                           {log.selfieUrl ? (
-                            <div className="relative h-16 w-16 rounded-xl overflow-hidden border border-slate-200">
+                            <div className="relative h-14 w-14 rounded-xl overflow-hidden border border-slate-200 bg-slate-100">
                               <Image src={log.selfieUrl as string} alt="Selfie absensi" fill className="object-cover" unoptimized />
                             </div>
                           ) : (
@@ -1133,7 +1286,9 @@ export default function PengaturanAbsensiPage() {
                       </tr>
                     )) : (
                       <tr>
-                        <td colSpan={7} className="py-20 text-center opacity-30 italic text-xs">Belum ada data absensi untuk periode ini</td>
+                        <td colSpan={8} className="py-20 text-center opacity-40 italic text-xs font-black uppercase">
+                          Belum ada data absensi untuk toko / tanggal yang dipilih
+                        </td>
                       </tr>
                     )}
                   </tbody>

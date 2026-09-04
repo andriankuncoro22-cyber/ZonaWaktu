@@ -146,12 +146,18 @@ export default function TehWargaAbsensiPage() {
 
     queueMicrotask(() => {
       fetchConfig();
-      const savedUser = localStorage.getItem("karyawan_user_tehwarga") || localStorage.getItem("karyawan_user");
+      const savedUser = localStorage.getItem("absensi_user_tehwarga") || localStorage.getItem("karyawan_user_tehwarga");
       if (savedUser) {
         try {
-          const parsed = JSON.parse(savedUser);
-          setUser(parsed);
-          fetchAttendanceData(parsed.id);
+          const parsed = JSON.parse(savedUser) as KaryawanUser;
+          const userCabang = normalizeBranchId(parsed.cabang);
+          if (userCabang === "tehwarga") {
+            setUser(parsed);
+            fetchAttendanceData(parsed.id);
+          } else {
+            localStorage.removeItem("absensi_user_tehwarga");
+            localStorage.removeItem("karyawan_user_tehwarga");
+          }
         } catch (e) {
           console.error(e);
         }

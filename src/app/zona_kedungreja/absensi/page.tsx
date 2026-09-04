@@ -128,11 +128,16 @@ export default function KedungrejaAbsensiPage() {
   const checkPersistedUser = useCallback(async () => {
     await Promise.resolve();
     try {
-      const saved = localStorage.getItem("absensi_user_kedungreja") || localStorage.getItem("absensi_user");
+      const saved = localStorage.getItem("absensi_user_kedungreja");
       if (saved) {
         const userData = JSON.parse(saved) as KaryawanUser;
-        setUser(userData);
-        await fetchAttendanceData(userData.id);
+        const userCabang = normalizeBranchId(userData.cabang);
+        if (userCabang === "kedungreja") {
+          setUser(userData);
+          await fetchAttendanceData(userData.id);
+        } else {
+          localStorage.removeItem("absensi_user_kedungreja");
+        }
       }
     } catch (e) {
       console.error("Auth check failed", e);

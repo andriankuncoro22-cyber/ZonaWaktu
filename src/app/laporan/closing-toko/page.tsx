@@ -12,660 +12,1486 @@ import {
   Coins,
   CheckCircle2,
   FileSpreadsheet,
+  FileDown,
   Layers,
   FileText,
-  HelpCircle,
-  Gift
+  Gift,
+  Search,
+  Store,
+  Sparkles,
+  ArrowDownRight,
+  ArrowUpRight,
+  Building2,
+  ShoppingBag,
+  DollarSign
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useFirestore, useCollection, useMemoFirebase, collection } from "@/firebase";
 import { cn } from "@/lib/utils";
-import { query, where } from "firebase/firestore";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 const formatCurrency = (value: number) =>
   `Rp ${Number(value || 0).toLocaleString("id-ID")}`;
 
+const getDocDateStr = (docData: any): string => {
+  if (!docData) return "";
+  const rawDate = docData.tanggal || docData.date || docData.tgl;
+  if (rawDate && typeof rawDate === "string") {
+    const raw = rawDate.trim();
+    if (raw.includes("/")) {
+      const parts = raw.split("/");
+      if (parts.length === 3) {
+        if (parts[0].length === 4) {
+          return `${parts[0]}-${String(parts[1]).padStart(2, "0")}-${String(parts[2]).padStart(2, "0")}`;
+        }
+        return `${parts[2]}-${String(parts[1]).padStart(2, "0")}-${String(parts[0]).padStart(2, "0")}`;
+      }
+    }
+    if (raw.includes("T")) {
+      return raw.split("T")[0];
+    }
+    return raw;
+  }
+  const timestampField = docData.createdAt || docData.timestamp || docData.updatedAt;
+  if (timestampField?.toDate) {
+    const d = timestampField.toDate();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  if (timestampField?.seconds) {
+    const d = new Date(timestampField.seconds * 1000);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  if (rawDate instanceof Date) {
+    const year = rawDate.getFullYear();
+    const month = String(rawDate.getMonth() + 1).padStart(2, "0");
+    const day = String(rawDate.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  return "";
+};
+
 export default function LaporanClosingTokoPage() {
   const db = useFirestore();
+
+  // Filter state
+  const [filterMode, setFilterMode] = useState<"daily" | "monthly" | "yearly">("daily");
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
-  const [selectedShift, setSelectedShift] = useState<1 | 2>(2);
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
+  const [selectedShift, setSelectedShift] = useState<"all" | 1 | 2>(2);
+
+  const [appliedMode, setAppliedMode] = useState(filterMode);
+  const [appliedDate, setAppliedDate] = useState(selectedDate);
+  const [appliedMonth, setAppliedMonth] = useState(selectedMonth);
+  const [appliedYear, setAppliedYear] = useState(selectedYear);
+  const [appliedShift, setAppliedShift] = useState(selectedShift);
+
+  // Detail modal state for specific item
+  const [selectedClosingItem, setSelectedClosingItem] = useState<any>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
 
-  // Fetch sales report (penjualan)
-  const penjualanQuery = useMemoFirebase(
-    () => query(collection(db, "penjualan"), where("tanggal", "==", selectedDate)),
-    [db, selectedDate]
-  );
-  const { data: penjualanLogs, loading: loadingPenjualan } = useCollection(penjualanQuery);
+  const handleCheck = () => {
+    setAppliedMode(filterMode);
+    setAppliedDate(selectedDate);
+    setAppliedMonth(selectedMonth);
+    setAppliedYear(selectedYear);
+    setAppliedShift(selectedShift);
+  };
 
-  // Fetch keuangan kontainer
-  const keuanganQuery = useMemoFirebase(
-    () => query(collection(db, "keuangan-kontainer"), where("tanggal", "==", selectedDate)),
-    [db, selectedDate]
-  );
-  const { data: keuanganLogs, loading: loadingKeuangan } = useCollection(keuanganQuery);
+  // 1. Fetch all Keuangan Kontainer (Closing records)
+  const keuanganQuery = useMemoFirebase(() => collection(db, "keuangan-kontainer"), [db]);
+  const { data: rawKeuanganLogs, loading: loadingKeuangan } = useCollection(keuanganQuery);
 
-  // Fetch input-free logs
-  const freeQuery = useMemoFirebase(
-    () => query(collection(db, "input-free"), where("tanggal", "==", selectedDate)),
-    [db, selectedDate]
-  );
-  const { data: freeLogs } = useCollection(freeQuery);
+  // 2. Fetch all Penjualan (Sales POS records)
+  const penjualanQuery = useMemoFirebase(() => collection(db, "penjualan"), [db]);
+  const { data: rawPenjualanLogs, loading: loadingPenjualan } = useCollection(penjualanQuery);
 
-  const penjualanData = useMemo(() => {
-    if (!penjualanLogs || penjualanLogs.length === 0) return null;
-    return penjualanLogs[0];
-  }, [penjualanLogs]);
+  // 3. Fetch all Input Free logs
+  const freeQuery = useMemoFirebase(() => collection(db, "input-free"), [db]);
+  const { data: rawFreeLogs } = useCollection(freeQuery);
 
-  const keuanganData = useMemo(() => {
-    if (!keuanganLogs || keuanganLogs.length === 0) return null;
-    return keuanganLogs.find((log: any) => (log.shift ?? 2) === selectedShift) || null;
-  }, [keuanganLogs, selectedShift]);
+  const loading = loadingKeuangan || loadingPenjualan;
 
-  const freeList = useMemo(() => {
-    if (keuanganData?.freeDetails && keuanganData.freeDetails.length > 0) {
-      return keuanganData.freeDetails;
+  const isDateMatch = (docDate: string) => {
+    if (!docDate) return false;
+    if (appliedMode === "daily") return docDate === appliedDate;
+    if (appliedMode === "monthly") return docDate.startsWith(appliedMonth);
+    return docDate.startsWith(appliedYear);
+  };
+
+  // Map of date to penjualan document
+  const penjualanByDateMap = useMemo(() => {
+    const map = new Map<string, any>();
+    (rawPenjualanLogs || []).forEach((doc: any) => {
+      const dStr = getDocDateStr(doc);
+      if (dStr) {
+        map.set(dStr, doc);
+      }
+    });
+    return map;
+  }, [rawPenjualanLogs]);
+
+  // Combined & Filtered closing records
+  const filteredClosingList = useMemo(() => {
+    if (!rawKeuanganLogs) return [];
+
+    const list: any[] = [];
+
+    rawKeuanganLogs.forEach((log: any) => {
+      const dStr = getDocDateStr(log);
+      if (!isDateMatch(dStr)) return;
+
+      const logShift = Number(log.shift ?? 2);
+      if (appliedShift !== "all" && logShift !== appliedShift) return;
+
+      const matchingPenjualan = penjualanByDateMap.get(dStr);
+
+      const isShift1 = logShift === 1;
+
+      const totalPenjualan = isShift1
+        ? Number(log.totalSales || 0)
+        : Number(matchingPenjualan?.total ?? log.totalSales ?? 0);
+
+      const totalQris = isShift1
+        ? Number(log.qrisSales || 0)
+        : Number(matchingPenjualan?.transactionReport?.qrisTotal ?? log.qrisSales ?? 0);
+
+      const totalCash = isShift1
+        ? Number(log.cashSales || 0)
+        : Number(matchingPenjualan?.transactionReport?.cashTotal ?? log.cashSales ?? 0);
+
+      const totalGofood = isShift1 ? 0 : Number(matchingPenjualan?.transactionReport?.goFoodTotal || 0);
+      const totalLainnya = isShift1 ? 0 : Number(matchingPenjualan?.transactionReport?.otherTotal || 0);
+
+      const modalAwal = Number(log.modalAwal || 0);
+      const modalTambahan = Number(log.modalTambahan || 0);
+      const shift1Difference = Number(log.shift1Difference || 0);
+      const totalOperasional = Number(log.operationalTotal || 0);
+      const totalBelanja = Number(log.purchaseTotal || 0);
+      const totalFree = Number(log.freeTotal || 0);
+      const diambilOwner = Number(log.diambilOwner || 0);
+      const uangDiPegang = Number(log.cashOnHand || 0);
+
+      // Sisa uang disetor / Wajib setor
+      let sisaUangDisetor = Number(log.expectedCashToSettle || 0);
+      const cashSales = isShift1
+        ? Number(log.cashSales || 0)
+        : Number(log.cashFromClosing || log.cashSales || 0);
+      
+      const calcExpected = cashSales + modalAwal + modalTambahan + (isShift1 ? 0 : shift1Difference) - totalOperasional - totalBelanja - totalFree - diambilOwner;
+      if (cashSales > 0 || modalAwal > 0 || modalTambahan > 0 || totalOperasional > 0 || totalBelanja > 0) {
+        sisaUangDisetor = calcExpected;
+      }
+
+      const selisihKeuangan = uangDiPegang - sisaUangDisetor;
+
+      list.push({
+        id: log.id,
+        tanggal: dStr,
+        shift: logShift,
+        karyawanNama: log.karyawanNama || "Karyawan",
+        totalPenjualan,
+        totalQris,
+        totalCash,
+        totalGofood,
+        totalLainnya,
+        modalAwal,
+        modalTambahan,
+        shift1Difference,
+        totalOperasional,
+        totalBelanja,
+        totalFree,
+        diambilOwner,
+        sisaUangDisetor,
+        uangDiPegang,
+        selisihKeuangan,
+        note: log.note || log.notes || "",
+        operationalDetails: log.operationalDetails || [],
+        purchaseDetails: log.purchaseDetails || [],
+        freeDetails: log.freeDetails || [],
+        penjualanDoc: matchingPenjualan || null,
+        rawLog: log
+      });
+    });
+
+    // Sort by date desc, then shift desc
+    list.sort((a, b) => {
+      const cmp = b.tanggal.localeCompare(a.tanggal);
+      if (cmp !== 0) return cmp;
+      return b.shift - a.shift;
+    });
+
+    return list;
+  }, [rawKeuanganLogs, rawPenjualanLogs, appliedMode, appliedDate, appliedMonth, appliedYear, appliedShift, penjualanByDateMap]);
+
+  // Totals of all closing components
+  const totals = useMemo(() => {
+    return filteredClosingList.reduce((acc, curr) => {
+      acc.totalPenjualan += curr.totalPenjualan;
+      acc.totalQris += curr.totalQris;
+      acc.totalCash += curr.totalCash;
+      acc.totalGofood += curr.totalGofood;
+      acc.totalLainnya += curr.totalLainnya;
+      acc.totalModalAwal += curr.modalAwal;
+      acc.totalModalTambahan += curr.modalTambahan;
+      acc.totalOperasional += curr.totalOperasional;
+      acc.totalBelanja += curr.totalBelanja;
+      acc.totalFree += curr.totalFree;
+      acc.totalDiambilOwner += curr.diambilOwner;
+      acc.totalWajibSetor += curr.sisaUangDisetor;
+      acc.totalUangFisik += curr.uangDiPegang;
+      acc.totalSelisih += curr.selisihKeuangan;
+      return acc;
+    }, {
+      totalPenjualan: 0,
+      totalQris: 0,
+      totalCash: 0,
+      totalGofood: 0,
+      totalLainnya: 0,
+      totalModalAwal: 0,
+      totalModalTambahan: 0,
+      totalOperasional: 0,
+      totalBelanja: 0,
+      totalFree: 0,
+      totalDiambilOwner: 0,
+      totalWajibSetor: 0,
+      totalUangFisik: 0,
+      totalSelisih: 0,
+    });
+  }, [filteredClosingList]);
+
+  // Breakdown aggregations for Operasional, Belanja, and Free
+  const aggregatedBreakdown = useMemo(() => {
+    const operasionalList: any[] = [];
+    const purchaseList: any[] = [];
+    const freeList: any[] = [];
+    const productSalesMap = new Map<string, { code: string; name: string; qty: number; pendapatan: number; keuntungan: number }>();
+
+    filteredClosingList.forEach((closing) => {
+      // 1. Operasional items
+      (closing.operationalDetails || []).forEach((op: any) => {
+        operasionalList.push({
+          tanggal: closing.tanggal,
+          shift: closing.shift,
+          karyawan: closing.karyawanNama,
+          pembayaran: op.pembayaran || op.keterangan || "Operasional",
+          nominal: Number(op.nominal || 0)
+        });
+      });
+
+      // 2. Belanja items
+      (closing.purchaseDetails || []).forEach((pur: any) => {
+        purchaseList.push({
+          tanggal: closing.tanggal,
+          shift: closing.shift,
+          karyawan: closing.karyawanNama,
+          nomorNota: pur.nomorNota || "-",
+          total: Number(pur.total || 0),
+          items: pur.items || []
+        });
+      });
+
+      // 3. Free items
+      (closing.freeDetails || []).forEach((fr: any) => {
+        freeList.push({
+          tanggal: closing.tanggal,
+          shift: closing.shift,
+          karyawan: closing.karyawanNama,
+          notes: fr.notes || "-",
+          totalNominal: Number(fr.totalNominal || 0),
+          items: fr.items || []
+        });
+      });
+
+      // 4. Products sold from penjualanDoc
+      if (closing.penjualanDoc?.items) {
+        closing.penjualanDoc.items.forEach((it: any) => {
+          const key = it.code || it.name;
+          if (!key) return;
+          const prev = productSalesMap.get(key) || {
+            code: it.code || "-",
+            name: it.name || "-",
+            qty: 0,
+            pendapatan: 0,
+            keuntungan: 0
+          };
+          prev.qty += Number(it.total || 0);
+          prev.pendapatan += Number(it.pendapatan || 0);
+          prev.keuntungan += Number(it.keuntungan || 0);
+          productSalesMap.set(key, prev);
+        });
+      }
+    });
+
+    const topProducts = Array.from(productSalesMap.values()).sort((a, b) => b.qty - a.qty);
+
+    return {
+      operasionalList,
+      purchaseList,
+      freeList,
+      topProducts
+    };
+  }, [filteredClosingList]);
+
+  const currentPeriodLabel = useMemo(() => {
+    if (appliedMode === "daily") {
+      const parts = appliedDate.split("-");
+      if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+      return appliedDate;
     }
-    if (!freeLogs) return [];
-    return freeLogs.filter((log: any) => selectedShift === 2 ? true : (log.shift ?? 2) === 1);
-  }, [keuanganData, freeLogs, selectedShift]);
-
-  const totalFree = useMemo(() => {
-    if (keuanganData?.freeTotal !== undefined && keuanganData?.freeTotal !== null) {
-      return Number(keuanganData.freeTotal);
+    if (appliedMode === "monthly") {
+      const parts = appliedMonth.split("-");
+      if (parts.length === 2) {
+        const monthNames = [
+          "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+          "Juli", "Agustus", "September", "Oktober", "November", "Desember"
+        ];
+        return `${monthNames[parseInt(parts[1], 10) - 1] || parts[1]} ${parts[0]}`;
+      }
+      return appliedMonth;
     }
-    return freeList.reduce((sum: number, log: any) => sum + Number(log.totalNominal || 0), 0);
-  }, [keuanganData, freeList]);
+    return `Tahun ${appliedYear}`;
+  }, [appliedMode, appliedDate, appliedMonth, appliedYear]);
 
-  const loading = loadingPenjualan || loadingKeuangan;
+  // Single daily active item for daily mode
+  const singleDailyItem = useMemo(() => {
+    if (appliedMode !== "daily" || filteredClosingList.length === 0) return null;
+    return filteredClosingList[0];
+  }, [appliedMode, filteredClosingList]);
 
-  const hasData = useMemo(() => {
-    if (selectedShift === 1) {
-      return !!keuanganData;
+  // Export Excel
+  const handleExportExcel = () => {
+    const wb = XLSX.utils.book_new();
+
+    // 1. Sheet Ringkasan
+    const summaryData = [
+      { Keterangan: "Periode Laporan", Nilai: currentPeriodLabel },
+      { Keterangan: "Filter Shift", Nilai: appliedShift === "all" ? "Semua Shift" : `Shift ${appliedShift}` },
+      { Keterangan: "Total Closing Tercatat", Nilai: filteredClosingList.length },
+      { Keterangan: "Total Penjualan", Nilai: totals.totalPenjualan },
+      { Keterangan: "Total QRIS", Nilai: totals.totalQris },
+      { Keterangan: "Total Cash", Nilai: totals.totalCash },
+      { Keterangan: "Total GoFood", Nilai: totals.totalGofood },
+      { Keterangan: "Total Modal Awal", Nilai: totals.totalModalAwal },
+      { Keterangan: "Total Modal Tambahan", Nilai: totals.totalModalTambahan },
+      { Keterangan: "Total Operasional", Nilai: totals.totalOperasional },
+      { Keterangan: "Total Belanja Bahan", Nilai: totals.totalBelanja },
+      { Keterangan: "Total Input Free", Nilai: totals.totalFree },
+      { Keterangan: "Total Diambil Owner", Nilai: totals.totalDiambilOwner },
+      { Keterangan: "Total Wajib Setor", Nilai: totals.totalWajibSetor },
+      { Keterangan: "Total Uang Fisik (Cash on Hand)", Nilai: totals.totalUangFisik },
+      { Keterangan: "Total Selisih Verifikasi", Nilai: totals.totalSelisih },
+    ];
+    const wsSummary = XLSX.utils.json_to_sheet(summaryData);
+    XLSX.utils.book_append_sheet(wb, wsSummary, "Ringkasan Rekapan");
+
+    // 2. Sheet Rincian Closing
+    const closingRows = filteredClosingList.map((r, idx) => ({
+      No: idx + 1,
+      Tanggal: r.tanggal,
+      Shift: `Shift ${r.shift}`,
+      Karyawan: r.karyawanNama,
+      "Total Penjualan": r.totalPenjualan,
+      QRIS: r.totalQris,
+      Cash: r.totalCash,
+      "Modal Awal": r.modalAwal,
+      "Modal Tambahan": r.modalTambahan,
+      Operasional: r.totalOperasional,
+      "Belanja Bahan": r.totalBelanja,
+      "Free Produk": r.totalFree,
+      "Diambil Owner": r.diambilOwner,
+      "Wajib Setor": r.sisaUangDisetor,
+      "Uang Fisik": r.uangDiPegang,
+      Selisih: r.selisihKeuangan,
+      Catatan: r.note || "-"
+    }));
+    if (closingRows.length > 0) {
+      const wsClosing = XLSX.utils.json_to_sheet(closingRows);
+      XLSX.utils.book_append_sheet(wb, wsClosing, "Daftar Closing");
     }
-    return !!penjualanData || !!keuanganData;
-  }, [penjualanData, keuanganData, selectedShift]);
 
-  const isShift1 = selectedShift === 1;
+    // 3. Sheet Operasional
+    if (aggregatedBreakdown.operasionalList.length > 0) {
+      const opRows = aggregatedBreakdown.operasionalList.map((op, idx) => ({
+        No: idx + 1,
+        Tanggal: op.tanggal,
+        Shift: `Shift ${op.shift}`,
+        Karyawan: op.karyawan,
+        Keterangan: op.pembayaran,
+        Nominal: op.nominal
+      }));
+      const wsOp = XLSX.utils.json_to_sheet(opRows);
+      XLSX.utils.book_append_sheet(wb, wsOp, "Operasional");
+    }
 
-  // Extract financial variables
-  const totalPenjualan = useMemo(() => {
-    if (isShift1) return keuanganData?.totalSales || 0;
-    return penjualanData?.total || 0;
-  }, [isShift1, keuanganData, penjualanData]);
+    // 4. Sheet Belanja Bahan
+    if (aggregatedBreakdown.purchaseList.length > 0) {
+      const purRows: any[] = [];
+      aggregatedBreakdown.purchaseList.forEach((pur) => {
+        if (pur.items && pur.items.length > 0) {
+          pur.items.forEach((it: any) => {
+            purRows.push({
+              Tanggal: pur.tanggal,
+              Shift: `Shift ${pur.shift}`,
+              "No Nota": pur.nomorNota,
+              "Nama Bahan": it.materialName || "-",
+              Jumlah: `${it.qty || 0} ${it.unit || ""}`,
+              "Harga Satuan": it.price || 0,
+              Total: (it.price || 0) * (it.qty || 0)
+            });
+          });
+        } else {
+          purRows.push({
+            Tanggal: pur.tanggal,
+            Shift: `Shift ${pur.shift}`,
+            "No Nota": pur.nomorNota,
+            "Nama Bahan": "Paket Belanja",
+            Jumlah: "1",
+            "Harga Satuan": pur.total,
+            Total: pur.total
+          });
+        }
+      });
+      const wsPur = XLSX.utils.json_to_sheet(purRows);
+      XLSX.utils.book_append_sheet(wb, wsPur, "Belanja Bahan");
+    }
 
-  const totalQris = useMemo(() => {
-    if (isShift1) return keuanganData?.qrisSales || 0;
-    return penjualanData?.transactionReport?.qrisTotal || 0;
-  }, [isShift1, keuanganData, penjualanData]);
+    // 5. Sheet Produk Terjual
+    if (aggregatedBreakdown.topProducts.length > 0) {
+      const prodRows = aggregatedBreakdown.topProducts.map((p, idx) => ({
+        No: idx + 1,
+        Kode: p.code,
+        "Nama Produk": p.name,
+        "Jumlah Terjual (Pcs)": p.qty,
+        "Total Pendapatan": p.pendapatan,
+        "Total Keuntungan": p.keuntungan
+      }));
+      const wsProd = XLSX.utils.json_to_sheet(prodRows);
+      XLSX.utils.book_append_sheet(wb, wsProd, "Produk Terjual");
+    }
 
-  const totalCash = useMemo(() => {
-    if (isShift1) return keuanganData?.cashSales || 0;
-    return penjualanData?.transactionReport?.cashTotal || 0;
-  }, [isShift1, keuanganData, penjualanData]);
+    XLSX.writeFile(wb, `Laporan_Closing_Toko_${appliedMode}_${appliedDate || appliedMonth || appliedYear}.xlsx`);
+  };
 
-  const totalGofood = useMemo(() => {
-    if (isShift1) return 0;
-    return penjualanData?.transactionReport?.goFoodTotal || 0;
-  }, [isShift1, penjualanData]);
+  // Export PDF
+  const handleExportPDF = () => {
+    const docPDF = new jsPDF("l", "mm", "a4");
+    docPDF.setFontSize(14);
+    docPDF.text("LAPORAN REKAPITULASI CLOSING TOKO", 148, 14, { align: "center" });
+    docPDF.setFontSize(9);
+    docPDF.text(`Periode: ${currentPeriodLabel} | Shift: ${appliedShift === "all" ? "Semua Shift" : `Shift ${appliedShift}`}`, 148, 20, { align: "center" });
 
-  const totalLainnya = useMemo(() => {
-    if (isShift1) return 0;
-    return penjualanData?.transactionReport?.otherTotal || 0;
-  }, [isShift1, penjualanData]);
+    // Summary Table (2 rows)
+    const summaryRows = [
+      [
+        formatCurrency(totals.totalPenjualan),
+        formatCurrency(totals.totalQris),
+        formatCurrency(totals.totalCash),
+        formatCurrency(totals.totalOperasional),
+        formatCurrency(totals.totalBelanja),
+        formatCurrency(totals.totalFree),
+        formatCurrency(totals.totalDiambilOwner),
+        formatCurrency(totals.totalWajibSetor),
+        formatCurrency(totals.totalUangFisik),
+        formatCurrency(totals.totalSelisih)
+      ]
+    ];
 
-  const totalOperasional = keuanganData?.operationalTotal || 0;
-  const totalBelanja = keuanganData?.purchaseTotal || 0;
-  const modalAwal = useMemo(() => {
-    if (keuanganData?.modalAwal) return keuanganData.modalAwal;
-    const shift1Log = keuanganLogs?.find((log: any) => (log.shift ?? 2) === 1);
-    return shift1Log?.modalAwal || 0;
-  }, [keuanganData, keuanganLogs]);
-  const shift1Difference = useMemo(() => {
-    const shift1Log = keuanganLogs?.find((log: any) => (log.shift ?? 2) === 1);
-    return shift1Log?.difference || 0;
-  }, [keuanganLogs]);
-  const modalTambahan = keuanganData?.modalTambahan || 0;
-  const diambilOwner = Number(keuanganData?.diambilOwner || 0);
-  const uangDiPegang = keuanganData?.cashOnHand || 0;
+    autoTable(docPDF, {
+      head: [["Penjualan", "QRIS", "Cash", "Operasional", "Belanja", "Free", "D. Owner", "Wajib Setor", "Uang Fisik", "Selisih"]],
+      body: summaryRows,
+      startY: 25,
+      theme: "grid",
+      headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontSize: 7, halign: "center" },
+      styles: { fontSize: 7, cellPadding: 2, halign: "right" }
+    });
 
-  const sisaUangDisetor = useMemo(() => {
-    if (!keuanganData) return 0;
-    const cashSales = isShift1 
-      ? Number(keuanganData.cashSales || 0)
-      : Number(keuanganData.cashFromClosing || keuanganData.cashSales || 0);
-    const mAwal = Number(modalAwal || 0);
-    const mTambahan = Number(modalTambahan || 0);
-    const s1Diff = !isShift1 ? Number(shift1Difference || 0) : 0;
-    const ops = Number(totalOperasional || 0);
-    const bel = Number(totalBelanja || 0);
-    const free = Number(totalFree || 0);
-    const dOwner = Number(diambilOwner || 0);
+    // Detail Table
+    const tableBody = filteredClosingList.map((r, idx) => [
+      idx + 1,
+      r.tanggal,
+      `S${r.shift}`,
+      formatCurrency(r.totalPenjualan),
+      formatCurrency(r.totalQris),
+      formatCurrency(r.totalCash),
+      formatCurrency(r.modalAwal),
+      formatCurrency(r.totalOperasional),
+      formatCurrency(r.totalBelanja),
+      formatCurrency(r.totalFree),
+      formatCurrency(r.diambilOwner),
+      formatCurrency(r.sisaUangDisetor),
+      formatCurrency(r.uangDiPegang),
+      formatCurrency(r.selisihKeuangan)
+    ]);
 
-    const calculated = cashSales + mAwal + mTambahan + s1Diff - ops - bel - free - dOwner;
-    return (cashSales > 0 || mAwal > 0 || mTambahan > 0) ? calculated : Number(keuanganData.expectedCashToSettle || 0);
-  }, [keuanganData, isShift1, modalAwal, modalTambahan, shift1Difference, totalOperasional, totalBelanja, totalFree, diambilOwner]);
+    // Footer summary row
+    tableBody.push([
+      "TOTAL",
+      "-",
+      "-",
+      formatCurrency(totals.totalPenjualan),
+      formatCurrency(totals.totalQris),
+      formatCurrency(totals.totalCash),
+      formatCurrency(totals.totalModalAwal),
+      formatCurrency(totals.totalOperasional),
+      formatCurrency(totals.totalBelanja),
+      formatCurrency(totals.totalFree),
+      formatCurrency(totals.totalDiambilOwner),
+      formatCurrency(totals.totalWajibSetor),
+      formatCurrency(totals.totalUangFisik),
+      formatCurrency(totals.totalSelisih)
+    ]);
 
-  const selisihKeuangan = useMemo(() => {
-    if (!keuanganData) return 0;
-    return Number(uangDiPegang || 0) - sisaUangDisetor;
-  }, [keuanganData, uangDiPegang, sisaUangDisetor]);
+    autoTable(docPDF, {
+      head: [["No", "Tanggal", "Shift", "Penjualan", "QRIS", "Cash", "M. Awal", "Operasional", "Belanja", "Free", "D. Owner", "Wajib Setor", "Uang Fisik", "Selisih"]],
+      body: tableBody,
+      startY: (docPDF as any).lastAutoTable.finalY + 5,
+      theme: "striped",
+      headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontSize: 6.5, halign: "center" },
+      styles: { fontSize: 6, cellPadding: 1.8 },
+      columnStyles: {
+        0: { halign: "center", cellWidth: 8 },
+        1: { halign: "center", cellWidth: 18 },
+        2: { halign: "center", cellWidth: 10 },
+        3: { halign: "right" },
+        4: { halign: "right" },
+        5: { halign: "right" },
+        6: { halign: "right" },
+        7: { halign: "right" },
+        8: { halign: "right" },
+        9: { halign: "right" },
+        10: { halign: "right" },
+        11: { halign: "right" },
+        12: { halign: "right" },
+        13: { halign: "right", fontStyle: "bold" },
+      }
+    });
 
-  const catatanKaryawan = keuanganData?.note || "";
+    docPDF.save(`Laporan_Closing_Toko_${appliedMode}_${appliedDate || appliedMonth || appliedYear}.pdf`);
+  };
+
+  const openDetailDialog = (item: any) => {
+    setSelectedClosingItem(item);
+    setIsDetailOpen(true);
+  };
 
   return (
-    <div className="space-y-6 md:space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
-      {/* Header */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div className="space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
+      {/* Header & Filter Controls */}
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
         <div className="space-y-1">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-600">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-700">
             <ClipboardList className="h-3.5 w-3.5" />
-            <span className="text-[9px] font-black uppercase tracking-widest">Laporan Keuangan & Closing</span>
+            <span className="text-[9px] font-black uppercase tracking-widest">Rekapitulasi Closing Toko</span>
           </div>
           <h1 className="text-3xl md:text-4xl font-black tracking-tighter text-slate-900 uppercase italic leading-none mt-2">
             Laporan Closing Toko
           </h1>
           <p className="text-[10px] md:text-xs text-slate-500 font-black uppercase tracking-[0.2em] mt-1">
-            Rekapitulasi penjualan, pengeluaran, dan kas masuk harian
+            Rekapitulasi penjualan POS, pengeluaran operasional, belanja bahan, dan verifikasi fisik kas
           </p>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 self-start md:self-auto">
-          {/* Shift selector pills for owner */}
-          <div className="flex items-center gap-1.5 rounded-2xl border border-slate-100 bg-white p-1.5 shadow-sm">
-            <button
+        <div className="flex flex-wrap gap-2.5 items-center">
+          {/* Mode Switcher */}
+          <div className="bg-white p-1 rounded-2xl shadow-sm border border-slate-100 flex items-center">
+            <Button
+              variant="ghost"
+              onClick={() => setFilterMode("daily")}
+              className={cn(
+                "rounded-xl px-3.5 h-9 text-[9px] font-black uppercase tracking-widest transition-all",
+                filterMode === "daily" ? "bg-primary text-white shadow-sm" : "text-slate-500"
+              )}
+            >
+              Harian
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => setFilterMode("monthly")}
+              className={cn(
+                "rounded-xl px-3.5 h-9 text-[9px] font-black uppercase tracking-widest transition-all",
+                filterMode === "monthly" ? "bg-primary text-white shadow-sm" : "text-slate-500"
+              )}
+            >
+              Bulanan
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => setFilterMode("yearly")}
+              className={cn(
+                "rounded-xl px-3.5 h-9 text-[9px] font-black uppercase tracking-widest transition-all",
+                filterMode === "yearly" ? "bg-primary text-white shadow-sm" : "text-slate-500"
+              )}
+            >
+              Tahunan
+            </Button>
+          </div>
+
+          {/* Shift Filter Switcher */}
+          <div className="bg-white p-1 rounded-2xl shadow-sm border border-slate-100 flex items-center">
+            <Button
+              variant="ghost"
+              onClick={() => setSelectedShift("all")}
+              className={cn(
+                "rounded-xl px-3 h-9 text-[8px] sm:text-[9px] font-black uppercase tracking-wider transition-all",
+                selectedShift === "all" ? "bg-slate-900 text-white shadow-sm" : "text-slate-500"
+              )}
+            >
+              Semua Shift
+            </Button>
+            <Button
+              variant="ghost"
               onClick={() => setSelectedShift(1)}
               className={cn(
-                "rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all",
-                selectedShift === 1
-                  ? "bg-primary text-white shadow-md shadow-primary/10"
-                  : "text-slate-500 hover:bg-slate-50"
+                "rounded-xl px-3 h-9 text-[8px] sm:text-[9px] font-black uppercase tracking-wider transition-all",
+                selectedShift === 1 ? "bg-primary text-white shadow-sm" : "text-slate-500"
               )}
             >
-              Shift 1 (Pagi)
-            </button>
-            <button
+              Shift 1
+            </Button>
+            <Button
+              variant="ghost"
               onClick={() => setSelectedShift(2)}
               className={cn(
-                "rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all",
-                selectedShift === 2
-                  ? "bg-primary text-white shadow-md shadow-primary/10"
-                  : "text-slate-500 hover:bg-slate-50"
+                "rounded-xl px-3 h-9 text-[8px] sm:text-[9px] font-black uppercase tracking-wider transition-all",
+                selectedShift === 2 ? "bg-primary text-white shadow-sm" : "text-slate-500"
               )}
             >
-              Shift 2 (Malam)
-            </button>
+              Shift 2
+            </Button>
           </div>
 
           {/* Date Picker */}
-          <div className="flex items-center gap-3 rounded-[1.5rem] border border-slate-100 bg-white px-5 py-3 shadow-sm">
-            <CalendarIcon className="h-4 w-4 text-primary" />
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="border-none bg-transparent text-[10px] font-black uppercase tracking-widest text-slate-600 outline-none"
-            />
+          <div className="bg-white px-3.5 py-1.5 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-2">
+            <CalendarIcon className="h-4 w-4 text-primary shrink-0" />
+            {filterMode === "daily" ? (
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="text-[10px] font-black uppercase tracking-widest text-slate-800 bg-transparent border-none outline-none cursor-pointer"
+              />
+            ) : filterMode === "monthly" ? (
+              <input
+                type="month"
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="text-[10px] font-black uppercase tracking-widest text-slate-800 bg-transparent border-none outline-none cursor-pointer"
+              />
+            ) : (
+              <input
+                type="number"
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(e.target.value)}
+                className="text-[10px] font-black uppercase tracking-widest text-slate-800 bg-transparent border-none outline-none cursor-pointer w-20"
+              />
+            )}
+          </div>
+
+          {/* Tampilkan Button */}
+          <Button
+            onClick={handleCheck}
+            disabled={loading}
+            className="rounded-2xl bg-slate-900 hover:bg-slate-800 text-white px-5 h-11 font-black uppercase tracking-widest text-[9px] gap-2 shadow-md"
+          >
+            <Search className="h-3.5 w-3.5" /> Tampilkan
+          </Button>
+
+          {/* Export Buttons */}
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="outline"
+              onClick={handleExportExcel}
+              disabled={loading || filteredClosingList.length === 0}
+              className="rounded-2xl border-slate-200 h-11 px-3 text-[9px] font-black uppercase tracking-wider text-slate-700 bg-white hover:bg-slate-50 gap-1.5 shadow-sm"
+              title="Download Excel"
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" /> Excel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleExportPDF}
+              disabled={loading || filteredClosingList.length === 0}
+              className="rounded-2xl border-slate-200 h-11 px-3 text-[9px] font-black uppercase tracking-wider text-slate-700 bg-white hover:bg-slate-50 gap-1.5 shadow-sm"
+              title="Download PDF"
+            >
+              <FileDown className="h-3.5 w-3.5 text-primary" /> PDF
+            </Button>
           </div>
         </div>
       </div>
 
       {loading ? (
-        <Card className="flex flex-col items-center justify-center p-20 min-h-[300px] border-none bg-white shadow-sm">
+        <Card className="flex flex-col items-center justify-center p-20 min-h-[300px] border-none bg-white shadow-sm rounded-3xl">
           <Loader2 className="h-10 w-10 animate-spin text-primary" />
-          <p className="text-xs font-black uppercase tracking-widest text-slate-400 mt-4">Memuat Laporan Closing...</p>
+          <p className="text-xs font-black uppercase tracking-widest text-slate-400 mt-4">
+            Memuat Rekapan Closing Toko...
+          </p>
         </Card>
-      ) : !hasData ? (
+      ) : filteredClosingList.length === 0 ? (
         <Card className="flex flex-col items-center justify-center p-12 md:p-20 text-center min-h-[350px] border-none bg-white shadow-sm rounded-3xl">
           <div className="h-16 w-16 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center mb-4">
             <AlertTriangle className="h-8 w-8" />
           </div>
-          <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest">Belum Ada Laporan</h4>
+          <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest">Belum Ada Data Closing</h4>
           <p className="text-[10px] md:text-xs text-slate-400 font-bold uppercase tracking-wider max-w-sm mt-1">
-            Karyawan belum melakukan input keuangan kontainer {selectedShift === 1 ? "Shift 1 (Pagi)" : "Shift 2 (Malam)"} untuk tanggal {new Date(selectedDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}.
+            Tidak ditemukan catatan closing toko untuk periode {currentPeriodLabel} {appliedShift !== "all" ? `(Shift ${appliedShift})` : ""}.
           </p>
         </Card>
       ) : (
         <div className="space-y-6 md:space-y-8 animate-in fade-in zoom-in-95 duration-500">
-          {/* Summary Cards */}
-          <div className="grid grid-cols-3 gap-2 md:gap-6">
-            <Card className="p-3 md:p-8 bg-gradient-to-br from-blue-50 to-blue-100/50 border-none shadow-sm rounded-2xl md:rounded-3xl relative overflow-hidden group hover:shadow-md transition-all duration-300">
-              <div className="absolute right-2 bottom-1 opacity-5 group-hover:scale-110 transition-transform duration-500 text-blue-900 hidden md:block">
-                <TrendingUp className="h-32 w-32" />
-              </div>
-              <div className="space-y-2 md:space-y-4">
-                <div className="inline-flex p-1.5 md:p-3 rounded-lg md:rounded-2xl bg-blue-500/10 text-blue-700">
-                  <TrendingUp className="h-3.5 w-3.5 md:h-6 md:w-6" />
+          {/* Primary KPI Summary Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-5">
+            {/* 1. Total Penjualan */}
+            <Card className="p-4 md:p-6 bg-white border border-slate-100 shadow-sm rounded-3xl hover:shadow-md transition-all">
+              <div className="flex items-center justify-between mb-3">
+                <div className="bg-blue-50 text-blue-600 w-10 h-10 rounded-2xl flex items-center justify-center">
+                  <TrendingUp className="h-5 w-5" />
                 </div>
-                <div>
-                  <p className="text-[7px] md:text-[10px] font-black uppercase tracking-widest text-slate-500">Penjualan</p>
-                  <h3 className="text-xs sm:text-lg md:text-3xl font-black text-blue-900 mt-0.5 tabular-nums">{formatCurrency(totalPenjualan)}</h3>
-                </div>
+                <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                  {filteredClosingList.length} Closing
+                </span>
               </div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Total Penjualan</p>
+              <h3 className="text-lg md:text-2xl font-black text-blue-900 mt-1 tabular-nums">
+                {formatCurrency(totals.totalPenjualan)}
+              </h3>
+              <p className="text-[8px] font-bold text-slate-400 mt-1.5">
+                QRIS: {formatCurrency(totals.totalQris)} • Cash: {formatCurrency(totals.totalCash)}
+              </p>
             </Card>
 
-            <Card className="p-3 md:p-8 bg-gradient-to-br from-indigo-50 to-indigo-100/50 border-none shadow-sm rounded-2xl md:rounded-3xl relative overflow-hidden group hover:shadow-md transition-all duration-300">
-              <div className="absolute right-2 bottom-1 opacity-5 group-hover:scale-110 transition-transform duration-500 text-indigo-900 hidden md:block">
-                <Coins className="h-32 w-32" />
-              </div>
-              <div className="space-y-2 md:space-y-4">
-                <div className="inline-flex p-1.5 md:p-3 rounded-lg md:rounded-2xl bg-indigo-500/10 text-indigo-700">
-                  <Coins className="h-3.5 w-3.5 md:h-6 md:w-6" />
+            {/* 2. Total Pengeluaran (Operasional, Belanja, Free) */}
+            <Card className="p-4 md:p-6 bg-white border border-slate-100 shadow-sm rounded-3xl hover:shadow-md transition-all">
+              <div className="flex items-center justify-between mb-3">
+                <div className="bg-rose-50 text-rose-600 w-10 h-10 rounded-2xl flex items-center justify-center">
+                  <Wallet className="h-5 w-5" />
                 </div>
-                <div>
-                  <p className="text-[7px] md:text-[10px] font-black uppercase tracking-widest text-slate-500">QRIS</p>
-                  <h3 className="text-xs sm:text-lg md:text-3xl font-black text-indigo-900 mt-0.5 tabular-nums">{formatCurrency(totalQris)}</h3>
-                </div>
+                <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+                  Pengeluaran
+                </span>
               </div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Total Pengeluaran</p>
+              <h3 className="text-lg md:text-2xl font-black text-rose-600 mt-1 tabular-nums">
+                {formatCurrency(totals.totalOperasional + totals.totalBelanja + totals.totalFree)}
+              </h3>
+              <p className="text-[8px] font-bold text-slate-400 mt-1.5">
+                Ops: {formatCurrency(totals.totalOperasional)} • Belanja: {formatCurrency(totals.totalBelanja)}
+              </p>
             </Card>
 
-            <Card className="p-3 md:p-8 bg-gradient-to-br from-emerald-50 to-emerald-100/50 border-none shadow-sm rounded-2xl md:rounded-3xl relative overflow-hidden group hover:shadow-md transition-all duration-300">
-              <div className="absolute right-2 bottom-1 opacity-5 group-hover:scale-110 transition-transform duration-500 text-emerald-900 hidden md:block">
-                <Wallet className="h-32 w-32" />
-              </div>
-              <div className="space-y-2 md:space-y-4">
-                <div className="inline-flex p-1.5 md:p-3 rounded-lg md:rounded-2xl bg-emerald-500/10 text-emerald-700">
-                  <Wallet className="h-3.5 w-3.5 md:h-6 md:w-6" />
+            {/* 3. Total Wajib Setor vs Diambil Owner */}
+            <Card className="p-4 md:p-6 bg-white border border-slate-100 shadow-sm rounded-3xl hover:shadow-md transition-all">
+              <div className="flex items-center justify-between mb-3">
+                <div className="bg-emerald-50 text-emerald-600 w-10 h-10 rounded-2xl flex items-center justify-center">
+                  <Coins className="h-5 w-5" />
                 </div>
-                <div>
-                  <p className="text-[7px] md:text-[10px] font-black uppercase tracking-widest text-slate-500">Cash</p>
-                  <h3 className="text-xs sm:text-lg md:text-3xl font-black text-emerald-900 mt-0.5 tabular-nums">{formatCurrency(totalCash)}</h3>
-                </div>
+                <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-orange-50 text-orange-700 border border-orange-200">
+                  Owner: {formatCurrency(totals.totalDiambilOwner)}
+                </span>
               </div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Total Wajib Setor</p>
+              <h3 className="text-lg md:text-2xl font-black text-emerald-700 mt-1 tabular-nums">
+                {formatCurrency(totals.totalWajibSetor)}
+              </h3>
+              <p className="text-[8px] font-bold text-slate-400 mt-1.5">
+                Fisik Kas: {formatCurrency(totals.totalUangFisik)}
+              </p>
+            </Card>
+
+            {/* 4. Total Selisih Verifikasi */}
+            <Card className={cn(
+              "p-4 md:p-6 border shadow-sm rounded-3xl transition-all",
+              totals.totalSelisih === 0
+                ? "bg-slate-900 text-white border-slate-800"
+                : totals.totalSelisih > 0
+                ? "bg-amber-950 text-white border-amber-800"
+                : "bg-rose-950 text-white border-rose-900"
+            )}>
+              <div className="flex items-center justify-between mb-3">
+                <div className="bg-white/10 w-10 h-10 rounded-2xl flex items-center justify-center text-white">
+                  {totals.totalSelisih === 0 ? (
+                    <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+                  ) : (
+                    <AlertTriangle className="h-5 w-5 text-amber-400" />
+                  )}
+                </div>
+                <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-white/20 text-white">
+                  {totals.totalSelisih === 0 ? "Akumulasi Klop" : totals.totalSelisih > 0 ? "Lebih Fisik" : "Kurang Fisik"}
+                </span>
+              </div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-slate-300">Selisih Verifikasi</p>
+              <h3 className="text-lg md:text-2xl font-black mt-1 tabular-nums text-white">
+                {formatCurrency(totals.totalSelisih)}
+              </h3>
+              <p className="text-[8px] font-bold text-slate-300 mt-1.5">
+                Uang Fisik dikurangi Wajib Setor
+              </p>
             </Card>
           </div>
 
-          {/* Detailed Financial Summary Table Card */}
-          <Card className="border-none shadow-sm rounded-3xl overflow-hidden bg-white">
-            <div className="p-6 md:p-8 border-b border-slate-50 flex items-center justify-between gap-4 bg-slate-50/20">
-              <div className="flex items-center gap-3">
-                <ClipboardList className="h-5 w-5 text-primary" />
-                <h3 className="text-md font-black uppercase italic text-slate-900">Rincian Finansial Closing</h3>
+          {/* If Single Daily Mode with 1 record, show the detailed 2-column breakdown card */}
+          {appliedMode === "daily" && appliedShift !== "all" && singleDailyItem && (
+            <Card className="border-none shadow-sm rounded-3xl overflow-hidden bg-white">
+              <div className="p-6 md:p-8 border-b border-slate-50 flex items-center justify-between gap-4 bg-slate-50/20">
+                <div className="flex items-center gap-3">
+                  <ClipboardList className="h-5 w-5 text-primary" />
+                  <div>
+                    <h3 className="text-md font-black uppercase italic text-slate-900">
+                      Rincian Closing Toko • {singleDailyItem.tanggal} (Shift {singleDailyItem.shift})
+                    </h3>
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                      Karyawan Input: {singleDailyItem.karyawanNama}
+                    </p>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={() => openDetailDialog(singleDailyItem)}
+                  className="rounded-xl bg-primary text-white font-black uppercase tracking-widest text-[9px] gap-2 px-4 h-10 hover:bg-primary/95 transition-all duration-300 shadow-md"
+                >
+                  <Eye className="h-4 w-4" /> Detail Input Karyawan
+                </Button>
               </div>
-              
-              {/* Eye Button to open detail modal */}
-              <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-                <DialogTrigger asChild>
-                  <Button className="rounded-xl bg-primary text-white font-black uppercase tracking-widest text-[9px] gap-2 px-4 h-10 hover:bg-primary/95 transition-all duration-300 shadow-md">
-                    <Eye className="h-4 w-4" /> Lihat Rincian Input Karyawan
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="rounded-3xl md:rounded-[2.5rem] border-none shadow-2xl p-3 sm:p-6 md:p-10 max-w-4xl w-[96vw] sm:w-full max-h-[90vh] overflow-y-auto custom-scrollbar">
-                  <DialogHeader className="border-b border-slate-100 pb-3 md:pb-4 mb-4">
-                    <DialogTitle className="text-base md:text-2xl font-black uppercase italic text-slate-900 flex items-center gap-2 md:gap-3">
-                      <Eye className="h-5 w-5 md:h-6 md:w-6 text-primary shrink-0" /> Detail Input Karyawan
-                    </DialogTitle>
-                  </DialogHeader>
 
-                  <Tabs defaultValue="produk" className="w-full">
-                    <TabsList className="bg-slate-50 p-1 rounded-xl grid grid-cols-2 md:grid-cols-4 gap-1 mb-6 border border-slate-100 w-full">
-                      <TabsTrigger value="produk" className="rounded-lg font-black uppercase text-[8px] md:text-[9px] tracking-wider py-2 text-center">
-                        Produk Terjual
-                      </TabsTrigger>
-                      <TabsTrigger value="transaksi" className="rounded-lg font-black uppercase text-[8px] md:text-[9px] tracking-wider py-2 text-center">
-                        Pembayaran
-                      </TabsTrigger>
-                      <TabsTrigger value="operasional" className="rounded-lg font-black uppercase text-[8px] md:text-[9px] tracking-wider py-2 text-center">
-                        Operasional, Belanja & Free
-                      </TabsTrigger>
-                      <TabsTrigger value="catatan" className="rounded-lg font-black uppercase text-[8px] md:text-[9px] tracking-wider py-2 text-center">
-                        Catatan
-                      </TabsTrigger>
-                    </TabsList>
-
-                    {/* Tab 1: Produk Terjual */}
-                    <TabsContent value="produk" className="m-0 space-y-4">
-                      {isShift1 ? (
-                        <div className="text-center py-12 border border-dashed border-slate-100 rounded-2xl p-6 text-slate-500 text-xs font-black uppercase">
-                          Detail produk terjual tidak tersedia untuk Shift 1 (Pagi) karena hanya mencatat nominal penjualan cash dan QRIS secara manual.
-                        </div>
-                      ) : penjualanData?.items && penjualanData.items.length > 0 ? (
-                        <div>
-                          {/* Desktop View: Table */}
-                          <div className="hidden md:block overflow-x-auto border border-slate-100 rounded-2xl">
-                            <table className="w-full text-left text-xs">
-                              <thead>
-                                <tr className="bg-slate-50 border-b border-slate-100">
-                                  <th className="px-5 py-3 font-black uppercase text-slate-500">Kode</th>
-                                  <th className="px-4 py-3 font-black uppercase text-slate-500">Nama Produk</th>
-                                  <th className="px-4 py-3 font-black uppercase text-slate-500 text-center">Jumlah</th>
-                                  <th className="px-4 py-3 font-black uppercase text-slate-500 text-right">Pendapatan</th>
-                                  <th className="px-5 py-3 font-black uppercase text-slate-500 text-right">Keuntungan</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-50">
-                                {penjualanData.items.map((item: any, idx: number) => (
-                                  <tr key={idx} className="hover:bg-slate-50/50">
-                                    <td className="px-5 py-3.5 font-bold text-slate-900">{item.code || "-"}</td>
-                                    <td className="px-4 py-3.5 font-black text-slate-800 uppercase italic">{item.name || "-"}</td>
-                                    <td className="px-4 py-3.5 text-center font-black text-primary tabular-nums">{item.total || 0}</td>
-                                    <td className="px-4 py-3.5 text-right font-bold text-slate-900 tabular-nums">{formatCurrency(item.pendapatan || 0)}</td>
-                                    <td className="px-5 py-3.5 text-right font-black text-emerald-600 tabular-nums">{formatCurrency(item.keuntungan || 0)}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-
-                          {/* Mobile View: Cards */}
-                          <div className="block md:hidden space-y-3">
-                            {penjualanData.items.map((item: any, idx: number) => (
-                              <div key={idx} className="border border-slate-100 rounded-2xl p-4 bg-slate-50/40 space-y-3">
-                                <div className="flex justify-between items-start border-b border-slate-100/60 pb-2">
-                                  <div className="space-y-0.5">
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{item.code || "-"}</span>
-                                    <h4 className="text-xs font-black uppercase text-slate-800 italic leading-snug">{item.name || "-"}</h4>
-                                  </div>
-                                  <span className="text-xs font-black text-primary bg-primary/10 px-2.5 py-1 rounded-lg shrink-0">
-                                    {item.total || 0} Pcs
-                                  </span>
-                                </div>
-                                <div className="grid grid-cols-2 gap-2 text-[11px]">
-                                  <div className="flex flex-col">
-                                    <span className="font-bold text-slate-400 uppercase text-[9px] tracking-wider">Pendapatan</span>
-                                    <span className="font-bold text-slate-900 tabular-nums mt-0.5">{formatCurrency(item.pendapatan || 0)}</span>
-                                  </div>
-                                  <div className="flex flex-col text-right">
-                                    <span className="font-bold text-slate-400 uppercase text-[9px] tracking-wider">Keuntungan</span>
-                                    <span className="font-black text-emerald-600 tabular-nums mt-0.5">{formatCurrency(item.keuntungan || 0)}</span>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-center py-10 text-slate-400 text-xs font-black uppercase">Tidak ada detail produk terjual (Laporan Excel Kosong).</div>
-                      )}
-                    </TabsContent>
-
-                    {/* Tab 2: Rincian Pembayaran */}
-                     <TabsContent value="transaksi" className="m-0 space-y-4">
-                       <div className="grid grid-cols-2 gap-2 md:gap-4">
-                         {[
-                           { label: "Nominal QRIS", value: totalQris, helper: "QRIS", color: "text-indigo-600" },
-                           { label: "Nominal Cash", value: totalCash, helper: "CASH", color: "text-emerald-600" },
-                           { label: "Nominal GoFood", value: totalGofood, helper: "GOFOOD", color: "text-red-500" },
-                           { label: "Metode Lainnya", value: totalLainnya, helper: "LAINNYA", color: "text-slate-500" },
-                         ].map((pay, i) => (
-                           <div key={i} className="p-3 md:p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col justify-between">
-                             <span className="text-[8px] md:text-[9px] font-black uppercase tracking-wider text-slate-400">{pay.label}</span>
-                             <span className={`text-sm md:text-xl font-black mt-1.5 tabular-nums ${pay.color}`}>{formatCurrency(pay.value)}</span>
-                             <span className="text-[7px] md:text-[8px] font-bold text-slate-300 mt-0.5 uppercase tracking-widest">{pay.helper}</span>
-                           </div>
-                         ))}
-                       </div>
-
-                       {/* Modal Awal & Modal Tambahan rekap */}
-                       <div className="grid grid-cols-2 gap-2 md:gap-4 border-t border-slate-100 pt-4">
-                          <div className="p-3 md:p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col justify-between">
-                            <span className="text-[8px] md:text-[9px] font-black uppercase tracking-wider text-slate-400">
-                              {selectedShift === 1 ? "Modal Awal (Pagi)" : "Modal Awal (Shift 1)"}
-                            </span>
-                            <span className="text-sm md:text-xl font-black mt-1.5 tabular-nums text-indigo-700">{formatCurrency(modalAwal)}</span>
-                            <span className="text-[7px] md:text-[8px] font-bold text-slate-300 mt-0.5 uppercase tracking-widest">MODAL AWAL</span>
-                          </div>
-                          <div className="p-3 md:p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col justify-between">
-                            <span className="text-[8px] md:text-[9px] font-black uppercase tracking-wider text-slate-400">Modal Tambahan (Opsional)</span>
-                            <span className="text-sm md:text-xl font-black mt-1.5 tabular-nums text-amber-700">{formatCurrency(modalTambahan)}</span>
-                            <span className="text-[7px] md:text-[8px] font-bold text-slate-300 mt-0.5 uppercase tracking-widest">MODAL TAMBAHAN</span>
-                          </div>
-                          {selectedShift === 2 && (
-                            <div className="p-3 md:p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col justify-between col-span-2">
-                              <span className="text-[8px] md:text-[9px] font-black uppercase tracking-wider text-slate-400">Selisih Shift 1 (Pagi)</span>
-                              <span className={`text-sm md:text-xl font-black mt-1.5 tabular-nums ${shift1Difference === 0 ? "text-slate-600" : shift1Difference > 0 ? "text-amber-600" : "text-rose-600"}`}>{formatCurrency(shift1Difference)}</span>
-                              <span className="text-[7px] md:text-[8px] font-bold text-slate-300 mt-0.5 uppercase tracking-widest">SELISIH SHIFT 1</span>
-                            </div>
-                          )}
-                       </div>
-                      </TabsContent>
-
-                    {/* Tab 3: Operasional & Belanja */}
-                    <TabsContent value="operasional" className="m-0 space-y-6">
-                      <div className="space-y-4">
-                        <h4 className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-2">
-                          <Wallet className="h-4 w-4" /> Pengeluaran Operasional Toko/Kontainer ({keuanganData?.operationalDetails?.length || 0})
-                        </h4>
-                        {keuanganData?.operationalDetails && keuanganData.operationalDetails.length > 0 ? (
-                          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
-                            {keuanganData.operationalDetails.map((op: any, i: number) => (
-                              <div key={i} className="border border-slate-100 rounded-2xl p-4 bg-slate-50/40 flex justify-between items-start gap-4">
-                                <div className="space-y-1">
-                                  <span className="text-xs font-black uppercase text-slate-700 block">{op.pembayaran}</span>
-                                  {(op.shift || op.karyawanNama) && (
-                                    <span className="text-[9px] font-bold text-slate-400 uppercase block">
-                                      {op.shift ? `Shift ${op.shift}` : 'Shift 2'} {op.karyawanNama ? `• ${op.karyawanNama}` : ''}
-                                    </span>
-                                  )}
-                                </div>
-                                <span className="text-xs font-black text-rose-600 tabular-nums shrink-0">{formatCurrency(op.nominal)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="text-center py-6 border border-dashed border-slate-100 rounded-2xl text-slate-400 text-xs font-bold uppercase">Tidak ada operasional dicatat.</div>
-                        )}
-                      </div>
-
-                      <div className="space-y-4 mt-6">
-                        <h4 className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-2">
-                          <Layers className="h-4 w-4" /> Belanja Bahan Baku ({keuanganData?.purchaseDetails?.length || 0})
-                        </h4>
-                         {keuanganData?.purchaseDetails && keuanganData.purchaseDetails.length > 0 ? (
-                           <div className="grid gap-3 grid-cols-1 md:grid-cols-2">
-                             {keuanganData.purchaseDetails.map((pur: any, i: number) => (
-                               <div key={i} className="border border-slate-100 rounded-2xl p-3 md:p-4 bg-slate-50/40">
-                                <div className="flex justify-between items-start pb-2 border-b border-slate-100 gap-4">
-                                  <div className="space-y-1">
-                                    <span className="text-xs font-black text-slate-800 uppercase italic block">Nota: {pur.nomorNota || "-"}</span>
-                                    {(pur.shift || pur.karyawanNama) && (
-                                      <span className="text-[9px] font-bold text-slate-400 uppercase block">
-                                        {pur.shift ? `Shift ${pur.shift}` : 'Shift 2'} {pur.karyawanNama ? `• ${pur.karyawanNama}` : ''}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className="text-xs font-black text-rose-600 tabular-nums shrink-0">{formatCurrency(pur.total)}</span>
-                                </div>
-                                <div className="mt-2 space-y-1.5">
-                                  {(pur.items || []).map((item: any, idx: number) => (
-                                    <div key={idx} className="flex justify-between text-[11px] text-slate-500 font-bold uppercase">
-                                      <span>{item.materialName || "-"}</span>
-                                      <span className="tabular-nums">{item.qty} x {formatCurrency(item.price)}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="text-center py-6 border border-dashed border-slate-100 rounded-2xl text-slate-400 text-xs font-bold uppercase">Tidak ada rincian belanja bahan baku.</div>
-                        )}
-                      </div>
-
-                      <div className="space-y-4 mt-6">
-                        <h4 className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-2">
-                          <Gift className="h-4 w-4 text-pink-600" /> Input Free Produk ({freeList?.length || 0})
-                        </h4>
-                        {freeList && freeList.length > 0 ? (
-                          <div className="grid gap-3 grid-cols-1 md:grid-cols-2">
-                            {freeList.map((free: any, i: number) => (
-                              <div key={i} className="border border-pink-100 rounded-2xl p-3 md:p-4 bg-pink-50/30">
-                                <div className="flex justify-between items-start pb-2 border-b border-pink-100/60 gap-4">
-                                  <div className="space-y-1">
-                                    <span className="text-xs font-black text-slate-800 uppercase block">
-                                      {free.karyawanNama || "Karyawan"} {free.shift ? `(Shift ${free.shift})` : ''}
-                                    </span>
-                                    {free.notes && free.notes !== "-" && (
-                                      <span className="text-[9px] font-bold text-slate-400 uppercase block">
-                                        Catatan: {free.notes}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className="text-xs font-black text-pink-700 tabular-nums shrink-0">{formatCurrency(free.totalNominal || 0)}</span>
-                                </div>
-                                <div className="mt-2 space-y-1.5">
-                                  {(free.items || []).map((item: any, idx: number) => (
-                                    <div key={idx} className="flex justify-between text-[11px] text-slate-600 font-bold uppercase">
-                                      <span>{item.productName || item.name || "-"}</span>
-                                      <span className="tabular-nums">{item.qty} x {formatCurrency(item.harga || 0)}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="text-center py-6 border border-dashed border-slate-100 rounded-2xl text-slate-400 text-xs font-bold uppercase">Tidak ada rincian input free produk.</div>
-                        )}
-                      </div>
-                    </TabsContent>
-
-                    {/* Tab 4: Catatan & Selisih */}
-                    <TabsContent value="catatan" className="m-0 space-y-4">
-                      <div className="p-5 rounded-2xl border border-slate-100 bg-slate-50 space-y-3">
-                        <h4 className="text-[10px] font-black uppercase tracking-wider text-slate-400">Catatan/Komentar Penutupan</h4>
-                        <p className="text-xs text-slate-700 italic font-bold leading-relaxed whitespace-pre-line">
-                          {catatanKaryawan ? `"${catatanKaryawan}"` : "Tidak ada catatan/pesan khusus dari karyawan untuk tanggal ini."}
-                        </p>
-                      </div>
-
-                      <div className="p-5 rounded-2xl border border-rose-100 bg-rose-50/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <div>
-                          <h4 className="text-[10px] font-black uppercase tracking-wider text-rose-500">Selisih Kas Terakhir</h4>
-                          <p className="text-xs text-slate-500 font-bold mt-1 uppercase">Selisih nominal uang cash di pegang dengan nominal wajib setor.</p>
-                        </div>
-                        <span className={`text-xl font-black tabular-nums ${selisihKeuangan === 0 ? "text-emerald-600" : selisihKeuangan > 0 ? "text-amber-600" : "text-rose-600"}`}>
-                          {formatCurrency(selisihKeuangan)}
+              <div className="divide-y divide-slate-100">
+                <div className="grid grid-cols-1 md:grid-cols-2 p-6 md:p-8 gap-6">
+                  {/* Left Side: Summary of Sales */}
+                  <div className="space-y-4">
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      Ikhtisar Pendapatan & Pembayaran
+                    </h4>
+                    <div className="grid grid-cols-2 md:grid-cols-1 gap-2 md:gap-4">
+                      <div className="flex flex-col justify-between p-3 rounded-2xl border border-slate-50 bg-slate-50/50 md:flex-row md:items-center md:px-5 md:py-4">
+                        <span className="text-[9px] md:text-xs font-black uppercase text-slate-600">
+                          {singleDailyItem.shift === 1 ? "Penjualan (Input)" : "Penjualan (POS/Excel)"}
+                        </span>
+                        <span className="text-sm md:text-base font-black text-slate-900 tabular-nums">
+                          {formatCurrency(singleDailyItem.totalPenjualan)}
                         </span>
                       </div>
-                    </TabsContent>
-                  </Tabs>
-                </DialogContent>
-              </Dialog>
-            </div>
 
-            <div className="divide-y divide-slate-100">
-              <div className="grid grid-cols-1 md:grid-cols-2 p-6 md:p-8 gap-6">
-                {/* Left Side: Summary of Sales */}
-                <div className="space-y-4">
-                  <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Ikhtisar Pendapatan & Pembayaran</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-1 gap-2 md:gap-4">
-                    <div className="flex flex-col justify-between p-3 rounded-2xl border border-slate-50 bg-slate-50/50 h-20 md:h-auto md:flex-row md:items-center md:px-5 md:py-4">
-                      <span className="text-[9px] md:text-xs font-black uppercase text-slate-600 leading-snug">
-                        {selectedShift === 1 ? "Penjualan (Input)" : "Penjualan (Excel)"}
-                      </span>
-                      <span className="text-sm md:text-base font-black text-slate-900 tabular-nums mt-1 md:mt-0">{formatCurrency(totalPenjualan)}</span>
+                      <div className="flex flex-col justify-between p-3 rounded-2xl border border-slate-50 bg-slate-50/50 md:flex-row md:items-center md:px-5 md:py-4">
+                        <span className="text-[9px] md:text-xs font-black uppercase text-slate-600">Total QRIS</span>
+                        <span className="text-sm md:text-base font-black text-indigo-600 tabular-nums">
+                          {formatCurrency(singleDailyItem.totalQris)}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col justify-between p-3 rounded-2xl border border-slate-50 bg-slate-50/50 md:flex-row md:items-center md:px-5 md:py-4">
+                        <span className="text-[9px] md:text-xs font-black uppercase text-slate-600">Total Cash</span>
+                        <span className="text-sm md:text-base font-black text-emerald-600 tabular-nums">
+                          {formatCurrency(singleDailyItem.totalCash)}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col justify-between p-3 rounded-2xl border border-slate-50 bg-slate-50/50 md:flex-row md:items-center md:px-5 md:py-4">
+                        <span className="text-[9px] md:text-xs font-black uppercase text-slate-600">
+                          {singleDailyItem.shift === 1 ? "Modal Awal (Pagi)" : "Modal Awal (Shift 1)"}
+                        </span>
+                        <span className="text-sm md:text-base font-black text-indigo-700 tabular-nums">
+                          {formatCurrency(singleDailyItem.modalAwal)}
+                        </span>
+                      </div>
                     </div>
+                  </div>
 
-                    <div className="flex flex-col justify-between p-3 rounded-2xl border border-slate-50 bg-slate-50/50 h-20 md:h-auto md:flex-row md:items-center md:px-5 md:py-4">
-                      <span className="text-[9px] md:text-xs font-black uppercase text-slate-600 leading-snug">Total QRIS</span>
-                      <span className="text-sm md:text-base font-black text-indigo-600 tabular-nums mt-1 md:mt-0">{formatCurrency(totalQris)}</span>
-                    </div>
+                  {/* Right Side: Summary of Finances / Expenses */}
+                  <div className="space-y-4">
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      Ikhtisar Pengeluaran & Setoran
+                    </h4>
+                    <div className="grid grid-cols-2 md:grid-cols-1 gap-2 md:gap-4">
+                      <div className="flex flex-col justify-between p-3 rounded-2xl border border-slate-50 bg-slate-50/50 md:flex-row md:items-center md:px-5 md:py-4">
+                        <span className="text-[9px] md:text-xs font-black uppercase text-slate-600">Operasional</span>
+                        <span className="text-sm md:text-base font-black text-rose-600 tabular-nums">
+                          {formatCurrency(singleDailyItem.totalOperasional)}
+                        </span>
+                      </div>
 
-                    <div className="flex flex-col justify-between p-3 rounded-2xl border border-slate-50 bg-slate-50/50 h-20 md:h-auto md:flex-row md:items-center md:px-5 md:py-4">
-                      <span className="text-[9px] md:text-xs font-black uppercase text-slate-600 leading-snug">Total Cash</span>
-                      <span className="text-sm md:text-base font-black text-emerald-600 tabular-nums mt-1 md:mt-0">{formatCurrency(totalCash)}</span>
-                    </div>
+                      <div className="flex flex-col justify-between p-3 rounded-2xl border border-slate-50 bg-slate-50/50 md:flex-row md:items-center md:px-5 md:py-4">
+                        <span className="text-[9px] md:text-xs font-black uppercase text-slate-600">Belanja Bahan</span>
+                        <span className="text-sm md:text-base font-black text-rose-600 tabular-nums">
+                          {formatCurrency(singleDailyItem.totalBelanja)}
+                        </span>
+                      </div>
 
-                    <div className="flex flex-col justify-between p-3 rounded-2xl border border-slate-50 bg-slate-50/50 h-20 md:h-auto md:flex-row md:items-center md:px-5 md:py-4">
-                      <span className="text-[9px] md:text-xs font-black uppercase text-slate-600 leading-snug">
-                        {selectedShift === 1 ? "Modal Awal (Pagi)" : "Modal Awal (Shift 1)"}
-                      </span>
-                      <span className="text-sm md:text-base font-black text-indigo-700 tabular-nums mt-1 md:mt-0">{formatCurrency(modalAwal)}</span>
+                      <div className="flex flex-col justify-between p-3 rounded-2xl border border-slate-50 bg-slate-50/50 md:flex-row md:items-center md:px-5 md:py-4">
+                        <span className="text-[9px] md:text-xs font-black uppercase text-slate-600">Input Free</span>
+                        <span className="text-sm md:text-base font-black text-pink-600 tabular-nums">
+                          {formatCurrency(singleDailyItem.totalFree)}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col justify-between p-3 rounded-2xl border border-slate-50 bg-slate-50/50 md:flex-row md:items-center md:px-5 md:py-4">
+                        <span className="text-[9px] md:text-xs font-black uppercase text-slate-600">Modal Tambahan</span>
+                        <span className="text-sm md:text-base font-black text-amber-700 tabular-nums">
+                          {formatCurrency(singleDailyItem.modalTambahan)}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col justify-between p-3 rounded-2xl border border-orange-100 bg-orange-50/50 md:flex-row md:items-center md:px-5 md:py-4">
+                        <span className="text-[9px] md:text-xs font-black uppercase text-orange-700">Diambil Owner</span>
+                        <span className="text-sm md:text-base font-black text-orange-950 tabular-nums">
+                          {formatCurrency(singleDailyItem.diambilOwner)}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col justify-between p-3 rounded-2xl border border-emerald-200 bg-emerald-50 md:flex-row md:items-center md:px-5 md:py-4">
+                        <span className="text-[9px] md:text-xs font-black uppercase text-emerald-700">Wajib Setor</span>
+                        <span className="text-sm md:text-base font-black text-emerald-700 tabular-nums">
+                          {formatCurrency(singleDailyItem.sisaUangDisetor)}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Right Side: Summary of Finances / Expenses */}
-                <div className="space-y-4">
-                  <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Ikhtisar Pengeluaran & Setoran</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-1 gap-2 md:gap-4">
-                    <div className="flex flex-col justify-between p-3 rounded-2xl border border-slate-50 bg-slate-50/50 h-20 md:h-auto md:flex-row md:items-center md:px-5 md:py-4">
-                      <span className="text-[9px] md:text-xs font-black uppercase text-slate-600 leading-snug">Operasional</span>
-                      <span className="text-sm md:text-base font-black text-rose-600 tabular-nums mt-1 md:mt-0">{formatCurrency(totalOperasional)}</span>
-                    </div>
-
-                    <div className="flex flex-col justify-between p-3 rounded-2xl border border-slate-50 bg-slate-50/50 h-20 md:h-auto md:flex-row md:items-center md:px-5 md:py-4">
-                      <span className="text-[9px] md:text-xs font-black uppercase text-slate-600 leading-snug">Belanja Bahan</span>
-                      <span className="text-sm md:text-base font-black text-rose-600 tabular-nums mt-1 md:mt-0">{formatCurrency(totalBelanja)}</span>
-                    </div>
-
-                    <div className="flex flex-col justify-between p-3 rounded-2xl border border-slate-50 bg-slate-50/50 h-20 md:h-auto md:flex-row md:items-center md:px-5 md:py-4">
-                      <span className="text-[9px] md:text-xs font-black uppercase text-slate-600 leading-snug">Input Free</span>
-                      <span className="text-sm md:text-base font-black text-pink-600 tabular-nums mt-1 md:mt-0">{formatCurrency(totalFree)}</span>
-                    </div>
-
-                    <div className="flex flex-col justify-between p-3 rounded-2xl border border-slate-50 bg-slate-50/50 h-20 md:h-auto md:flex-row md:items-center md:px-5 md:py-4 col-span-2 md:col-span-1">
-                      <span className="text-[9px] md:text-xs font-black uppercase text-slate-600 leading-snug">Modal Tambahan</span>
-                      <span className="text-sm md:text-base font-black text-amber-700 tabular-nums mt-1 md:mt-0">{formatCurrency(modalTambahan)}</span>
-                    </div>
-
-                    {selectedShift === 2 && (
-                      <div className="flex flex-col justify-between p-3 rounded-2xl border border-slate-50 bg-slate-50/50 h-20 md:h-auto md:flex-row md:items-center md:px-5 md:py-4 col-span-2 md:col-span-1">
-                        <span className="text-[9px] md:text-xs font-black uppercase text-slate-600 leading-snug">Selisih Shift 1</span>
-                        <span className={`text-sm md:text-base font-black tabular-nums mt-1 md:mt-0 ${shift1Difference === 0 ? "text-slate-600" : shift1Difference > 0 ? "text-amber-600" : "text-rose-600"}`}>
-                          {formatCurrency(shift1Difference)}
-                        </span>
-                      </div>
-                    )}
-
-                    <div className="flex flex-col justify-between p-3 rounded-2xl border border-orange-100 bg-orange-50/50 h-20 md:h-auto md:flex-row md:items-center md:px-5 md:py-4 col-span-2 md:col-span-1">
-                      <span className="text-[9px] md:text-xs font-black uppercase text-orange-700 leading-snug">
-                        {selectedShift === 1 ? "Diambil Owner" : "Diambil Owner (S1 + S2)"}
-                      </span>
-                      <span className="text-sm md:text-base font-black text-orange-950 tabular-nums mt-1 md:mt-0">{formatCurrency(diambilOwner)}</span>
-                    </div>
-
-                    <div className="flex flex-col justify-between p-3 rounded-2xl border border-emerald-200 bg-emerald-50 h-20 md:h-auto md:flex-row md:items-center md:px-5 md:py-4 col-span-2 md:col-span-1">
-                      <span className="text-[9px] md:text-xs font-black uppercase text-emerald-700 leading-snug">Wajib Setor</span>
-                      <span className="text-sm md:text-base font-black text-emerald-700 tabular-nums mt-1 md:mt-0">{formatCurrency(sisaUangDisetor)}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Cash Verification Footer */}
-              {keuanganData && (
+                {/* Cash Verification Footer */}
                 <div className="bg-slate-50/30 p-6 md:p-8 space-y-4">
                   <div className="grid gap-4 sm:grid-cols-3">
                     <div className="p-4 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between">
                       <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Wajib Setor</span>
-                      <span className="text-lg font-black mt-2 text-slate-800 tabular-nums">{formatCurrency(sisaUangDisetor)}</span>
+                      <span className="text-lg font-black mt-2 text-slate-800 tabular-nums">
+                        {formatCurrency(singleDailyItem.sisaUangDisetor)}
+                      </span>
                     </div>
                     <div className="p-4 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-between">
-                      <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Uang Fisik Diterima (Cash On Hand)</span>
-                      <span className="text-lg font-black mt-2 text-slate-800 tabular-nums">{formatCurrency(uangDiPegang)}</span>
+                      <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                        Uang Fisik Diterima (Cash On Hand)
+                      </span>
+                      <span className="text-lg font-black mt-2 text-slate-800 tabular-nums">
+                        {formatCurrency(singleDailyItem.uangDiPegang)}
+                      </span>
                     </div>
-                    <div className={`p-4 bg-white rounded-2xl shadow-sm border flex flex-col justify-between ${selisihKeuangan === 0 ? "border-emerald-200" : "border-rose-200"}`}>
-                      <span className={`text-[9px] font-black uppercase tracking-wider ${selisihKeuangan === 0 ? "text-emerald-600" : "text-rose-500"}`}>Selisih Verifikasi</span>
-                      <span className={`text-lg font-black mt-2 tabular-nums ${selisihKeuangan === 0 ? "text-emerald-600" : "text-rose-600"}`}>
-                        {formatCurrency(selisihKeuangan)}
+                    <div className={cn(
+                      "p-4 bg-white rounded-2xl shadow-sm border flex flex-col justify-between",
+                      singleDailyItem.selisihKeuangan === 0 ? "border-emerald-200" : "border-rose-200"
+                    )}>
+                      <span className={cn(
+                        "text-[9px] font-black uppercase tracking-wider",
+                        singleDailyItem.selisihKeuangan === 0 ? "text-emerald-600" : "text-rose-500"
+                      )}>
+                        Selisih Verifikasi
+                      </span>
+                      <span className={cn(
+                        "text-lg font-black mt-2 tabular-nums",
+                        singleDailyItem.selisihKeuangan === 0 ? "text-emerald-600" : "text-rose-600"
+                      )}>
+                        {formatCurrency(singleDailyItem.selisihKeuangan)}
                       </span>
                     </div>
                   </div>
 
-                  {/* Catatan / Pesan Karyawan */}
-                  <div className="p-4 bg-white rounded-2xl shadow-sm border border-slate-100 space-y-1">
-                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Catatan dari Karyawan</span>
-                    <p className="text-xs text-slate-700 italic font-bold leading-relaxed whitespace-pre-line">
-                      {catatanKaryawan ? `"${catatanKaryawan}"` : "Tidak ada catatan khusus dari karyawan."}
-                    </p>
-                  </div>
+                  {singleDailyItem.note && (
+                    <div className="p-4 bg-white rounded-2xl shadow-sm border border-slate-100 space-y-1">
+                      <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Catatan dari Karyawan</span>
+                      <p className="text-xs text-slate-700 italic font-bold leading-relaxed whitespace-pre-line">
+                        "{singleDailyItem.note}"
+                      </p>
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
+            </Card>
+          )}
+
+          {/* Rekap Table for Bulanan, Tahunan, or Semua Shift */}
+          <Card className="rounded-[2.5rem] border-none shadow-sm bg-white p-6 md:p-8 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+              <div className="space-y-1">
+                <h3 className="text-base md:text-lg font-black uppercase italic tracking-tight text-slate-900 flex items-center gap-2">
+                  <ClipboardList className="h-5 w-5 text-primary" />
+                  Tabel Rekapitulasi Closing Toko
+                </h3>
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                  Periode: {currentPeriodLabel} • Total {filteredClosingList.length} Catatan Closing
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs font-black text-slate-600 bg-slate-50 px-4 py-2 rounded-2xl border border-slate-100">
+                <span>Total Wajib Setor:</span>
+                <span className="text-emerald-700 font-black tabular-nums">{formatCurrency(totals.totalWajibSetor)}</span>
+              </div>
+            </div>
+
+            {/* Desktop & Mobile Responsive Table */}
+            <div className="overflow-x-auto border border-slate-100 rounded-3xl">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-100 text-[9px] font-black uppercase tracking-wider text-slate-500">
+                    <th className="px-4 py-3.5 text-center">No</th>
+                    <th className="px-4 py-3.5">Tanggal</th>
+                    <th className="px-3 py-3.5 text-center">Shift</th>
+                    <th className="px-4 py-3.5 text-right">Penjualan</th>
+                    <th className="px-4 py-3.5 text-right">QRIS</th>
+                    <th className="px-4 py-3.5 text-right">Cash</th>
+                    <th className="px-4 py-3.5 text-right">M. Awal</th>
+                    <th className="px-4 py-3.5 text-right">Operasional</th>
+                    <th className="px-4 py-3.5 text-right">Belanja</th>
+                    <th className="px-4 py-3.5 text-right">Free</th>
+                    <th className="px-4 py-3.5 text-right text-orange-700">D. Owner</th>
+                    <th className="px-4 py-3.5 text-right text-emerald-700 font-black">Wajib Setor</th>
+                    <th className="px-4 py-3.5 text-right">Fisik Kas</th>
+                    <th className="px-4 py-3.5 text-right">Selisih</th>
+                    <th className="px-4 py-3.5 text-center">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredClosingList.map((item, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="px-4 py-3 text-center font-bold text-slate-400">{idx + 1}</td>
+                      <td className="px-4 py-3 font-black text-slate-800 whitespace-nowrap">{item.tanggal}</td>
+                      <td className="px-3 py-3 text-center">
+                        <span className={cn(
+                          "px-2 py-0.5 rounded text-[8px] font-black uppercase",
+                          item.shift === 1 ? "bg-blue-50 text-blue-700 border border-blue-200" : "bg-purple-50 text-purple-700 border border-purple-200"
+                        )}>
+                          S{item.shift}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-slate-900 tabular-nums">
+                        {formatCurrency(item.totalPenjualan)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-indigo-600 tabular-nums">
+                        {formatCurrency(item.totalQris)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-emerald-600 tabular-nums">
+                        {formatCurrency(item.totalCash)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-indigo-700 tabular-nums">
+                        {formatCurrency(item.modalAwal)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-rose-600 tabular-nums">
+                        {formatCurrency(item.totalOperasional)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-rose-600 tabular-nums">
+                        {formatCurrency(item.totalBelanja)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-pink-600 tabular-nums">
+                        {formatCurrency(item.totalFree)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-black text-orange-950 tabular-nums">
+                        {formatCurrency(item.diambilOwner)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-black text-emerald-700 tabular-nums bg-emerald-50/30">
+                        {formatCurrency(item.sisaUangDisetor)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-black text-slate-900 tabular-nums">
+                        {formatCurrency(item.uangDiPegang)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-black tabular-nums">
+                        <span className={cn(
+                          "px-2 py-0.5 rounded text-[9px]",
+                          item.selisihKeuangan === 0 ? "text-emerald-600" : item.selisihKeuangan > 0 ? "text-amber-600 bg-amber-50" : "text-rose-600 bg-rose-50"
+                        )}>
+                          {formatCurrency(item.selisihKeuangan)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => openDetailDialog(item)}
+                          className="h-7 w-7 p-0 rounded-lg hover:bg-slate-100 text-slate-600"
+                          title="Lihat Detail"
+                        >
+                          <Eye className="h-3.5 w-3.5 text-primary" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-900 text-white font-black text-xs">
+                    <td colSpan={3} className="px-4 py-3.5 text-center uppercase tracking-wider text-[9px]">
+                      TOTAL REKAPAN ({filteredClosingList.length} CLOSING)
+                    </td>
+                    <td className="px-4 py-3.5 text-right tabular-nums">{formatCurrency(totals.totalPenjualan)}</td>
+                    <td className="px-4 py-3.5 text-right tabular-nums text-indigo-300">{formatCurrency(totals.totalQris)}</td>
+                    <td className="px-4 py-3.5 text-right tabular-nums text-emerald-300">{formatCurrency(totals.totalCash)}</td>
+                    <td className="px-4 py-3.5 text-right tabular-nums text-indigo-300">{formatCurrency(totals.totalModalAwal)}</td>
+                    <td className="px-4 py-3.5 text-right tabular-nums text-rose-300">{formatCurrency(totals.totalOperasional)}</td>
+                    <td className="px-4 py-3.5 text-right tabular-nums text-rose-300">{formatCurrency(totals.totalBelanja)}</td>
+                    <td className="px-4 py-3.5 text-right tabular-nums text-pink-300">{formatCurrency(totals.totalFree)}</td>
+                    <td className="px-4 py-3.5 text-right tabular-nums text-amber-300">{formatCurrency(totals.totalDiambilOwner)}</td>
+                    <td className="px-4 py-3.5 text-right tabular-nums text-emerald-400">{formatCurrency(totals.totalWajibSetor)}</td>
+                    <td className="px-4 py-3.5 text-right tabular-nums">{formatCurrency(totals.totalUangFisik)}</td>
+                    <td className="px-4 py-3.5 text-right tabular-nums">
+                      <span className={totals.totalSelisih === 0 ? "text-emerald-400" : "text-amber-400"}>
+                        {formatCurrency(totals.totalSelisih)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3.5 text-center">-</td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
           </Card>
+
+          {/* Breakdown Section: Operasional, Belanja, Input Free & Produk Terjual */}
+          <div className="grid lg:grid-cols-2 gap-6">
+            {/* 1. Rincian Pengeluaran Operasional & Belanja Rekap */}
+            <Card className="rounded-[2.5rem] border-none shadow-sm bg-white p-6 md:p-8 space-y-6">
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                <div className="space-y-1">
+                  <h3 className="text-base md:text-lg font-black uppercase italic tracking-tight text-slate-900 flex items-center gap-2">
+                    <Wallet className="h-4 w-4 text-amber-600" />
+                    Rincian Operasional & Belanja ({aggregatedBreakdown.operasionalList.length + aggregatedBreakdown.purchaseList.length})
+                  </h3>
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                    Semua pengeluaran kontainer tercatat dalam closing
+                  </p>
+                </div>
+                <span className="font-black text-xs md:text-sm text-amber-700 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-100">
+                  {formatCurrency(totals.totalOperasional + totals.totalBelanja)}
+                </span>
+              </div>
+
+              <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1 custom-scrollbar">
+                {aggregatedBreakdown.operasionalList.length > 0 || aggregatedBreakdown.purchaseList.length > 0 ? (
+                  <>
+                    {/* Operasional items */}
+                    {aggregatedBreakdown.operasionalList.map((op, i) => (
+                      <div key={`op-${i}`} className="flex items-center justify-between p-3 rounded-2xl bg-amber-50/40 border border-amber-100/60 text-xs">
+                        <div className="space-y-0.5 min-w-0 pr-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-800">
+                              Operasional S{op.shift}
+                            </span>
+                            <span className="text-[9px] font-black text-slate-400">{op.tanggal}</span>
+                            <span className="text-[9px] font-bold text-slate-500">• {op.karyawan}</span>
+                          </div>
+                          <p className="font-black text-slate-800 text-xs truncate mt-0.5">{op.pembayaran}</p>
+                        </div>
+                        <span className="font-black text-rose-600 tabular-nums shrink-0">
+                          {formatCurrency(op.nominal)}
+                        </span>
+                      </div>
+                    ))}
+
+                    {/* Belanja items */}
+                    {aggregatedBreakdown.purchaseList.map((pur, i) => (
+                      <div key={`pur-${i}`} className="p-3 rounded-2xl bg-blue-50/40 border border-blue-100/60 text-xs space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-blue-100 text-blue-800">
+                              Belanja S{pur.shift}
+                            </span>
+                            <span className="text-[9px] font-black text-slate-400">{pur.tanggal}</span>
+                            <span className="text-[9px] font-bold text-slate-500">Nota: {pur.nomorNota}</span>
+                          </div>
+                          <span className="font-black text-rose-600 tabular-nums shrink-0">
+                            {formatCurrency(pur.total)}
+                          </span>
+                        </div>
+                        {pur.items && pur.items.length > 0 && (
+                          <div className="pl-1 space-y-0.5 text-[10px] text-slate-600">
+                            {pur.items.map((it: any, itemIdx: number) => (
+                              <div key={itemIdx} className="flex justify-between">
+                                <span>• {it.materialName} ({it.qty} {it.unit || ""})</span>
+                                <span className="tabular-nums font-bold">{formatCurrency((it.price || 0) * (it.qty || 0))}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  <div className="py-12 text-center text-slate-400 text-xs font-black uppercase border border-dashed rounded-3xl">
+                    Tidak ada pengeluaran operasional atau belanja pada periode ini.
+                  </div>
+                )}
+              </div>
+            </Card>
+
+            {/* 2. Top Produk Terjual Rekap */}
+            <Card className="rounded-[2.5rem] border-none shadow-sm bg-white p-6 md:p-8 space-y-6">
+              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                <div className="space-y-1">
+                  <h3 className="text-base md:text-lg font-black uppercase italic tracking-tight text-slate-900 flex items-center gap-2">
+                    <ShoppingBag className="h-4 w-4 text-blue-600" />
+                    Rekapitulasi Produk Terjual ({aggregatedBreakdown.topProducts.length})
+                  </h3>
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                    Akumulasi item produk dari penjualan POS closing
+                  </p>
+                </div>
+                <span className="font-black text-xs md:text-sm text-blue-900 bg-blue-50 px-3 py-1.5 rounded-xl border border-blue-100">
+                  {aggregatedBreakdown.topProducts.reduce((s, p) => s + p.qty, 0)} Pcs
+                </span>
+              </div>
+
+              <div className="space-y-2.5 max-h-[360px] overflow-y-auto pr-1 custom-scrollbar">
+                {aggregatedBreakdown.topProducts.length > 0 ? (
+                  aggregatedBreakdown.topProducts.map((p, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50/70 border border-slate-100 text-xs">
+                      <div className="space-y-0.5 min-w-0 pr-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-primary/10 text-primary">
+                            {p.code}
+                          </span>
+                          <p className="font-black text-slate-800 text-xs truncate">{p.name}</p>
+                        </div>
+                        <p className="text-[10px] font-bold text-slate-400">
+                          Pendapatan: {formatCurrency(p.pendapatan)} • Untung: {formatCurrency(p.keuntungan)}
+                        </p>
+                      </div>
+                      <span className="font-black text-primary bg-primary/10 px-3 py-1 rounded-xl tabular-nums shrink-0">
+                        {p.qty} Pcs
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="py-12 text-center text-slate-400 text-xs font-black uppercase border border-dashed rounded-3xl">
+                    Detail produk terjual belum tersedia untuk periode ini.
+                  </div>
+                )}
+              </div>
+            </Card>
+          </div>
         </div>
       )}
+
+      {/* Detail Dialog for a specific closing item */}
+      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+        <DialogContent className="rounded-3xl md:rounded-[2.5rem] border-none shadow-2xl p-4 sm:p-6 md:p-10 max-w-4xl w-[96vw] sm:w-full max-h-[90vh] overflow-y-auto custom-scrollbar">
+          <DialogHeader className="border-b border-slate-100 pb-3 md:pb-4 mb-4">
+            <DialogTitle className="text-base md:text-2xl font-black uppercase italic text-slate-900 flex items-center justify-between">
+              <div className="flex items-center gap-2 md:gap-3">
+                <Eye className="h-5 w-5 md:h-6 md:w-6 text-primary shrink-0" />
+                <span>Detail Closing {selectedClosingItem?.tanggal} (Shift {selectedClosingItem?.shift})</span>
+              </div>
+              <span className="text-xs font-black text-slate-400 uppercase tracking-widest mr-6">
+                Karyawan: {selectedClosingItem?.karyawanNama}
+              </span>
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedClosingItem && (
+            <Tabs defaultValue="produk" className="w-full">
+              <TabsList className="bg-slate-50 p-1 rounded-xl grid grid-cols-2 md:grid-cols-4 gap-1 mb-6 border border-slate-100 w-full">
+                <TabsTrigger value="produk" className="rounded-lg font-black uppercase text-[8px] md:text-[9px] tracking-wider py-2 text-center">
+                  Produk Terjual
+                </TabsTrigger>
+                <TabsTrigger value="transaksi" className="rounded-lg font-black uppercase text-[8px] md:text-[9px] tracking-wider py-2 text-center">
+                  Pembayaran
+                </TabsTrigger>
+                <TabsTrigger value="operasional" className="rounded-lg font-black uppercase text-[8px] md:text-[9px] tracking-wider py-2 text-center">
+                  Operasional, Belanja & Free
+                </TabsTrigger>
+                <TabsTrigger value="catatan" className="rounded-lg font-black uppercase text-[8px] md:text-[9px] tracking-wider py-2 text-center">
+                  Catatan & Selisih
+                </TabsTrigger>
+              </TabsList>
+
+              {/* Tab 1: Produk Terjual */}
+              <TabsContent value="produk" className="m-0 space-y-4">
+                {selectedClosingItem.shift === 1 ? (
+                  <div className="text-center py-12 border border-dashed border-slate-100 rounded-2xl p-6 text-slate-500 text-xs font-black uppercase">
+                    Detail produk terjual tidak tersedia untuk Shift 1 (Pagi) karena hanya mencatat nominal penjualan cash dan QRIS secara manual.
+                  </div>
+                ) : selectedClosingItem.penjualanDoc?.items && selectedClosingItem.penjualanDoc.items.length > 0 ? (
+                  <div className="overflow-x-auto border border-slate-100 rounded-2xl">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-100">
+                          <th className="px-5 py-3 font-black uppercase text-slate-500">Kode</th>
+                          <th className="px-4 py-3 font-black uppercase text-slate-500">Nama Produk</th>
+                          <th className="px-4 py-3 font-black uppercase text-slate-500 text-center">Jumlah</th>
+                          <th className="px-4 py-3 font-black uppercase text-slate-500 text-right">Pendapatan</th>
+                          <th className="px-5 py-3 font-black uppercase text-slate-500 text-right">Keuntungan</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {selectedClosingItem.penjualanDoc.items.map((item: any, idx: number) => (
+                          <tr key={idx} className="hover:bg-slate-50/50">
+                            <td className="px-5 py-3.5 font-bold text-slate-900">{item.code || "-"}</td>
+                            <td className="px-4 py-3.5 font-black text-slate-800 uppercase italic">{item.name || "-"}</td>
+                            <td className="px-4 py-3.5 text-center font-black text-primary tabular-nums">{item.total || 0}</td>
+                            <td className="px-4 py-3.5 text-right font-bold text-slate-900 tabular-nums">{formatCurrency(item.pendapatan || 0)}</td>
+                            <td className="px-5 py-3.5 text-right font-black text-emerald-600 tabular-nums">{formatCurrency(item.keuntungan || 0)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-center py-10 text-slate-400 text-xs font-black uppercase border border-dashed rounded-2xl">
+                    Tidak ada detail produk terjual (Laporan POS Kosong).
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* Tab 2: Rincian Pembayaran */}
+              <TabsContent value="transaksi" className="m-0 space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Nominal QRIS</span>
+                    <span className="text-lg font-black mt-1.5 block tabular-nums text-indigo-600">
+                      {formatCurrency(selectedClosingItem.totalQris)}
+                    </span>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Nominal Cash</span>
+                    <span className="text-lg font-black mt-1.5 block tabular-nums text-emerald-600">
+                      {formatCurrency(selectedClosingItem.totalCash)}
+                    </span>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Modal Awal</span>
+                    <span className="text-lg font-black mt-1.5 block tabular-nums text-indigo-700">
+                      {formatCurrency(selectedClosingItem.modalAwal)}
+                    </span>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Modal Tambahan</span>
+                    <span className="text-lg font-black mt-1.5 block tabular-nums text-amber-700">
+                      {formatCurrency(selectedClosingItem.modalTambahan)}
+                    </span>
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 col-span-2 flex justify-between items-center">
+                    <span className="text-[9px] font-black uppercase tracking-wider text-orange-700">Diambil Owner</span>
+                    <span className="text-lg font-black tabular-nums text-orange-950">
+                      {formatCurrency(selectedClosingItem.diambilOwner)}
+                    </span>
+                  </div>
+                </div>
+              </TabsContent>
+
+              {/* Tab 3: Operasional, Belanja & Free */}
+              <TabsContent value="operasional" className="m-0 space-y-6">
+                <div className="space-y-3">
+                  <h4 className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                    <Wallet className="h-4 w-4" /> Pengeluaran Operasional ({selectedClosingItem.operationalDetails?.length || 0})
+                  </h4>
+                  {selectedClosingItem.operationalDetails && selectedClosingItem.operationalDetails.length > 0 ? (
+                    <div className="grid gap-2.5 grid-cols-1 sm:grid-cols-2">
+                      {selectedClosingItem.operationalDetails.map((op: any, i: number) => (
+                        <div key={i} className="border border-slate-100 rounded-2xl p-3.5 bg-slate-50/50 flex justify-between items-center">
+                          <span className="text-xs font-black uppercase text-slate-700">{op.pembayaran || "Operasional"}</span>
+                          <span className="text-xs font-black text-rose-600 tabular-nums">{formatCurrency(op.nominal)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 border border-dashed border-slate-100 rounded-2xl text-slate-400 text-xs font-bold uppercase">
+                      Tidak ada operasional dicatat.
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                    <Layers className="h-4 w-4" /> Belanja Bahan Baku ({selectedClosingItem.purchaseDetails?.length || 0})
+                  </h4>
+                  {selectedClosingItem.purchaseDetails && selectedClosingItem.purchaseDetails.length > 0 ? (
+                    <div className="grid gap-2.5 grid-cols-1 md:grid-cols-2">
+                      {selectedClosingItem.purchaseDetails.map((pur: any, i: number) => (
+                        <div key={i} className="border border-slate-100 rounded-2xl p-3.5 bg-slate-50/50 space-y-2">
+                          <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                            <span className="text-xs font-black text-slate-800 uppercase italic">Nota: {pur.nomorNota || "-"}</span>
+                            <span className="text-xs font-black text-rose-600 tabular-nums">{formatCurrency(pur.total)}</span>
+                          </div>
+                          {(pur.items || []).map((it: any, idx: number) => (
+                            <div key={idx} className="flex justify-between text-[11px] text-slate-500 font-bold uppercase">
+                              <span>{it.materialName || "-"}</span>
+                              <span className="tabular-nums">{it.qty} x {formatCurrency(it.price)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 border border-dashed border-slate-100 rounded-2xl text-slate-400 text-xs font-bold uppercase">
+                      Tidak ada belanja bahan baku dicatat.
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                    <Gift className="h-4 w-4 text-pink-600" /> Input Free Produk ({selectedClosingItem.freeDetails?.length || 0})
+                  </h4>
+                  {selectedClosingItem.freeDetails && selectedClosingItem.freeDetails.length > 0 ? (
+                    <div className="grid gap-2.5 grid-cols-1 md:grid-cols-2">
+                      {selectedClosingItem.freeDetails.map((fr: any, i: number) => (
+                        <div key={i} className="border border-pink-100 rounded-2xl p-3.5 bg-pink-50/30 space-y-2">
+                          <div className="flex justify-between items-center pb-2 border-b border-pink-100/60">
+                            <span className="text-xs font-black text-slate-800 uppercase">{fr.karyawanNama || "Karyawan"}</span>
+                            <span className="text-xs font-black text-pink-700 tabular-nums">{formatCurrency(fr.totalNominal || 0)}</span>
+                          </div>
+                          {(fr.items || []).map((it: any, idx: number) => (
+                            <div key={idx} className="flex justify-between text-[11px] text-slate-600 font-bold uppercase">
+                              <span>{it.productName || it.name || "-"}</span>
+                              <span className="tabular-nums">{it.qty} x {formatCurrency(it.harga || 0)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 border border-dashed border-slate-100 rounded-2xl text-slate-400 text-xs font-bold uppercase">
+                      Tidak ada input free produk.
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+
+              {/* Tab 4: Catatan & Selisih */}
+              <TabsContent value="catatan" className="m-0 space-y-4">
+                <div className="p-5 rounded-2xl border border-slate-100 bg-slate-50 space-y-2">
+                  <h4 className="text-[10px] font-black uppercase tracking-wider text-slate-400">Catatan/Pesan Karyawan</h4>
+                  <p className="text-xs text-slate-700 italic font-bold leading-relaxed whitespace-pre-line">
+                    {selectedClosingItem.note ? `"${selectedClosingItem.note}"` : "Tidak ada catatan khusus dari karyawan untuk closing ini."}
+                  </p>
+                </div>
+
+                <div className="p-5 rounded-2xl border border-slate-100 bg-slate-50 grid grid-cols-3 gap-4">
+                  <div>
+                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Wajib Setor</span>
+                    <span className="text-base font-black text-slate-900 block mt-1 tabular-nums">
+                      {formatCurrency(selectedClosingItem.sisaUangDisetor)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Fisik Kas</span>
+                    <span className="text-base font-black text-slate-900 block mt-1 tabular-nums">
+                      {formatCurrency(selectedClosingItem.uangDiPegang)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Selisih Kas</span>
+                    <span className={cn(
+                      "text-base font-black block mt-1 tabular-nums",
+                      selectedClosingItem.selisihKeuangan === 0 ? "text-emerald-600" : "text-rose-600"
+                    )}>
+                      {formatCurrency(selectedClosingItem.selisihKeuangan)}
+                    </span>
+                  </div>
+                </div>
+              </TabsContent>
+            </Tabs>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
