@@ -3,17 +3,12 @@
 import React, { useMemo } from "react";
 import { 
   TrendingUp,
-  MoreHorizontal,
-  ArrowUpRight,
-  Clock,
   Package,
   ShoppingCart,
   AlertTriangle,
-  ArrowRight,
   Gift
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { 
@@ -108,14 +103,9 @@ export default function DashboardPage() {
           <p className="text-[10px] md:text-xs text-slate-600 font-black uppercase tracking-[0.2em] mt-1">Welcome back to Zona Waktu System</p>
         </div>
         <div className="flex items-center gap-3 w-full md:w-auto">
-          <Link href="/employee/input-free" className="flex-1 md:flex-none">
-            <Button variant="outline" className="w-full md:w-auto rounded-xl md:rounded-2xl border-pink-200 bg-pink-50 text-pink-700 hover:bg-pink-100 px-6 font-black h-12 uppercase tracking-widest text-[10px] gap-2">
+          <Link href="/employee/input-free" className="w-full md:w-auto">
+            <Button variant="outline" className="w-full md:w-auto rounded-xl md:rounded-2xl border-pink-200 bg-pink-50 text-pink-700 hover:bg-pink-100 px-6 font-black h-12 uppercase tracking-widest text-[10px] gap-2 shadow-sm">
               <Gift className="h-4 w-4 text-pink-600" /> Input Free
-            </Button>
-          </Link>
-          <Link href="/penjualan/kasir" className="flex-1 md:flex-none">
-            <Button className="w-full md:w-auto rounded-xl md:rounded-2xl bg-primary hover:bg-primary/90 px-8 font-black shadow-xl shadow-primary/20 h-12 uppercase tracking-widest text-[10px]">
-              Input Closing Harian
             </Button>
           </Link>
         </div>
@@ -254,13 +244,6 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
-          {stats.lowKontainerItems.length > 0 && (
-            <Link href="/stok/bahan-baku">
-              <Button variant="ghost" className="w-full mt-8 md:mt-10 text-[9px] md:text-[10px] font-black text-primary hover:bg-primary/5 rounded-2xl md:rounded-[1.5rem] h-12 md:h-14 uppercase tracking-[0.2em] border-2 border-primary/5 gap-2">
-                Cek Logistik <ArrowRight className="h-3 w-3" />
-              </Button>
-            </Link>
-          )}
         </Card>
       </div>
     </div>

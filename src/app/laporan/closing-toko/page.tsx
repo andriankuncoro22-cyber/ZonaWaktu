@@ -608,130 +608,134 @@ export default function LaporanClosingTokoPage() {
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2.5 items-center">
-          {/* Mode Switcher */}
-          <div className="bg-white p-1 rounded-2xl shadow-sm border border-slate-100 flex items-center">
-            <Button
-              variant="ghost"
-              onClick={() => setFilterMode("daily")}
-              className={cn(
-                "rounded-xl px-3.5 h-9 text-[9px] font-black uppercase tracking-widest transition-all",
-                filterMode === "daily" ? "bg-primary text-white shadow-sm" : "text-slate-500"
-              )}
-            >
-              Harian
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => setFilterMode("monthly")}
-              className={cn(
-                "rounded-xl px-3.5 h-9 text-[9px] font-black uppercase tracking-widest transition-all",
-                filterMode === "monthly" ? "bg-primary text-white shadow-sm" : "text-slate-500"
-              )}
-            >
-              Bulanan
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => setFilterMode("yearly")}
-              className={cn(
-                "rounded-xl px-3.5 h-9 text-[9px] font-black uppercase tracking-widest transition-all",
-                filterMode === "yearly" ? "bg-primary text-white shadow-sm" : "text-slate-500"
-              )}
-            >
-              Tahunan
-            </Button>
+        <div className="flex flex-col gap-2.5 w-full md:w-auto">
+          {/* Row 1: Mode & Shift Switchers */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full md:w-auto">
+            {/* Mode Switcher */}
+            <div className="bg-white p-1 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+              <Button
+                variant="ghost"
+                onClick={() => setFilterMode("daily")}
+                className={cn(
+                  "flex-1 sm:flex-none rounded-xl px-2.5 sm:px-3.5 h-9 text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider transition-all",
+                  filterMode === "daily" ? "bg-primary text-white shadow-sm" : "text-slate-500"
+                )}
+              >
+                Harian
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setFilterMode("monthly")}
+                className={cn(
+                  "flex-1 sm:flex-none rounded-xl px-2.5 sm:px-3.5 h-9 text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider transition-all",
+                  filterMode === "monthly" ? "bg-primary text-white shadow-sm" : "text-slate-500"
+                )}
+              >
+                Bulanan
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setFilterMode("yearly")}
+                className={cn(
+                  "flex-1 sm:flex-none rounded-xl px-2.5 sm:px-3.5 h-9 text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider transition-all",
+                  filterMode === "yearly" ? "bg-primary text-white shadow-sm" : "text-slate-500"
+                )}
+              >
+                Tahunan
+              </Button>
+            </div>
+
+            {/* Shift Filter Switcher */}
+            <div className="bg-white p-1 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+              <Button
+                variant="ghost"
+                onClick={() => setSelectedShift("all")}
+                className={cn(
+                  "flex-1 sm:flex-none rounded-xl px-2 sm:px-3 h-9 text-[8px] sm:text-[9px] font-black uppercase tracking-wider transition-all",
+                  selectedShift === "all" ? "bg-slate-900 text-white shadow-sm" : "text-slate-500"
+                )}
+              >
+                Semua
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setSelectedShift(1)}
+                className={cn(
+                  "flex-1 sm:flex-none rounded-xl px-2 sm:px-3 h-9 text-[8px] sm:text-[9px] font-black uppercase tracking-wider transition-all",
+                  selectedShift === 1 ? "bg-primary text-white shadow-sm" : "text-slate-500"
+                )}
+              >
+                Shift 1
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setSelectedShift(2)}
+                className={cn(
+                  "flex-1 sm:flex-none rounded-xl px-2 sm:px-3 h-9 text-[8px] sm:text-[9px] font-black uppercase tracking-wider transition-all",
+                  selectedShift === 2 ? "bg-primary text-white shadow-sm" : "text-slate-500"
+                )}
+              >
+                Shift 2
+              </Button>
+            </div>
           </div>
 
-          {/* Shift Filter Switcher */}
-          <div className="bg-white p-1 rounded-2xl shadow-sm border border-slate-100 flex items-center">
-            <Button
-              variant="ghost"
-              onClick={() => setSelectedShift("all")}
-              className={cn(
-                "rounded-xl px-3 h-9 text-[8px] sm:text-[9px] font-black uppercase tracking-wider transition-all",
-                selectedShift === "all" ? "bg-slate-900 text-white shadow-sm" : "text-slate-500"
+          {/* Row 2: Date Picker, Tampilkan, Excel, PDF */}
+          <div className="grid grid-cols-2 sm:flex sm:items-center sm:justify-end gap-1.5 sm:gap-2 w-full">
+            {/* Date Picker */}
+            <div className="bg-white px-3 py-1.5 rounded-xl sm:rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center gap-2 min-h-[38px] sm:min-h-[42px]">
+              <CalendarIcon className="h-4 w-4 text-primary shrink-0" />
+              {filterMode === "daily" ? (
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="text-[10px] font-black uppercase tracking-wider text-slate-800 bg-transparent border-none outline-none cursor-pointer w-full text-center sm:text-left"
+                />
+              ) : filterMode === "monthly" ? (
+                <input
+                  type="month"
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                  className="text-[10px] font-black uppercase tracking-wider text-slate-800 bg-transparent border-none outline-none cursor-pointer w-full text-center sm:text-left"
+                />
+              ) : (
+                <input
+                  type="number"
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(e.target.value)}
+                  className="text-[10px] font-black uppercase tracking-wider text-slate-800 bg-transparent border-none outline-none cursor-pointer w-full text-center sm:text-left"
+                />
               )}
-            >
-              Semua Shift
-            </Button>
+            </div>
+
+            {/* Tampilkan Button */}
             <Button
-              variant="ghost"
-              onClick={() => setSelectedShift(1)}
-              className={cn(
-                "rounded-xl px-3 h-9 text-[8px] sm:text-[9px] font-black uppercase tracking-wider transition-all",
-                selectedShift === 1 ? "bg-primary text-white shadow-sm" : "text-slate-500"
-              )}
+              onClick={handleCheck}
+              disabled={loading}
+              className="rounded-xl sm:rounded-2xl bg-slate-900 hover:bg-slate-800 text-white px-3 sm:px-6 h-9 sm:h-11 font-black uppercase tracking-tight sm:tracking-widest text-[8.5px] sm:text-[9px] gap-1.5 shadow-md flex items-center justify-center"
             >
-              Shift 1
+              <Search className="h-3.5 w-3.5 shrink-0" /> <span>Tampilkan</span>
             </Button>
-            <Button
-              variant="ghost"
-              onClick={() => setSelectedShift(2)}
-              className={cn(
-                "rounded-xl px-3 h-9 text-[8px] sm:text-[9px] font-black uppercase tracking-wider transition-all",
-                selectedShift === 2 ? "bg-primary text-white shadow-sm" : "text-slate-500"
-              )}
-            >
-              Shift 2
-            </Button>
-          </div>
 
-          {/* Date Picker */}
-          <div className="bg-white px-3.5 py-1.5 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-2">
-            <CalendarIcon className="h-4 w-4 text-primary shrink-0" />
-            {filterMode === "daily" ? (
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="text-[10px] font-black uppercase tracking-widest text-slate-800 bg-transparent border-none outline-none cursor-pointer"
-              />
-            ) : filterMode === "monthly" ? (
-              <input
-                type="month"
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-                className="text-[10px] font-black uppercase tracking-widest text-slate-800 bg-transparent border-none outline-none cursor-pointer"
-              />
-            ) : (
-              <input
-                type="number"
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(e.target.value)}
-                className="text-[10px] font-black uppercase tracking-widest text-slate-800 bg-transparent border-none outline-none cursor-pointer w-20"
-              />
-            )}
-          </div>
-
-          {/* Tampilkan Button */}
-          <Button
-            onClick={handleCheck}
-            disabled={loading}
-            className="rounded-2xl bg-slate-900 hover:bg-slate-800 text-white px-5 h-11 font-black uppercase tracking-widest text-[9px] gap-2 shadow-md"
-          >
-            <Search className="h-3.5 w-3.5" /> Tampilkan
-          </Button>
-
-          {/* Export Buttons */}
-          <div className="flex items-center gap-1.5">
+            {/* Export Buttons */}
             <Button
               variant="outline"
               onClick={handleExportExcel}
               disabled={loading || filteredClosingList.length === 0}
-              className="rounded-2xl border-slate-200 h-11 px-3 text-[9px] font-black uppercase tracking-wider text-slate-700 bg-white hover:bg-slate-50 gap-1.5 shadow-sm"
+              className="rounded-xl sm:rounded-2xl border-slate-200 h-9 sm:h-11 px-2.5 sm:px-4 text-[8.5px] sm:text-[9px] font-black uppercase tracking-tight sm:tracking-wider text-slate-700 bg-white hover:bg-slate-50 gap-1.5 shadow-sm flex items-center justify-center"
               title="Download Excel"
             >
-              <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" /> Excel
+              <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600 shrink-0" /> <span>Excel</span>
             </Button>
             <Button
               variant="outline"
               onClick={handleExportPDF}
               disabled={loading || filteredClosingList.length === 0}
-              className="rounded-2xl border-slate-200 h-11 px-3 text-[9px] font-black uppercase tracking-wider text-slate-700 bg-white hover:bg-slate-50 gap-1.5 shadow-sm"
+              className="rounded-xl sm:rounded-2xl border-slate-200 h-9 sm:h-11 px-2.5 sm:px-4 text-[8.5px] sm:text-[9px] font-black uppercase tracking-tight sm:tracking-wider text-slate-700 bg-white hover:bg-slate-50 gap-1.5 shadow-sm flex items-center justify-center"
               title="Download PDF"
             >
-              <FileDown className="h-3.5 w-3.5 text-primary" /> PDF
+              <FileDown className="h-3.5 w-3.5 text-primary shrink-0" /> <span>PDF</span>
             </Button>
           </div>
         </div>

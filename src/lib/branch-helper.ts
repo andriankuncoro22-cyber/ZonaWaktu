@@ -8,7 +8,7 @@ import {
   DocumentData 
 } from 'firebase/firestore';
 
-export type BranchId = 'gdm' | 'kedungreja' | 'tehwarga';
+export type BranchId = 'all' | 'gdm' | 'kedungreja' | 'tehwarga';
 
 export interface BranchInfo {
   id: BranchId;
@@ -21,11 +21,20 @@ export interface BranchInfo {
 }
 
 export const BRANCH_LIST: Record<BranchId, BranchInfo> = {
+  all: {
+    id: 'all',
+    code: 'ALL',
+    name: 'Semua Toko (Konsolidasi)',
+    shortName: 'Semua Toko',
+    landingRoute: '/',
+    loginRoute: '/owner-login',
+    badgeColor: 'bg-slate-900 text-white border-slate-700'
+  },
   gdm: {
     id: 'gdm',
     code: 'ZW-01',
     name: 'Zona Waktu - Cabang Gandrungmangu',
-    shortName: 'Cabang Gandrungmangu',
+    shortName: 'Zona Waktu GDM',
     landingRoute: '/zona_gdm',
     loginRoute: '/owner-login',
     badgeColor: 'bg-emerald-500/20 text-emerald-300 border-emerald-400/30'
@@ -34,7 +43,7 @@ export const BRANCH_LIST: Record<BranchId, BranchInfo> = {
     id: 'kedungreja',
     code: 'ZW-02',
     name: 'Zona Waktu - Cabang Kedungreja',
-    shortName: 'Cabang Kedungreja',
+    shortName: 'Zona Kedungreja',
     landingRoute: '/zona_kedungreja',
     loginRoute: '/zona_kedungreja/owner-login',
     badgeColor: 'bg-cyan-500/20 text-cyan-300 border-cyan-400/30'
@@ -43,19 +52,20 @@ export const BRANCH_LIST: Record<BranchId, BranchInfo> = {
     id: 'tehwarga',
     code: 'TW-01',
     name: 'Teh Warga - Cabang Gandrungmangu',
-    shortName: 'Teh Warga Gandrungmangu',
+    shortName: 'Teh Warga GDM',
     landingRoute: '/teh_warga_gdm',
     loginRoute: '/teh_warga_gdm/owner-login',
-    badgeColor: 'bg-emerald-600 text-white border-emerald-500'
+    badgeColor: 'bg-amber-500/20 text-amber-300 border-amber-400/30'
   }
 };
 
 /**
- * Normalize any branch string to standard BranchId ('gdm' | 'kedungreja' | 'tehwarga')
+ * Normalize any branch string to standard BranchId ('all' | 'gdm' | 'kedungreja' | 'tehwarga')
  */
 export function normalizeBranchId(raw: unknown): BranchId {
   if (!raw) return 'gdm';
   const str = String(raw).trim().toLowerCase();
+  if (str === 'all' || str === 'semua' || str === 'semua toko' || str === 'semuatoko' || str === 'global') return 'all';
   if (str === 'kedungreja' || str === 'kdrj' || str === 'zw-02' || str.includes('kedungreja')) return 'kedungreja';
   if (str === 'tehwarga' || str === 'teh_warga' || str === 'teh_warga_gdm' || str === 'tw-01' || str.includes('teh') || str.includes('warga')) return 'tehwarga';
   return 'gdm';
@@ -121,6 +131,14 @@ export function getStoreConfigDocId(explicitBranch?: BranchId): string {
  */
 export function getDefaultStoreIdentity(explicitBranch?: BranchId) {
   const branch = explicitBranch || getActiveBranch();
+  if (branch === 'all') {
+    return {
+      name: "Zona Waktu Group",
+      tagline: "Semua Outlet & Cabang Usaha",
+      logoLanding: "",
+      logoHeader: ""
+    };
+  }
   if (branch === 'tehwarga') {
     return {
       name: "Teh Warga Gandrungmangu",

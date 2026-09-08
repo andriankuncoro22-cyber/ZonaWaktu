@@ -6,10 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Coffee, Loader2, ArrowLeft, Eye, EyeOff } from "lucide-react";
-import { useFirestore, collection, doc } from "@/firebase";
-import { getDoc, query, where, getDocs } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
-import { normalizeBranchId } from "@/lib/branch-helper";
+import { loginWithFirebaseAuth } from "@/lib/auth-service";
 
 export default function KedungrejaEmployeeLoginPage() {
   const [username, setUsername] = useState("");
@@ -18,7 +16,6 @@ export default function KedungrejaEmployeeLoginPage() {
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
-  const db = useFirestore();
   const { toast } = useToast();
 
   const handleLogin = async () => {
@@ -34,82 +31,25 @@ export default function KedungrejaEmployeeLoginPage() {
     setError("");
 
     try {
-      let userFound = false;
-      let matchedNama = inputUsername;
+      const result = await loginWithFirebaseAuth({
+        username: inputUsername,
+        password: inputPassword,
+        expectedRole: "employee",
+        expectedBranch: "kedungreja"
+      });
 
-      // 1. Cek ke koleksi karyawan (exact & case-insensitive)
-      const q = query(
-        collection(db, "karyawan"),
-        where("username", "==", inputUsername),
-        where("password", "==", inputPassword)
-      );
-      const snapshot = await getDocs(q);
-
-      if (!snapshot.empty) {
-        const kDoc = snapshot.docs[0];
-        const kData = kDoc.data();
-        const kCabang = normalizeBranchId(kData.cabang);
-        if (kCabang !== "kedungreja") {
-          setError(`Akses Ditolak: Akun Anda terdaftar di Cabang ${kCabang === 'tehwarga' ? 'Teh Warga' : 'Zona Waktu Gandrungmangu'}. Akun tidak dapat digunakan di Outlet Kedungreja.`);
-          return;
-        }
-        userFound = true;
-        matchedNama = kData.nama || inputUsername;
-      } else {
-        const allKSnap = await getDocs(collection(db, "karyawan"));
-        const foundDoc = allKSnap.docs.find(d => {
-          const dData = d.data();
-          return (
-            String(dData.username || "").trim().toLowerCase() === inputUsername.toLowerCase() &&
-            String(dData.password || "").trim() === inputPassword
-          );
-        });
-
-        if (foundDoc) {
-          const dData = foundDoc.data();
-          const kCabang = normalizeBranchId(dData.cabang);
-          if (kCabang !== "kedungreja") {
-            setError(`Akses Ditolak: Akun Anda terdaftar di Cabang ${kCabang === 'tehwarga' ? 'Teh Warga' : 'Zona Waktu Gandrungmangu'}. Akun tidak dapat digunakan di Outlet Kedungreja.`);
-            return;
-          }
-          userFound = true;
-          matchedNama = dData.nama || inputUsername;
-        }
-      }
-
-      // 2. Cek ke dokumen employee_credentials (system_logins_kedungreja & logins_kedungreja)
-      if (!userFound) {
-        const docNames = ["system_logins_kedungreja", "logins_kedungreja"];
-        for (const docName of docNames) {
-          if (userFound) break;
-          const docSnap = await getDoc(doc(db, "employee_credentials", docName));
-          if (docSnap.exists()) {
-            const credentials = docSnap.data().users || [];
-            const user = credentials.find(
-              (u: { username?: string; password?: string; nama?: string; cabang?: string }) => 
-                String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
-                String(u.password || "").trim() === inputPassword
-            );
-            if (user) {
-              userFound = true;
-              matchedNama = user.nama || inputUsername;
-            }
-          }
-        }
-      }
-
-      if (userFound) {
+      if (result.success && result.profile) {
         try {
           localStorage.setItem("current_branch", "kedungreja");
         } catch (storageErr) {
           console.warn("Storage error on mobile webview:", storageErr);
         }
-        toast({ title: "Login Berhasil", description: `Selamat datang di Cabang Kedungreja, ${matchedNama}!` });
+        toast({ title: "Login Berhasil", description: `Selamat datang di Cabang Kedungreja, ${result.profile.nama || inputUsername}!` });
         setUsername("");
         setPassword("");
         router.push("/employee/dashboard");
       } else {
-        setError("Username atau password salah. Pastikan huruf besar/kecil dan spasi sudah sesuai.");
+        setError(result.error || "Username atau password salah. Pastikan huruf besar/kecil dan spasi sudah sesuai.");
       }
     } catch (err) {
       setError("Gagal terhubung ke server. Coba lagi nanti.");
@@ -120,7 +60,7 @@ export default function KedungrejaEmployeeLoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#8b1a1a] text-white overflow-hidden relative font-sans flex flex-col justify-center items-center">
+    <div className="min-h-screen bg-gradient-to-br from-[#0a192f] via-[#0f224a] to-[#1e3a8a] text-white overflow-hidden relative font-sans flex flex-col justify-center items-center">
       <div className="absolute top-6 left-6 z-20">
         <Button onClick={() => router.push('/zona_kedungreja')} variant="ghost" size="icon" className="bg-white/10 text-white hover:bg-white/20">
           <ArrowLeft className="h-4 w-4" />
@@ -187,8 +127,8 @@ export default function KedungrejaEmployeeLoginPage() {
                 </div>
               </div>
             </div>
-            {error && <p className="text-red-400 text-sm font-bold text-center py-2">{error}</p>}
-            <Button onClick={handleLogin} disabled={loading} className="w-full bg-white text-[#8b1a1a] hover:bg-slate-100 font-bold uppercase tracking-widest">
+            {error && <p className="text-rose-300 text-sm font-bold text-center py-2">{error}</p>}
+            <Button onClick={handleLogin} disabled={loading} className="w-full bg-white text-[#0f224a] hover:bg-slate-100 font-bold uppercase tracking-widest">
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Login Karyawan
             </Button>

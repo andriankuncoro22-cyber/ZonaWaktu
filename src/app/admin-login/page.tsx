@@ -1,13 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ShieldAlert, ArrowLeft, Eye, EyeOff } from "lucide-react";
-import { useFirestore, doc } from "@/firebase";
-import { getDoc } from "firebase/firestore";
+import { ShieldAlert, ArrowLeft, Eye, EyeOff, Loader2 } from "lucide-react";
+import { loginWithFirebaseAuth } from "@/lib/auth-service";
 
 export default function AdminLoginPage() {
   const [username, setUsername] = useState("");
@@ -16,7 +15,11 @@ export default function AdminLoginPage() {
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
-  const db = useFirestore();
+
+  useEffect(() => {
+    localStorage.setItem("current_branch", "gdm");
+    document.documentElement.setAttribute("data-branch", "gdm");
+  }, []);
 
   const handleLogin = async () => {
     const inputUser = username.trim();
@@ -30,30 +33,21 @@ export default function AdminLoginPage() {
     setLoading(true);
     setError("");
     try {
-      // Fetch admin credentials from Firestore
-      const adminGdmRef = doc(db, "employee_credentials", "admin_gdm");
-      let adminSnap = await getDoc(adminGdmRef);
-      if (!adminSnap.exists()) {
-        adminSnap = await getDoc(doc(db, "employee_credentials", "admin"));
-      }
+      const result = await loginWithFirebaseAuth({
+        username: inputUser,
+        password: inputPass,
+        expectedRole: "admin",
+        expectedBranch: "gdm"
+      });
 
-      let targetUser = "adminzona";
-      let targetPass = "admin00";
-
-      if (adminSnap.exists()) {
-        const data = adminSnap.data();
-        targetUser = data.username || "adminzona";
-        targetPass = data.password || "admin00";
-      }
-
-      if (inputUser === targetUser && inputPass === targetPass) {
+      if (result.success) {
         localStorage.setItem("user_role", "admin");
         localStorage.setItem("current_branch", "gdm");
         setUsername("");
         setPassword("");
         router.push("/penjualan/kasir");
       } else {
-        setError("Username atau password admin Gandrungmangu salah");
+        setError(result.error || "Username atau password admin Gandrungmangu salah");
       }
     } catch (err) {
       console.error(err);
@@ -125,6 +119,7 @@ export default function AdminLoginPage() {
               className="w-full bg-white text-[#0f172a] hover:bg-slate-100 font-bold uppercase tracking-widest"
               disabled={loading}
             >
+              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {loading ? "Memproses..." : "Login Admin"}
             </Button>
           </div>

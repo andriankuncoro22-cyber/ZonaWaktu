@@ -24,6 +24,7 @@ import { addDoc, updateDoc, query, where, getDocs, serverTimestamp, orderBy, lim
 import { cn } from "@/lib/utils";
 import { uploadToCloudinary } from "@/lib/cloudinary";
 import { normalizeBranchId } from "@/lib/branch-helper";
+import { loginWithFirebaseAuth, logoutWithFirebaseAuth } from "@/lib/auth-service";
 
 interface KaryawanUser {
   id: string;
@@ -182,93 +183,44 @@ export default function TehWargaAbsensiPage() {
 
     setLoading(true);
     try {
-      let userData: KaryawanUser | null = null;
+      const res = await loginWithFirebaseAuth(db, inputUsername, inputPassword, {
+        expectedRole: "employee",
+        expectedBranch: "tehwarga",
+        storageKey: "karyawan_user_tehwarga",
+        branchStorageKey: "current_branch",
+      });
 
-      // 1. FAST PATH (Super Fast Single Doc Read & Low Traffic): Cek dokumen employee_credentials Teh Warga
-      const docNames = ["absensi_logins_tehwarga", "logins_tehwarga"];
-      for (const docName of docNames) {
-        if (userData) break;
-        try {
-          const credSnap = await getDoc(doc(db, "employee_credentials", docName));
-          if (credSnap.exists()) {
-            const users = credSnap.data().users || [];
-            const credUser = users.find((u: Record<string, unknown>) => 
-              String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() &&
-              String(u.password || "").trim() === inputPassword
-            );
-            if (credUser) {
-              userData = {
-                id: credUser.id || `emp_${credUser.username}`,
-                nama: credUser.nama || credUser.username,
-                username: credUser.username,
-                cabang: credUser.cabang || "tehwarga",
-                ...credUser
-              } as KaryawanUser;
-            }
-          }
-        } catch (credErr) {
-          console.warn("Fast cred read warning:", credErr);
-        }
+      if (!res.success || !res.user) {
+        alert(res.error || "Username atau Password salah! Pastikan huruf besar/kecil dan spasi sudah sesuai.");
+        return;
       }
 
-      // 2. FALLBACK: Jika belum ketemu di kredensial cepat, query langsung ke koleksi karyawan
-      if (!userData) {
-        const q = query(
-          collection(db, "karyawan"), 
-          where("username", "==", inputUsername),
-          where("password", "==", inputPassword)
-        );
-        const querySnapshot = await getDocs(q);
-        if (!querySnapshot.empty) {
-          userData = { id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() } as KaryawanUser;
-        } else {
-          // Fallback case-insensitive
-          const allKaryawanSnap = await getDocs(collection(db, "karyawan"));
-          const foundDoc = allKaryawanSnap.docs.find(d => {
-            const dData = d.data();
-            return (
-              String(dData.username || "").trim().toLowerCase() === inputUsername.toLowerCase() &&
-              String(dData.password || "").trim() === inputPassword
-            );
-          });
-          if (foundDoc) {
-            userData = { id: foundDoc.id, ...foundDoc.data() } as KaryawanUser;
-          }
-        }
-      }
+      const userData: KaryawanUser = {
+        id: res.user.id || `emp_${res.user.username}`,
+        nama: res.user.nama || res.user.username,
+        username: res.user.username,
+        cabang: res.user.cabang || "tehwarga",
+        ...res.user
+      };
 
-      if (userData) {
-        const userCabang = normalizeBranchId(userData.cabang);
-        if (userCabang !== "tehwarga") {
-          alert(`Akses Ditolak: Akun Anda terdaftar di Cabang ${userCabang === 'kedungreja' ? 'Kedungreja' : 'Zona Waktu Gandrungmangu'}. Akun tidak dapat digunakan di Portal Absensi Teh Warga.`);
-          return;
-        }
-
-        setUser(userData);
-        try {
-          localStorage.setItem("karyawan_user_tehwarga", JSON.stringify(userData));
-          localStorage.setItem("current_branch", "tehwarga");
-        } catch (storageErr) {
-          console.warn("Storage error on mobile webview:", storageErr);
-        }
-        setLoginData({ username: "", password: "" });
-        await fetchAttendanceData(userData.id);
-      } else {
-        alert("Username atau Password salah! Pastikan huruf besar/kecil dan spasi sudah sesuai.");
-      }
-    } catch (err) {
+      setUser(userData);
+      setLoginData({ username: "", password: "" });
+      await fetchAttendanceData(userData.id);
+    } catch (err: unknown) {
       console.error("Login error", err);
-      alert("Terjadi kesalahan sistem saat login. Periksa koneksi internet Anda.");
+      const errMsg = err instanceof Error ? err.message : "Terjadi kesalahan sistem saat login.";
+      alert(errMsg);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("karyawan_user_tehwarga");
+  const handleLogout = async () => {
+    await logoutWithFirebaseAuth(["karyawan_user_tehwarga", "absensi_user_tehwarga"]);
     setUser(null);
     setAttendanceToday(null);
     setHistory([]);
+    setLoginData({ username: "", password: "" });
     stopCamera();
   };
 

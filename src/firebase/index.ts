@@ -11,14 +11,17 @@ export * from '@/lib/branch-helper';
 
 import { useMemo, DependencyList } from 'react';
 import { app, auth, db } from './config';
+import { useActiveBranch } from '@/lib/branch-helper';
 
 /**
  * Hook untuk menstabilkan referensi Firebase (Query, DocumentReference).
- * Mencegah re-subscription yang tidak perlu ke Firestore.
+ * Mencegah re-subscription yang tidak perlu ke Firestore serta otomatis
+ * memperbarui dan beralih data ketika cabang/toko yang dipilih berganti.
  */
 export function useMemoFirebase<T>(factory: () => T, deps: DependencyList): T {
+  const activeBranch = useActiveBranch();
   // eslint-disable-next-line react-hooks/use-memo, react-hooks/exhaustive-deps
-  return useMemo(factory, deps);
+  return useMemo(factory, [...deps, activeBranch]);
 }
 
 export function initializeFirebase() {

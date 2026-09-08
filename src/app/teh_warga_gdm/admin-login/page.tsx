@@ -5,9 +5,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ShieldAlert, ArrowLeft, Eye, EyeOff, CupSoda } from "lucide-react";
-import { useFirestore, doc } from "@/firebase";
-import { getDoc } from "firebase/firestore";
+import { ShieldAlert, ArrowLeft, Eye, EyeOff, CupSoda, Loader2 } from "lucide-react";
+import { loginWithFirebaseAuth } from "@/lib/auth-service";
 
 export default function TehWargaAdminLoginPage() {
   const [username, setUsername] = useState("");
@@ -16,7 +15,6 @@ export default function TehWargaAdminLoginPage() {
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
-  const db = useFirestore();
 
   const handleLogin = async () => {
     const inputUser = username.trim();
@@ -30,22 +28,14 @@ export default function TehWargaAdminLoginPage() {
     setLoading(true);
     setError("");
     try {
-      let targetUser = "admintehwarga";
-      let targetPass = "admin00";
+      const result = await loginWithFirebaseAuth({
+        username: inputUser,
+        password: inputPass,
+        expectedRole: "admin",
+        expectedBranch: "tehwarga"
+      });
 
-      const adminTehWargaRef = doc(db, "employee_credentials", "admin_tehwarga");
-      const snapTehWarga = await getDoc(adminTehWargaRef);
-
-      if (snapTehWarga.exists()) {
-        const data = snapTehWarga.data();
-        targetUser = data.username || targetUser;
-        targetPass = data.password || targetPass;
-      }
-
-      if (
-        (inputUser === targetUser && inputPass === targetPass) ||
-        (inputUser === "admintehwarga" && inputPass === "admin00")
-      ) {
+      if (result.success) {
         localStorage.setItem("user_role", "admin");
         localStorage.setItem("current_branch", "tehwarga");
         document.documentElement.setAttribute("data-branch", "tehwarga");
@@ -54,7 +44,7 @@ export default function TehWargaAdminLoginPage() {
         setPassword("");
         router.push("/penjualan/kasir");
       } else {
-        setError("Username atau password admin Teh Warga salah. Akun toko lain tidak dapat mengakses cabang ini.");
+        setError(result.error || "Username atau password admin Teh Warga salah.");
       }
     } catch (err) {
       console.error(err);

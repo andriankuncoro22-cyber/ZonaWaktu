@@ -1053,7 +1053,7 @@ export default function ResepProdukPage() {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="grid grid-cols-5 gap-1 sm:flex sm:items-center sm:gap-3 w-full md:w-auto">
           {/* Hidden File Input for Excel Import */}
           <input
             type="file"
@@ -1064,57 +1064,60 @@ export default function ResepProdukPage() {
           />
 
           {/* Action & Download Buttons */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleDownloadTemplate}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-white border border-slate-200 hover:bg-slate-50 active:scale-95 text-slate-700 text-[10px] font-black uppercase tracking-widest shadow-sm transition-all duration-200"
-              title="Download Template Excel untuk Impor Resep"
-            >
-              <FileDown className="h-4 w-4 text-slate-500" />
-              Template Excel
-            </button>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isImporting}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-200 transition-all duration-200 disabled:opacity-50"
-              title="Impor Resep dari File Excel"
-            >
-              {isImporting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Upload className="h-4 w-4" />
-              )}
-              {isImporting ? "Mengimpor..." : "Impor Excel"}
-            </button>
-            <button
-              onClick={handleDownloadExcel}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white text-[10px] font-black uppercase tracking-widest shadow-lg shadow-emerald-200 transition-all duration-200"
-              title="Download Excel"
-            >
-              <FileSpreadsheet className="h-4 w-4" />
-              Excel
-            </button>
-            <button
-              onClick={handleDownloadPDF}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-rose-500 hover:bg-rose-600 active:scale-95 text-white text-[10px] font-black uppercase tracking-widest shadow-lg shadow-rose-200 transition-all duration-200"
-              title="Download PDF"
-            >
-              <FileText className="h-4 w-4" />
-              PDF
-            </button>
-          </div>
+          <button
+            onClick={handleDownloadTemplate}
+            className="inline-flex items-center justify-center gap-1 sm:gap-2 px-1 sm:px-4 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-white border border-slate-200 hover:bg-slate-50 active:scale-95 text-slate-700 text-[8px] sm:text-[10px] font-black uppercase tracking-wider shadow-sm transition-all duration-200 h-10 sm:h-12 w-full sm:w-auto text-center"
+            title="Download Template Excel untuk Impor Resep"
+          >
+            <FileDown className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-slate-500 shrink-0" />
+            <span className="truncate">Template</span>
+          </button>
+          
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isImporting}
+            className="inline-flex items-center justify-center gap-1 sm:gap-2 px-1 sm:px-5 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-[8px] sm:text-[10px] font-black uppercase tracking-wider shadow-lg shadow-blue-200 transition-all duration-200 disabled:opacity-50 h-10 sm:h-12 w-full sm:w-auto text-center"
+            title="Impor Resep dari File Excel"
+          >
+            {isImporting ? (
+              <Loader2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin shrink-0" />
+            ) : (
+              <Upload className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+            )}
+            <span className="truncate">{isImporting ? "..." : "Impor"}</span>
+          </button>
 
-        
-        <Dialog open={isDialogOpen} onOpenChange={(open) => {
-          setIsDialogOpen(open);
-          if (!open) resetForm();
-        }}>
-          <DialogTrigger asChild>
-            <Button className="rounded-2xl bg-primary hover:bg-primary/90 px-8 font-black shadow-xl shadow-primary/20 h-12 uppercase tracking-widest text-[10px] gap-2">
-              <Plus className="h-4 w-4" />
-              {activeTab === 'produk' ? 'Buat Resep Baru' : 'Buat Resep Pelengkap'}
-            </Button>
-          </DialogTrigger>
+          <button
+            onClick={handleDownloadExcel}
+            className="inline-flex items-center justify-center gap-1 sm:gap-2 px-1 sm:px-5 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-white text-[8px] sm:text-[10px] font-black uppercase tracking-wider shadow-lg shadow-emerald-200 transition-all duration-200 h-10 sm:h-12 w-full sm:w-auto text-center"
+            title="Download Excel"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+            <span className="truncate">Excel</span>
+          </button>
+
+          <button
+            onClick={handleDownloadPDF}
+            className="inline-flex items-center justify-center gap-1 sm:gap-2 px-1 sm:px-5 py-2 sm:py-2.5 rounded-xl sm:rounded-2xl bg-rose-500 hover:bg-rose-600 active:scale-95 text-white text-[8px] sm:text-[10px] font-black uppercase tracking-wider shadow-lg shadow-rose-200 transition-all duration-200 h-10 sm:h-12 w-full sm:w-auto text-center"
+            title="Download PDF"
+          >
+            <FileText className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+            <span className="truncate">PDF</span>
+          </button>
+
+          <Dialog open={isDialogOpen} onOpenChange={(open) => {
+            setIsDialogOpen(open);
+            if (!open) resetForm();
+          }}>
+            <DialogTrigger asChild>
+              <Button className="rounded-xl sm:rounded-2xl bg-primary hover:bg-primary/90 px-1 sm:px-8 font-black shadow-lg sm:shadow-xl shadow-primary/20 h-10 sm:h-12 uppercase tracking-wider sm:tracking-widest text-[8px] sm:text-[10px] gap-1 sm:gap-2 border-none flex items-center justify-center text-center w-full sm:w-auto">
+                <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+                <span className="truncate">
+                  <span className="sm:hidden">+ Resep</span>
+                  <span className="hidden sm:inline">{activeTab === 'produk' ? 'Buat Resep Baru' : 'Buat Resep Pelengkap'}</span>
+                </span>
+              </Button>
+            </DialogTrigger>
           <DialogContent className="max-w-3xl rounded-[2.5rem] p-10 border-none shadow-2xl overflow-y-auto max-h-[90vh]">
             <DialogHeader>
               <DialogTitle className="text-2xl font-black uppercase italic tracking-tighter text-slate-900">
@@ -1297,24 +1300,27 @@ export default function ResepProdukPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="bg-white p-1.5 rounded-2xl shadow-sm border border-slate-100 h-14 w-full max-w-2xl grid grid-cols-3 gap-2 mb-8">
+        <TabsList className="bg-white p-1 sm:p-1.5 rounded-2xl shadow-sm border border-slate-100 h-12 sm:h-14 w-full max-w-2xl grid grid-cols-3 gap-1 sm:gap-2 mb-8">
           <TabsTrigger 
             value="produk" 
-            className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all"
+            className="rounded-xl font-black uppercase text-[8px] sm:text-[10px] tracking-wider sm:tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all px-1 sm:px-3 flex items-center justify-center gap-1 sm:gap-2"
           >
-            <Utensils className="h-4 w-4 mr-2" /> Resep Produk
+            <Utensils className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+            <span className="truncate">Resep Produk</span>
           </TabsTrigger>
           <TabsTrigger 
             value="pelengkap" 
-            className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all"
+            className="rounded-xl font-black uppercase text-[8px] sm:text-[10px] tracking-wider sm:tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all px-1 sm:px-3 flex items-center justify-center gap-1 sm:gap-2"
           >
-            <Layers className="h-4 w-4 mr-2" /> Resep Pelengkap
+            <Layers className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+            <span className="truncate">Resep Pelengkap</span>
           </TabsTrigger>
           <TabsTrigger 
             value="luar_resep" 
-            className="rounded-xl font-black uppercase text-[10px] tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all"
+            className="rounded-xl font-black uppercase text-[8px] sm:text-[10px] tracking-wider sm:tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all px-1 sm:px-3 flex items-center justify-center gap-1 sm:gap-2"
           >
-            <Boxes className="h-4 w-4 mr-2" /> Bahan di Luar Resep
+            <Boxes className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+            <span className="truncate">Luar Resep</span>
           </TabsTrigger>
         </TabsList>
 

@@ -34,6 +34,7 @@ import Image from "next/image";
 import { cn } from "@/lib/utils";
 
 import { useActiveBranch, getStoreConfigDocId, getDefaultStoreIdentity, BRANCH_LIST, BranchId, normalizeBranchId } from "@/lib/branch-helper";
+import { provisionAuthUserWithoutSessionSwitch, syncAllAccountsToFirebaseAuth } from "@/lib/auth-service";
 
 interface EmployeeCredential {
   username: string;
@@ -76,6 +77,61 @@ export default function PengaturanPage() {
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [syncingAbsensi, setSyncingAbsensi] = useState(false);
+  const [syncingAllAuth, setSyncingAllAuth] = useState(false);
+
+  const handleSyncAllFirebaseAuth = async () => {
+    setSyncingAllAuth(true);
+    try {
+      // Gather any in-memory credentials loaded in state to guarantee none are missed
+      const extraList: Array<{ username: string; password?: string; nama?: string; role?: "owner" | "admin" | "employee"; cabang?: BranchId }> = [];
+      
+      (["gdm", "kedungreja", "tehwarga"] as BranchId[]).forEach((b) => {
+        (credentialsByBranch[b] || []).forEach((c) => {
+          if (c.username) {
+            extraList.push({
+              username: c.username,
+              password: c.password,
+              nama: c.username,
+              role: "employee",
+              cabang: b
+            });
+          }
+        });
+        if (adminByBranch[b]?.username) {
+          extraList.push({
+            username: adminByBranch[b].username,
+            password: adminByBranch[b].password,
+            nama: `Admin ${BRANCH_LIST[b]?.name}`,
+            role: "admin",
+            cabang: b
+          });
+        }
+      });
+
+      const res = await syncAllAccountsToFirebaseAuth(db, extraList);
+      if (res.success) {
+        toast({
+          title: "Sinkronisasi Firebase Auth Sukses",
+          description: `${res.syncedCount} akun (Owner, Admin, Karyawan Gandrungmangu, Kedungreja, Teh Warga) berhasil disinkronkan ke Firebase Authentication.`,
+        });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Sinkronisasi Auth Gagal",
+          description: res.error || "Gagal sinkronisasi ke Firebase Auth.",
+        });
+      }
+    } catch (err: unknown) {
+      console.error("Sync all auth err", err);
+      toast({
+        variant: "destructive",
+        title: "Gagal",
+        description: err instanceof Error ? err.message : "Terjadi kesalahan sistem saat sinkronisasi.",
+      });
+    } finally {
+      setSyncingAllAuth(false);
+    }
+  };
   
   // Tab pemisah antara Akun Sistem Karyawan & Akun Login Absensi
   const [accountTypeTab, setAccountTypeTab] = useState<"sistem" | "absensi">("sistem");
@@ -106,11 +162,13 @@ export default function PengaturanPage() {
   // Branch-isolated Employee & Admin Credentials
   const [credentialBranch, setCredentialBranch] = useState<BranchId>("gdm");
   const [credentialsByBranch, setCredentialsByBranch] = useState<Record<BranchId, EmployeeCredential[]>>({
+    all: [],
     gdm: [],
     kedungreja: [],
     tehwarga: []
   });
   const [adminByBranch, setAdminByBranch] = useState<Record<BranchId, { username: string; password: string }>>({
+    all: { username: "admin", password: "admin00" },
     gdm: { username: "adminzona", password: "admin00" },
     kedungreja: { username: "adminkedungreja", password: "admin00" },
     tehwarga: { username: "admintehwarga", password: "admin00" }
@@ -145,6 +203,7 @@ export default function PengaturanPage() {
           : (tehCredSnap.exists() ? (tehCredSnap.data().users || []) : []);
 
         setCredentialsByBranch({
+          all: [...gdmUsers, ...kdrjUsers, ...tehUsers],
           gdm: gdmUsers,
           kedungreja: kdrjUsers,
           tehwarga: tehUsers
@@ -162,6 +221,10 @@ export default function PengaturanPage() {
         const adminTeh = adminTehSnap.exists() ? adminTehSnap.data() : null;
 
         setAdminByBranch({
+          all: {
+            username: "admin",
+            password: "admin00"
+          },
           gdm: {
             username: adminGdm?.username || "adminzona",
             password: adminGdm?.password || "admin00"
@@ -442,9 +505,29 @@ export default function PengaturanPage() {
         }, { merge: true });
       }
 
+      // 6. Provision / Sync ke Firebase Authentication
+      try {
+        await provisionAuthUserWithoutSessionSwitch(
+          branchAdmin.username.trim(),
+          branchAdmin.password.trim(),
+          { role: "admin", cabang: targetBranch, nama: `Admin ${BRANCH_LIST[targetBranch]?.name}` }
+        );
+        for (const u of combinedUsers) {
+          if (u.username && u.password) {
+            await provisionAuthUserWithoutSessionSwitch(
+              u.username.trim(),
+              u.password.trim(),
+              { role: "employee", cabang: targetBranch, nama: u.nama || u.username }
+            );
+          }
+        }
+      } catch (authErr) {
+        console.warn("Firebase Auth provisioning warning during sync:", authErr);
+      }
+
       toast({ 
-        title: "Perubahan Kredensial Tersimpan", 
-        description: `Hak akses untuk ${BRANCH_LIST[targetBranch]?.name} berhasil diperbarui tanpa mempengaruhi toko lainnya.` 
+        title: "Perubahan Kredensial Tersimpan & Terhubung Auth", 
+        description: `Hak akses untuk ${BRANCH_LIST[targetBranch]?.name} berhasil diperbarui di Firestore & Firebase Authentication.` 
       });
     } catch (error) {
       console.error(error);
@@ -524,9 +607,24 @@ export default function PengaturanPage() {
         }, { merge: true });
       }
 
+      // 6. Provision / Sync ke Firebase Authentication
+      try {
+        for (const u of combinedUsers) {
+          if (u.username && u.password) {
+            await provisionAuthUserWithoutSessionSwitch(
+              u.username.trim(),
+              u.password.trim(),
+              { role: "employee", cabang: targetBranch, nama: u.nama || u.username }
+            );
+          }
+        }
+      } catch (authErr) {
+        console.warn("Firebase Auth provisioning warning during branch absensi sync:", authErr);
+      }
+
       toast({
         title: "Sinkronisasi Cabang Berhasil",
-        description: `${totalBranch} akun absensi ${BRANCH_LIST[targetBranch]?.name} berhasil disinkronkan tanpa mempengaruhi toko lain.`
+        description: `${totalBranch} akun absensi ${BRANCH_LIST[targetBranch]?.name} berhasil disinkronkan & terhubung Firebase Auth.`
       });
     } catch (err) {
       console.error(err);
@@ -562,9 +660,19 @@ export default function PengaturanPage() {
 
       await syncBranchAbsensiKaryawan(credentialBranch);
 
+      try {
+        await provisionAuthUserWithoutSessionSwitch(
+          username,
+          password,
+          { role: "employee", cabang: credentialBranch, nama }
+        );
+      } catch (authErr) {
+        console.warn("Auth provision warning:", authErr);
+      }
+
       toast({
         title: "Akun Absensi Ditambahkan",
-        description: `Akun absensi ${nama} (${username}) untuk ${BRANCH_LIST[credentialBranch]?.name} berhasil dibuat.`
+        description: `Akun absensi ${nama} (${username}) untuk ${BRANCH_LIST[credentialBranch]?.name} berhasil dibuat & terdaftar di Firebase Auth.`
       });
 
       setNewAbsensiForm({
@@ -802,23 +910,34 @@ export default function PengaturanPage() {
             </div>
           </div>
 
-          {/* Branch Switcher Tabs */}
-          <div className="flex flex-wrap items-center gap-2 p-1.5 bg-white border border-slate-200/80 rounded-2xl shadow-sm">
-            {Object.entries(BRANCH_LIST).map(([bId, bInfo]) => (
-              <button
-                key={bId}
-                type="button"
-                onClick={() => setCredentialBranch(bId as BranchId)}
-                className={cn(
-                  "px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all",
-                  credentialBranch === bId
-                    ? "bg-slate-900 text-white shadow-sm"
-                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-                )}
-              >
-                {bInfo.shortName} ({bInfo.code})
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              onClick={handleSyncAllFirebaseAuth}
+              disabled={syncingAllAuth}
+              className="rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-black uppercase tracking-wider text-[10px] h-11 px-4 gap-2 shadow-md shadow-amber-600/20"
+            >
+              <RefreshCw className={cn("h-4 w-4", syncingAllAuth && "animate-spin")} />
+              {syncingAllAuth ? "Menyinkronkan Auth..." : "Sinkronkan Semua Akun ke Firebase Auth (1-Klik)"}
+            </Button>
+
+            {/* Branch Switcher Tabs */}
+            <div className="flex flex-wrap items-center gap-2 p-1.5 bg-white border border-slate-200/80 rounded-2xl shadow-sm">
+              {Object.entries(BRANCH_LIST).map(([bId, bInfo]) => (
+                <button
+                  key={bId}
+                  type="button"
+                  onClick={() => setCredentialBranch(bId as BranchId)}
+                  className={cn(
+                    "px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all",
+                    credentialBranch === bId
+                      ? "bg-slate-900 text-white shadow-sm"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                  )}
+                >
+                  {bInfo.shortName} ({bInfo.code})
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 

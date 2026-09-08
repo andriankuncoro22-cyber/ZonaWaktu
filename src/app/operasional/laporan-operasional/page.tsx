@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 interface Row {
   id: string;
   tanggal: string;
-  createdAt?: any;
+  createdAt?: { seconds?: number; nanoseconds?: number } | null;
   pembayaran: string;
   nominal: number;
   sumber: "Karyawan" | "Owner";
@@ -76,24 +76,24 @@ export default function LaporanOperasionalPage() {
       const data: Row[] = [];
 
       karyawanSnap.forEach((d) => {
-        const s = d.data() as any;
+        const s = d.data() as Record<string, unknown>;
         data.push({
           id: d.id,
-          tanggal: s.tanggal || "",
-          createdAt: s.createdAt,
-          pembayaran: s.pembayaran || "-",
+          tanggal: String(s.tanggal || ""),
+          createdAt: s.createdAt as Row["createdAt"],
+          pembayaran: String(s.pembayaran || "-"),
           nominal: Number(s.nominal || 0),
           sumber: "Karyawan",
         });
       });
 
       ownerSnap.forEach((d) => {
-        const s = d.data() as any;
+        const s = d.data() as Record<string, unknown>;
         data.push({
           id: d.id,
-          tanggal: s.tanggal || "",
-          createdAt: s.createdAt,
-          pembayaran: s.paymentTypeLabel || s.paymentType || "Operasional Toko",
+          tanggal: String(s.tanggal || ""),
+          createdAt: s.createdAt as Row["createdAt"],
+          pembayaran: String(s.paymentTypeLabel || s.paymentType || "Operasional Toko"),
           nominal: Number(s.nominal || s.total || 0),
           sumber: "Owner",
         });
@@ -164,31 +164,57 @@ export default function LaporanOperasionalPage() {
       </header>
 
       <Card className="rounded-[2.5rem] border-none bg-white overflow-hidden">
-        <div className="p-6 md:p-8 border-b border-slate-50 flex flex-wrap items-end gap-4">
-          <div className="flex flex-col gap-1">
-            <label className="text-[9px] font-black uppercase tracking-widest text-slate-500">Mulai</label>
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-12 px-4 rounded-xl bg-slate-50 border-none text-xs font-black text-slate-800 outline-none focus:ring-2 focus:ring-primary/20" />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[9px] font-black uppercase tracking-widest text-slate-500">Sampai</label>
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-12 px-4 rounded-xl bg-slate-50 border-none text-xs font-black text-slate-800 outline-none focus:ring-2 focus:ring-primary/20" />
+        <div className="p-4 sm:p-6 md:p-8 border-b border-slate-50 flex flex-col md:flex-row md:items-end gap-3 md:gap-4">
+          <div className="grid grid-cols-2 gap-2 items-end w-full md:w-auto md:flex md:items-end md:gap-4 flex-1">
+            <div className="flex flex-col gap-1 w-full md:w-auto">
+              <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 truncate">Mulai</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="h-11 md:h-12 px-3 sm:px-4 rounded-xl bg-slate-50 border border-slate-200/80 text-xs font-black text-slate-800 outline-none focus:ring-2 focus:ring-primary/20 w-full"
+              />
+            </div>
+            <div className="flex flex-col gap-1 w-full md:w-auto">
+              <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 truncate">Sampai</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="h-11 md:h-12 px-3 sm:px-4 rounded-xl bg-slate-50 border border-slate-200/80 text-xs font-black text-slate-800 outline-none focus:ring-2 focus:ring-primary/20 w-full"
+              />
+            </div>
           </div>
 
-          <Button onClick={fetchReport} disabled={loading} className="h-12 px-8 rounded-xl bg-primary text-white font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20 gap-2">
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarDays className="h-4 w-4" />}
-            Tampilkan
-          </Button>
+          <div className={cn("w-full md:w-auto md:flex md:items-center", rows && rows.length > 0 ? "grid grid-cols-3 gap-2" : "flex")}>
+            <Button
+              onClick={fetchReport}
+              disabled={loading}
+              className="h-11 md:h-12 px-3 sm:px-8 rounded-xl bg-primary text-white font-black uppercase tracking-widest text-[9.5px] sm:text-[10px] shadow-lg shadow-primary/20 gap-1.5 sm:gap-2 flex items-center justify-center w-full md:w-auto"
+            >
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CalendarDays className="h-4 w-4" />}
+              Tampilkan
+            </Button>
 
-          {rows && rows.length > 0 && (
-            <>
-              <Button variant="outline" onClick={() => exportExcel(rows)} className="h-12 px-5 rounded-xl border-slate-200 font-black uppercase tracking-widest text-[9px] gap-2 bg-white">
-                <FileSpreadsheet className="h-4 w-4 text-emerald-600" /> Excel
-              </Button>
-              <Button variant="outline" onClick={() => exportPDF(rows)} className="h-12 px-5 rounded-xl border-slate-200 font-black uppercase tracking-widest text-[9px] gap-2 bg-white">
-                <FileDown className="h-4 w-4 text-primary" /> PDF
-              </Button>
-            </>
-          )}
+            {rows && rows.length > 0 && (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => exportExcel(rows)}
+                  className="h-11 md:h-12 px-2.5 sm:px-5 rounded-xl border-slate-200 font-black uppercase tracking-widest text-[9px] gap-1.5 sm:gap-2 bg-white flex items-center justify-center w-full md:w-auto"
+                >
+                  <FileSpreadsheet className="h-4 w-4 text-emerald-600" /> Excel
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => exportPDF(rows)}
+                  className="h-11 md:h-12 px-2.5 sm:px-5 rounded-xl border-slate-200 font-black uppercase tracking-widest text-[9px] gap-1.5 sm:gap-2 bg-white flex items-center justify-center w-full md:w-auto"
+                >
+                  <FileDown className="h-4 w-4 text-primary" /> PDF
+                </Button>
+              </>
+            )}
+          </div>
         </div>
 
         <div className="p-6 md:p-8">

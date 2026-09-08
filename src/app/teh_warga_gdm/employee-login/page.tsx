@@ -6,10 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CupSoda, Loader2, ArrowLeft, Eye, EyeOff, Users } from "lucide-react";
-import { useFirestore, collection, doc } from "@/firebase";
-import { getDoc, query, where, getDocs } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
-import { normalizeBranchId } from "@/lib/branch-helper";
+import { loginWithFirebaseAuth } from "@/lib/auth-service";
 
 export default function TehWargaEmployeeLoginPage() {
   const [username, setUsername] = useState("");
@@ -18,7 +16,6 @@ export default function TehWargaEmployeeLoginPage() {
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
-  const db = useFirestore();
   const { toast } = useToast();
 
   const handleLogin = async () => {
@@ -34,75 +31,17 @@ export default function TehWargaEmployeeLoginPage() {
     setError("");
 
     try {
-      let userFound = false;
-      let matchedNama = inputUsername;
-      let matchedRole = "employee";
+      const result = await loginWithFirebaseAuth({
+        username: inputUsername,
+        password: inputPassword,
+        expectedRole: "employee",
+        expectedBranch: "tehwarga"
+      });
 
-      // 1. Cek langsung ke koleksi karyawan (exact & case-insensitive)
-      const q = query(
-        collection(db, "karyawan"),
-        where("username", "==", inputUsername),
-        where("password", "==", inputPassword)
-      );
-      const kSnap = await getDocs(q);
-
-      if (!kSnap.empty) {
-        const kData = kSnap.docs[0].data();
-        const kCabang = normalizeBranchId(kData.cabang);
-        if (kCabang !== "tehwarga") {
-          setError(`Akses Ditolak: Akun Anda terdaftar di Cabang ${kCabang === 'kedungreja' ? 'Kedungreja' : 'Zona Waktu Gandrungmangu'}. Akun tidak dapat digunakan di Outlet Teh Warga.`);
-          return;
-        }
-        userFound = true;
-        matchedNama = kData.nama || inputUsername;
-      } else {
-        const allKSnap = await getDocs(collection(db, "karyawan"));
-        const foundDoc = allKSnap.docs.find(d => {
-          const dData = d.data();
-          return (
-            String(dData.username || "").trim().toLowerCase() === inputUsername.toLowerCase() &&
-            String(dData.password || "").trim() === inputPassword
-          );
-        });
-
-        if (foundDoc) {
-          const dData = foundDoc.data();
-          const kCabang = normalizeBranchId(dData.cabang);
-          if (kCabang !== "tehwarga") {
-            setError(`Akses Ditolak: Akun Anda terdaftar di Cabang ${kCabang === 'kedungreja' ? 'Kedungreja' : 'Zona Waktu Gandrungmangu'}. Akun tidak dapat digunakan di Outlet Teh Warga.`);
-            return;
-          }
-          userFound = true;
-          matchedNama = dData.nama || inputUsername;
-        }
-      }
-
-      // 2. Cek ke dokumen employee_credentials (system_logins_tehwarga & logins_tehwarga)
-      if (!userFound) {
-        const docNames = ["system_logins_tehwarga", "logins_tehwarga"];
-        for (const docName of docNames) {
-          if (userFound) break;
-          const docSnap = await getDoc(doc(db, "employee_credentials", docName));
-          if (docSnap.exists()) {
-            const credentials = docSnap.data().users || [];
-            const user = credentials.find(
-              (u: { username?: string; password?: string; nama?: string; role?: string }) => 
-                String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
-                String(u.password || "").trim() === inputPassword
-            );
-            if (user) {
-              userFound = true;
-              matchedNama = user.nama || inputUsername;
-              matchedRole = user.role || "employee";
-            }
-          }
-        }
-      }
-
-      if (userFound) {
+      if (result.success && result.profile) {
         try {
-          localStorage.setItem("user_role", matchedRole);
-          localStorage.setItem("employee_name", matchedNama);
+          localStorage.setItem("user_role", result.profile.role || "employee");
+          localStorage.setItem("employee_name", result.profile.nama || inputUsername);
           localStorage.setItem("current_branch", "tehwarga");
           document.documentElement.setAttribute("data-branch", "tehwarga");
           window.dispatchEvent(new Event("branch_changed"));
@@ -112,12 +51,12 @@ export default function TehWargaEmployeeLoginPage() {
 
         toast({
           title: "Login Berhasil",
-          description: `Selamat datang, ${matchedNama}! (Teh Warga GDM)`,
+          description: `Selamat datang, ${result.profile.nama || inputUsername}! (Teh Warga GDM)`,
         });
 
         router.push("/employee/dashboard");
       } else {
-        setError("Username atau password salah. Pastikan huruf besar/kecil dan spasi sudah sesuai.");
+        setError(result.error || "Username atau password salah. Pastikan huruf besar/kecil dan spasi sudah sesuai.");
       }
     } catch (err: unknown) {
       console.error(err);

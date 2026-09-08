@@ -1,35 +1,110 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { useFirestore, useCollection, useMemoFirebase, collection } from "@/firebase";
-import { query, orderBy } from "firebase/firestore";
 import { 
   Calendar, 
   Search, 
   Wallet, 
   TrendingDown, 
-  Package, 
   Sparkles, 
   FileText, 
   ShoppingBag, 
   FileSpreadsheet, 
-  FileDown, 
-  RotateCcw,
-  ArrowDownRight,
-  ArrowUpRight,
-  Building2,
-  Store,
-  Clock
+  FileDown
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
-const getDocDateStr = (docData: any): string => {
+interface FirestoreDocDate {
+  tanggal?: string | Date;
+  date?: string | Date;
+  tgl?: string | Date;
+  createdAt?: { toDate?: () => Date; seconds?: number } | Date;
+  timestamp?: { toDate?: () => Date; seconds?: number } | Date;
+  updatedAt?: { toDate?: () => Date; seconds?: number } | Date;
+  [key: string]: unknown;
+}
+
+interface PenjualanDoc {
+  id: string;
+  total?: number | string;
+  totalPenjualan?: number | string;
+  grandTotal?: number | string;
+  totalBayar?: number | string;
+  tanggal?: string;
+  [key: string]: unknown;
+}
+
+interface OperasionalKontainerDoc {
+  id: string;
+  pembayaran?: string;
+  keterangan?: string;
+  nominal?: number | string;
+  total?: number | string;
+  jumlah?: number | string;
+  biaya?: number | string;
+  tanggal?: string;
+  [key: string]: unknown;
+}
+
+interface OperasionalTokoDoc {
+  id: string;
+  paymentTypeLabel?: string;
+  paymentType?: string;
+  keterangan?: string;
+  nominal?: number | string;
+  total?: number | string;
+  jumlah?: number | string;
+  biaya?: number | string;
+  tanggal?: string;
+  [key: string]: unknown;
+}
+
+interface OperasionalRowItem {
+  id: string;
+  tanggal: string;
+  pembayaran: string;
+  nominal: number;
+  sumber: "Karyawan" | "Owner";
+  sourceCol: "operasional-kontainer" | "operasional-toko";
+}
+
+interface PembelianItem {
+  price?: number | string;
+  purchasePrice?: number | string;
+  harga?: number | string;
+  hargaBeli?: number | string;
+  qty?: number | string;
+  jumlah?: number | string;
+  materialName?: string;
+  supplierName?: string;
+  unit?: string;
+  satuan?: string;
+}
+
+interface PembelianLogDoc {
+  id: string;
+  nomorNota?: string;
+  supplier?: string;
+  suplier?: string;
+  type?: string;
+  purchaseType?: string;
+  keterangan?: string;
+  total?: number | string;
+  totalBelanja?: number | string;
+  grandTotal?: number | string;
+  nominal?: number | string;
+  items?: PembelianItem[];
+  tanggal?: string;
+  [key: string]: unknown;
+}
+
+const getDocDateStr = (docData: FirestoreDocDate | null | undefined): string => {
   if (!docData) return "";
   const rawDate = docData.tanggal || docData.date || docData.tgl;
   if (rawDate && typeof rawDate === "string") {
@@ -49,14 +124,14 @@ const getDocDateStr = (docData: any): string => {
     return raw;
   }
   const timestampField = docData.createdAt || docData.timestamp || docData.updatedAt;
-  if (timestampField?.toDate) {
+  if (timestampField && typeof timestampField === "object" && "toDate" in timestampField && typeof timestampField.toDate === "function") {
     const d = timestampField.toDate();
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, "0");
     const day = String(d.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
   }
-  if (timestampField?.seconds) {
+  if (timestampField && typeof timestampField === "object" && "seconds" in timestampField && typeof timestampField.seconds === "number") {
     const d = new Date(timestampField.seconds * 1000);
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, "0");
@@ -110,25 +185,25 @@ export default function LabaRugiBersihPage() {
   const pembelianQuery = useMemoFirebase(() => collection(db, "log_pembelian_bahan"), [db]);
   const { data: rawPembelian, loading: loadingPembelian } = useCollection(pembelianQuery);
 
-  const isDateMatch = (docDate: string) => {
+  const isDateMatch = useCallback((docDate: string) => {
     if (!docDate) return false;
     if (appliedMode === "daily") return docDate === appliedDate;
     if (appliedMode === "monthly") return docDate.startsWith(appliedMonth);
     return docDate.startsWith(appliedYear);
-  };
+  }, [appliedMode, appliedDate, appliedMonth, appliedYear]);
 
   // Filtered lists
   const filteredPenjualan = useMemo(() => {
     if (!rawPenjualan) return [];
-    return rawPenjualan.filter((doc: any) => {
+    return (rawPenjualan as unknown as PenjualanDoc[]).filter((doc: PenjualanDoc) => {
       const dStr = getDocDateStr(doc);
       return isDateMatch(dStr);
     });
-  }, [rawPenjualan, appliedMode, appliedDate, appliedMonth, appliedYear]);
+  }, [rawPenjualan, isDateMatch]);
 
   const filteredOperasional = useMemo(() => {
-    const list: any[] = [];
-    (rawOperasionalKontainer || []).forEach((doc: any) => {
+    const list: OperasionalRowItem[] = [];
+    ((rawOperasionalKontainer || []) as unknown as OperasionalKontainerDoc[]).forEach((doc: OperasionalKontainerDoc) => {
       const dStr = getDocDateStr(doc);
       if (isDateMatch(dStr)) {
         list.push({
@@ -142,7 +217,7 @@ export default function LabaRugiBersihPage() {
       }
     });
 
-    (rawOperasionalToko || []).forEach((doc: any) => {
+    ((rawOperasionalToko || []) as unknown as OperasionalTokoDoc[]).forEach((doc: OperasionalTokoDoc) => {
       const dStr = getDocDateStr(doc);
       if (isDateMatch(dStr)) {
         list.push({
@@ -158,37 +233,37 @@ export default function LabaRugiBersihPage() {
 
     list.sort((a, b) => b.tanggal.localeCompare(a.tanggal));
     return list;
-  }, [rawOperasionalKontainer, rawOperasionalToko, appliedMode, appliedDate, appliedMonth, appliedYear]);
+  }, [rawOperasionalKontainer, rawOperasionalToko, isDateMatch]);
 
   const filteredPembelian = useMemo(() => {
     if (!rawPembelian) return [];
-    return rawPembelian.filter((doc: any) => {
+    return ((rawPembelian || []) as unknown as PembelianLogDoc[]).filter((doc: PembelianLogDoc) => {
       // Exclude transfers
       if (doc.type === "ambil-gudang" || doc.type === "kembali-gudang") return false;
       const dStr = getDocDateStr(doc);
       return isDateMatch(dStr);
     });
-  }, [rawPembelian, appliedMode, appliedDate, appliedMonth, appliedYear]);
+  }, [rawPembelian, isDateMatch]);
 
   // Totals calculation
   const totals = useMemo(() => {
-    const penjualan = filteredPenjualan.reduce((acc: number, curr: any) => {
+    const penjualan = filteredPenjualan.reduce((acc: number, curr: PenjualanDoc) => {
       const val = curr.total ?? curr.totalPenjualan ?? curr.grandTotal ?? curr.totalBayar ?? 0;
       return acc + Number(val || 0);
     }, 0);
 
-    const operasional = filteredOperasional.reduce((acc: number, curr: any) => {
+    const operasional = filteredOperasional.reduce((acc: number, curr: OperasionalRowItem) => {
       return acc + Number(curr.nominal || 0);
     }, 0);
     
     let pembelian = 0;
     let totalQtyBahan = 0;
 
-    filteredPembelian.forEach((curr: any) => {
+    filteredPembelian.forEach((curr: PembelianLogDoc) => {
       const items = curr.items || [];
       if (items.length > 0) {
         let itemsSum = 0;
-        items.forEach((item: any) => {
+        items.forEach((item: PembelianItem) => {
           const price = item.price ?? item.purchasePrice ?? item.harga ?? item.hargaBeli ?? 0;
           const qty = item.qty ?? item.jumlah ?? 1;
           const sub = Number(price) * Number(qty);
@@ -258,14 +333,14 @@ export default function LabaRugiBersihPage() {
       Nominal: r.nominal
     }));
 
-    const pembelianRows: any[] = [];
+    const pembelianRows: Array<Record<string, string | number>> = [];
     filteredPembelian.forEach(log => {
       const dateDisplay = getDocDateStr(log);
       const items = log.items || [];
       if (items.length > 0) {
-        items.forEach((it: any) => {
-          const price = it.price ?? it.purchasePrice ?? it.harga ?? it.hargaBeli ?? 0;
-          const qty = it.qty ?? it.jumlah ?? 1;
+        items.forEach((it: PembelianItem) => {
+          const price = Number(it.price ?? it.purchasePrice ?? it.harga ?? it.hargaBeli ?? 0);
+          const qty = Number(it.qty ?? it.jumlah ?? 1);
           pembelianRows.push({
             "No Nota": log.nomorNota || "-",
             Tanggal: dateDisplay,
@@ -354,83 +429,87 @@ export default function LabaRugiBersihPage() {
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2.5 items-center">
-          <div className="bg-white p-1 rounded-2xl shadow-sm border border-slate-100 flex items-center">
-            <Button 
-              variant="ghost" 
-              onClick={() => setFilterMode("daily")} 
-              className={cn("rounded-xl px-3.5 h-9 text-[9px] font-black uppercase tracking-widest transition-all", filterMode === "daily" ? "bg-primary text-white shadow-sm" : "text-slate-500")}
-            >
-              Harian
-            </Button>
-            <Button 
-              variant="ghost" 
-              onClick={() => setFilterMode("monthly")} 
-              className={cn("rounded-xl px-3.5 h-9 text-[9px] font-black uppercase tracking-widest transition-all", filterMode === "monthly" ? "bg-primary text-white shadow-sm" : "text-slate-500")}
-            >
-              Bulanan
-            </Button>
-            <Button 
-              variant="ghost" 
-              onClick={() => setFilterMode("yearly")} 
-              className={cn("rounded-xl px-3.5 h-9 text-[9px] font-black uppercase tracking-widest transition-all", filterMode === "yearly" ? "bg-primary text-white shadow-sm" : "text-slate-500")}
-            >
-              Tahunan
-            </Button>
+        <div className="flex flex-col gap-2.5 w-full md:w-auto">
+          {/* Row 1: Filter Controls */}
+          <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center sm:justify-end w-full">
+            <div className="bg-white p-1 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+              <Button 
+                variant="ghost" 
+                onClick={() => setFilterMode("daily")} 
+                className={cn("flex-1 sm:flex-none rounded-xl px-2.5 sm:px-3.5 h-9 text-[9px] font-black uppercase tracking-wider transition-all", filterMode === "daily" ? "bg-primary text-white shadow-sm" : "text-slate-500")}
+              >
+                Harian
+              </Button>
+              <Button 
+                variant="ghost" 
+                onClick={() => setFilterMode("monthly")} 
+                className={cn("flex-1 sm:flex-none rounded-xl px-2.5 sm:px-3.5 h-9 text-[9px] font-black uppercase tracking-wider transition-all", filterMode === "monthly" ? "bg-primary text-white shadow-sm" : "text-slate-500")}
+              >
+                Bulanan
+              </Button>
+              <Button 
+                variant="ghost" 
+                onClick={() => setFilterMode("yearly")} 
+                className={cn("flex-1 sm:flex-none rounded-xl px-2.5 sm:px-3.5 h-9 text-[9px] font-black uppercase tracking-wider transition-all", filterMode === "yearly" ? "bg-primary text-white shadow-sm" : "text-slate-500")}
+              >
+                Tahunan
+              </Button>
+            </div>
+
+            <div className="bg-white px-3 py-1.5 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center gap-2 min-h-[38px]">
+              <Calendar className="h-4 w-4 text-primary shrink-0" />
+              {filterMode === "daily" ? (
+                <input 
+                  type="date" 
+                  value={selectedDate} 
+                  onChange={(e) => setSelectedDate(e.target.value)} 
+                  className="text-[10px] font-black uppercase tracking-wider text-slate-800 bg-transparent border-none outline-none cursor-pointer w-full text-center sm:text-left" 
+                />
+              ) : filterMode === "monthly" ? (
+                <input 
+                  type="month" 
+                  value={selectedMonth} 
+                  onChange={(e) => setSelectedMonth(e.target.value)} 
+                  className="text-[10px] font-black uppercase tracking-wider text-slate-800 bg-transparent border-none outline-none cursor-pointer w-full text-center sm:text-left" 
+                />
+              ) : (
+                <input 
+                  type="number" 
+                  value={selectedYear} 
+                  onChange={(e) => setSelectedYear(e.target.value)} 
+                  className="text-[10px] font-black uppercase tracking-wider text-slate-800 bg-transparent border-none outline-none cursor-pointer w-full text-center sm:text-left" 
+                />
+              )}
+            </div>
           </div>
 
-          <div className="bg-white px-3.5 py-1.5 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-2">
-            <Calendar className="h-4 w-4 text-primary shrink-0" />
-            {filterMode === "daily" ? (
-              <input 
-                type="date" 
-                value={selectedDate} 
-                onChange={(e) => setSelectedDate(e.target.value)} 
-                className="text-[10px] font-black uppercase tracking-widest text-slate-800 bg-transparent border-none outline-none cursor-pointer" 
-              />
-            ) : filterMode === "monthly" ? (
-              <input 
-                type="month" 
-                value={selectedMonth} 
-                onChange={(e) => setSelectedMonth(e.target.value)} 
-                className="text-[10px] font-black uppercase tracking-widest text-slate-800 bg-transparent border-none outline-none cursor-pointer" 
-              />
-            ) : (
-              <input 
-                type="number" 
-                value={selectedYear} 
-                onChange={(e) => setSelectedYear(e.target.value)} 
-                className="text-[10px] font-black uppercase tracking-widest text-slate-800 bg-transparent border-none outline-none cursor-pointer w-20" 
-              />
-            )}
-          </div>
+          {/* Row 2: Action Buttons (Tampilkan, Excel, PDF) */}
+          <div className="grid grid-cols-3 sm:flex sm:items-center sm:justify-end gap-1.5 sm:gap-2 w-full">
+            <Button 
+              onClick={handleCheck} 
+              disabled={loading} 
+              className="rounded-xl sm:rounded-2xl bg-slate-900 hover:bg-slate-800 text-white px-3 sm:px-6 h-9 sm:h-10 font-black uppercase tracking-tight sm:tracking-widest text-[8.5px] sm:text-[9px] gap-1.5 shadow-md flex items-center justify-center"
+            >
+              <Search className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">Tampilkan</span>
+            </Button>
 
-          <Button 
-            onClick={handleCheck} 
-            disabled={loading} 
-            className="rounded-2xl bg-slate-900 hover:bg-slate-800 text-white px-6 h-11 font-black uppercase tracking-widest text-[9px] gap-2 shadow-md"
-          >
-            <Search className="h-3.5 w-3.5" /> Tampilkan
-          </Button>
-
-          <div className="flex items-center gap-1.5">
             <Button
               variant="outline"
               onClick={handleExportExcel}
               disabled={loading}
-              className="rounded-2xl border-slate-200 h-11 px-3 text-[9px] font-black uppercase tracking-wider text-slate-700 bg-white hover:bg-slate-50 gap-1.5 shadow-sm"
+              className="rounded-xl sm:rounded-2xl border-slate-200 h-9 sm:h-10 px-2 sm:px-4 text-[8.5px] sm:text-[9px] font-black uppercase tracking-tight sm:tracking-wider text-slate-700 bg-white hover:bg-slate-50 gap-1.5 shadow-sm flex items-center justify-center"
               title="Export Excel"
             >
-              <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" /> Excel
+              <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600 shrink-0" /> <span className="truncate">Excel</span>
             </Button>
             <Button
               variant="outline"
               onClick={handleExportPDF}
               disabled={loading}
-              className="rounded-2xl border-slate-200 h-11 px-3 text-[9px] font-black uppercase tracking-wider text-slate-700 bg-white hover:bg-slate-50 gap-1.5 shadow-sm"
+              className="rounded-xl sm:rounded-2xl border-slate-200 h-9 sm:h-10 px-2 sm:px-4 text-[8.5px] sm:text-[9px] font-black uppercase tracking-tight sm:tracking-wider text-slate-700 bg-white hover:bg-slate-50 gap-1.5 shadow-sm flex items-center justify-center"
               title="Export PDF"
             >
-              <FileDown className="h-3.5 w-3.5 text-primary" /> PDF
+              <FileDown className="h-3.5 w-3.5 text-primary shrink-0" /> <span className="truncate">PDF</span>
             </Button>
           </div>
         </div>
@@ -596,10 +675,10 @@ export default function LabaRugiBersihPage() {
                 const items = log.items || [];
                 let logTotal = 0;
                 if (items.length > 0) {
-                  logTotal = items.reduce((s: number, it: any) => {
-                    const price = it.price ?? it.purchasePrice ?? it.harga ?? it.hargaBeli ?? 0;
-                    const qty = it.qty ?? it.jumlah ?? 1;
-                    return s + (Number(price) * Number(qty));
+                  logTotal = items.reduce((s: number, it: PembelianItem) => {
+                    const price = Number(it.price ?? it.purchasePrice ?? it.harga ?? it.hargaBeli ?? 0);
+                    const qty = Number(it.qty ?? it.jumlah ?? 1);
+                    return s + (price * qty);
                   }, 0);
                 } else {
                   logTotal = Number(log.total ?? log.totalBelanja ?? log.grandTotal ?? log.nominal ?? 0);
@@ -628,9 +707,9 @@ export default function LabaRugiBersihPage() {
 
                     <div className="space-y-1 pl-1">
                       {items.length > 0 ? (
-                        items.map((it: any, itemIdx: number) => {
-                          const itPrice = it.price ?? it.purchasePrice ?? it.harga ?? it.hargaBeli ?? 0;
-                          const itQty = it.qty ?? it.jumlah ?? 1;
+                        items.map((it: PembelianItem, itemIdx: number) => {
+                          const itPrice = Number(it.price ?? it.purchasePrice ?? it.harga ?? it.hargaBeli ?? 0);
+                          const itQty = Number(it.qty ?? it.jumlah ?? 1);
                           return (
                             <div key={itemIdx} className="flex justify-between items-center text-[10px] text-slate-600">
                               <span className="font-bold truncate pr-2">

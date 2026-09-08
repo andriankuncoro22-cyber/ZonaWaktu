@@ -18,9 +18,6 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  experimental: {
-    workerThreads: false,
-  },
 };
 
 export default nextConfig;

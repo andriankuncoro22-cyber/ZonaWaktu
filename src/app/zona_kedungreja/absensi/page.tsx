@@ -23,6 +23,7 @@ import { addDoc, updateDoc, query, where, getDocs, serverTimestamp, orderBy, lim
 import { cn } from "@/lib/utils";
 import { uploadToCloudinary } from "@/lib/cloudinary";
 import { normalizeBranchId } from "@/lib/branch-helper";
+import { loginWithFirebaseAuth, logoutWithFirebaseAuth } from "@/lib/auth-service";
 
 // --- Types ---
 interface KaryawanUser {
@@ -169,90 +170,40 @@ export default function KedungrejaAbsensiPage() {
     
     setLoading(true);
     try {
-      let userData: KaryawanUser | null = null;
+      const res = await loginWithFirebaseAuth(db, inputUsername, inputPassword, {
+        expectedRole: "employee",
+        expectedBranch: "kedungreja",
+        storageKey: "absensi_user_kedungreja",
+        branchStorageKey: "current_branch",
+      });
 
-      // 1. FAST PATH (Super Fast Single Doc Read & Low Traffic): Cek dokumen employee_credentials Kedungreja
-      const docNames = ["absensi_logins_kedungreja", "logins_kedungreja"];
-      for (const docName of docNames) {
-        if (userData) break;
-        try {
-          const credSnap = await getDoc(doc(db, "employee_credentials", docName));
-          if (credSnap.exists()) {
-            const users = credSnap.data().users || [];
-            const credUser = users.find((u: Record<string, unknown>) => 
-              String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
-              String(u.password || "").trim() === inputPassword
-            );
-            if (credUser) {
-              userData = {
-                id: credUser.id || `emp_${credUser.username}`,
-                nama: credUser.nama || credUser.username,
-                username: credUser.username,
-                cabang: credUser.cabang || "kedungreja",
-                ...credUser
-              } as KaryawanUser;
-            }
-          }
-        } catch (credErr) {
-          console.warn("Fast cred read warning:", credErr);
-        }
+      if (!res.success || !res.user) {
+        alert(res.error || "Username atau Password salah! Pastikan huruf besar/kecil dan spasi sudah sesuai.");
+        return;
       }
 
-      // 2. FALLBACK: Jika belum ketemu di kredensial cepat, query langsung ke koleksi karyawan
-      if (!userData) {
-        const q = query(
-          collection(db, "karyawan"), 
-          where("username", "==", inputUsername), 
-          where("password", "==", inputPassword)
-        );
-        const snapshot = await getDocs(q);
-        if (!snapshot.empty) {
-          userData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as KaryawanUser;
-        } else {
-          // Fallback case-insensitive
-          const allKaryawanSnap = await getDocs(collection(db, "karyawan"));
-          const foundDoc = allKaryawanSnap.docs.find(d => {
-            const dData = d.data();
-            return (
-              String(dData.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
-              String(dData.password || "").trim() === inputPassword
-            );
-          });
-          if (foundDoc) {
-            userData = { id: foundDoc.id, ...foundDoc.data() } as KaryawanUser;
-          }
-        }
-      }
+      const userData: KaryawanUser = {
+        id: res.user.id || `emp_${res.user.username}`,
+        nama: res.user.nama || res.user.username,
+        username: res.user.username,
+        cabang: res.user.cabang || "kedungreja",
+        ...res.user
+      };
 
-      if (userData) {
-        const userCabang = normalizeBranchId(userData.cabang);
-        if (userCabang !== "kedungreja") {
-          alert(`Akses Ditolak: Akun Anda terdaftar di Cabang ${userCabang === 'tehwarga' ? 'Teh Warga' : 'Zona Waktu Gandrungmangu'}. Akun tidak dapat digunakan di Portal Absensi Kedungreja.`);
-          return;
-        }
-
-        setUser(userData);
-        try {
-          localStorage.setItem("absensi_user_kedungreja", JSON.stringify(userData));
-          localStorage.setItem("current_branch", "kedungreja");
-        } catch (storageErr) {
-          console.warn("Storage error on mobile webview:", storageErr);
-        }
-        setLoginData({ username: "", password: "" }); 
-        await fetchAttendanceData(userData.id);
-      } else {
-        alert("Username atau Password salah! Pastikan huruf besar/kecil dan spasi sudah sesuai.");
-      }
-    } catch (err) {
+      setUser(userData);
+      setLoginData({ username: "", password: "" }); 
+      await fetchAttendanceData(userData.id);
+    } catch (err: unknown) {
       console.error("Login error", err);
-      alert("Terjadi kesalahan sistem saat login. Periksa koneksi internet Anda.");
+      const errMsg = err instanceof Error ? err.message : "Terjadi kesalahan sistem saat login.";
+      alert(errMsg);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem("absensi_user_kedungreja");
+  const handleLogout = async () => {
+    await logoutWithFirebaseAuth(["absensi_user_kedungreja"]);
     setUser(null);
     setAttendanceToday(null);
     setHistory([]);
@@ -535,7 +486,7 @@ export default function KedungrejaAbsensiPage() {
 
   if (checkingAuth) {
     return (
-      <div className="min-h-screen bg-[#8b1a1a] flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-[#0a192f] via-[#0f224a] to-[#1e3a8a] flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-white border-t-transparent"></div>
       </div>
     );
@@ -543,7 +494,7 @@ export default function KedungrejaAbsensiPage() {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-[#8b1a1a] flex flex-col items-center justify-center p-6 relative overflow-hidden font-sans">
+      <div className="min-h-screen bg-gradient-to-br from-[#0a192f] via-[#0f224a] to-[#1e3a8a] flex flex-col items-center justify-center p-6 relative overflow-hidden font-sans">
         <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: "radial-gradient(circle, white 1px, transparent 1px)", backgroundSize: "30px 30px" }}></div>
         
         <Card className="w-full max-w-md rounded-[3rem] p-12 bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-700 relative z-10">
@@ -624,7 +575,7 @@ export default function KedungrejaAbsensiPage() {
         </div>
       </div>
 
-      <Card className="w-full max-w-2xl bg-[#8b1a1a] rounded-[3rem] p-10 md:p-16 text-white shadow-2xl shadow-primary/20 relative overflow-hidden mb-8">
+      <Card className="w-full max-w-2xl bg-gradient-to-br from-[#0a192f] via-[#0f224a] to-[#1e3a8a] rounded-[3rem] p-10 md:p-16 text-white shadow-2xl shadow-primary/20 relative overflow-hidden mb-8">
         <div className="relative z-10">
           <p className="text-xs font-black uppercase tracking-widest opacity-60 mb-4 tabular-nums">
             {currentTime.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}

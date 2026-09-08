@@ -9,6 +9,73 @@ import { Calendar, Search, ShoppingBag, TrendingUp, Wallet, Package } from "luci
 import { cn } from "@/lib/utils";
 import { calculateRecipeIngredientCost } from "@/lib/hpp";
 
+interface ProductItem {
+  id: string;
+  code?: string;
+  kode?: string;
+  nama?: string;
+  name?: string;
+  kategori?: string;
+}
+
+interface RecipeCompositionItem {
+  bahanBakuId: string;
+  jumlah: number | string;
+  satuan?: string;
+}
+
+interface RecipeItem {
+  id: string;
+  produkId?: string;
+  kodeProduk?: string;
+  namaProduk?: string;
+  type?: string;
+  bahanBakuId?: string;
+  namaPelengkap?: string;
+  komposisi?: RecipeCompositionItem[];
+}
+
+interface MaterialItem {
+  id: string;
+  nama?: string;
+  qtyKecil?: number | string;
+  currentPrice?: number | string;
+  avgPrice?: number | string;
+  hargaBeliSatuanBesar?: number | string;
+  hargaSatuanKecil?: number | string;
+}
+
+interface ClosingItemDoc {
+  code?: string;
+  kode?: string;
+  name?: string;
+  nama?: string;
+  produkId?: string;
+  id?: string;
+  kategori?: string;
+  total?: number | string;
+  qty?: number | string;
+  pendapatan?: number | string;
+  totalHarga?: number | string;
+  price?: number | string;
+}
+
+interface ClosingPenjualanDoc {
+  id: string;
+  tanggal?: string;
+  items?: ClosingItemDoc[];
+}
+
+interface ProductSummaryItem {
+  code: string;
+  name: string;
+  kategori: string;
+  totalQty: number;
+  totalJual: number;
+  totalHpp: number;
+  labaKotor: number;
+}
+
 export default function HppReportPage() {
   const db = useFirestore();
 
@@ -45,51 +112,52 @@ export default function HppReportPage() {
 
   const filteredData = useMemo(() => {
     if (!rawData) return [];
-    if (appliedType === "daily") return rawData;
-    return rawData.filter((doc: any) => doc.tanggal?.startsWith(appliedMonth)) || [];
+    if (appliedType === "daily") return rawData as unknown as ClosingPenjualanDoc[];
+    return (rawData as unknown as ClosingPenjualanDoc[]).filter((doc: ClosingPenjualanDoc) => doc.tanggal?.startsWith(appliedMonth)) || [];
   }, [rawData, appliedType, appliedMonth]);
 
   const productCodeMap = useMemo(() => {
     const map: Record<string, string> = {};
-    products?.forEach((product: any) => {
+    (products as unknown as ProductItem[])?.forEach((product: ProductItem) => {
       if (product.code) map[product.code] = product.id;
     });
     return map;
   }, [products]);
 
   const recipeMap = useMemo(() => {
-    const map: Record<string, any[]> = {};
-    recipes?.forEach((recipe: any) => {
+    const map: Record<string, RecipeCompositionItem[]> = {};
+    (recipes as unknown as RecipeItem[])?.forEach((recipe: RecipeItem) => {
       if (recipe.produkId) map[recipe.produkId] = recipe.komposisi || [];
     });
     return map;
   }, [recipes]);
 
   const materialMap = useMemo(() => {
-    const map: Record<string, any> = {};
-    materials?.forEach((material: any) => {
+    const map: Record<string, MaterialItem> = {};
+    (materials as unknown as MaterialItem[])?.forEach((material: MaterialItem) => {
       map[material.id] = material;
     });
     return map;
   }, [materials]);
 
   const productSummary = useMemo(() => {
-    const summary: Record<string, any> = {};
+    const summary: Record<string, ProductSummaryItem> = {};
 
-    const findProduct = (itemCode?: string, itemName?: string, itemId?: string) => {
-      if (!products || !products.length) return null;
+    const findProduct = (itemCode?: string, itemName?: string, itemId?: string): ProductItem | null => {
+      const productList = products as unknown as ProductItem[] | undefined;
+      if (!productList || !productList.length) return null;
       const rawCode = itemCode?.trim().toUpperCase();
       const cleanCode = rawCode?.replace(/[\s-_]/g, '');
       const rawName = itemName?.trim().toLowerCase();
 
       // 1. Match by product ID
       if (itemId) {
-        const byId = products.find((p: any) => p.id === itemId);
+        const byId = productList.find((p: ProductItem) => p.id === itemId);
         if (byId) return byId;
       }
       // 2. Match by exact code or normalized code
       if (rawCode) {
-        const byCode = products.find((p: any) => {
+        const byCode = productList.find((p: ProductItem) => {
           const pCode = p.code?.trim().toUpperCase();
           if (!pCode) return false;
           const pClean = pCode.replace(/[\s-_]/g, '');
@@ -99,14 +167,14 @@ export default function HppReportPage() {
       }
       // 3. Match by Name
       if (rawName) {
-        const byName = products.find((p: any) => p.nama?.trim().toLowerCase() === rawName);
+        const byName = productList.find((p: ProductItem) => p.nama?.trim().toLowerCase() === rawName);
         if (byName) return byName;
       }
       return null;
     };
 
-    filteredData.forEach((closing: any) => {
-      closing.items?.forEach((item: any) => {
+    filteredData.forEach((closing: ClosingPenjualanDoc) => {
+      closing.items?.forEach((item: ClosingItemDoc) => {
         const matchedProduct = findProduct(item.code || item.kode, item.name || item.nama, item.produkId || item.id);
         
         const finalCode = matchedProduct?.code || item.code || item.kode || "-";
@@ -128,9 +196,9 @@ export default function HppReportPage() {
 
         const qty = Number(item.total ?? item.qty ?? 0);
         const jual = Number(item.pendapatan ?? item.totalHarga ?? (qty * Number(item.price || 0)));
-        const productId = matchedProduct?.id || productCodeMap[item.code] || productCodeMap[item.kode];
+        const productId = matchedProduct?.id || (item.code ? productCodeMap[item.code] : undefined) || (item.kode ? productCodeMap[item.kode] : undefined);
         
-        const recipeObj = recipes?.find((r: any) => 
+        const recipeObj = (recipes as unknown as RecipeItem[])?.find((r: RecipeItem) => 
           (productId && r.produkId === productId) || 
           (finalCode !== "-" && r.kodeProduk?.trim().toUpperCase() === finalCode.toUpperCase()) ||
           (finalName !== "-" && r.namaProduk?.trim().toLowerCase() === finalName.toLowerCase())
@@ -139,17 +207,17 @@ export default function HppReportPage() {
         const composition = recipeObj?.komposisi || (productId ? recipeMap[productId] : []) || [];
         let hpp = 0;
 
-        composition.forEach((ingredient: any) => {
+        composition.forEach((ingredient: RecipeCompositionItem) => {
           const material = materialMap[ingredient?.bahanBakuId];
           if (!material) return;
 
           // Cek jika bahan baku merupakan hasil racikan / pembuatan sendiri
-          const pelengkapRecipe = recipes?.find(
-            (r: any) => r.type === "pelengkap" && (r.bahanBakuId === material.id || (!r.bahanBakuId && r.namaPelengkap?.trim().toLowerCase() === material.nama?.trim().toLowerCase()))
+          const pelengkapRecipe = (recipes as unknown as RecipeItem[])?.find(
+            (r: RecipeItem) => r.type === "pelengkap" && (r.bahanBakuId === material.id || (!r.bahanBakuId && r.namaPelengkap?.trim().toLowerCase() === material.nama?.trim().toLowerCase()))
           );
 
           if (pelengkapRecipe && pelengkapRecipe.komposisi?.length) {
-            const batchCost = pelengkapRecipe.komposisi.reduce((sum: number, comp: any) => {
+            const batchCost = pelengkapRecipe.komposisi.reduce((sum: number, comp: RecipeCompositionItem) => {
               const ingMat = materialMap[comp.bahanBakuId];
               if (!ingMat) return sum;
               const ingConversion = Number(ingMat.qtyKecil) || 1;
@@ -176,7 +244,7 @@ export default function HppReportPage() {
       });
     });
 
-    return Object.values(summary).sort((a: any, b: any) =>
+    return Object.values(summary).sort((a: ProductSummaryItem, b: ProductSummaryItem) =>
       (a.code || "").localeCompare(b.code || "", undefined, { numeric: true, sensitivity: 'base' })
     );
   }, [filteredData, materialMap, productCodeMap, recipeMap, products, recipes]);
@@ -201,56 +269,58 @@ export default function HppReportPage() {
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Ringkasan produk terjual dan biaya bahan baku per periode</p>
         </div>
 
-        <div className="flex flex-wrap gap-3 items-center">
-          <div className="bg-white p-1 rounded-2xl shadow-sm border border-slate-100 flex items-center">
-            <Button
-              variant="ghost"
-              onClick={() => setReportType("daily")}
-              className={cn(
-                "rounded-xl px-4 h-10 text-[9px] font-black uppercase tracking-widest transition-all",
-                reportType === "daily" ? "bg-primary text-white shadow-lg" : "text-slate-500"
-              )}
-            >
-              Harian
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => setReportType("monthly")}
-              className={cn(
-                "rounded-xl px-4 h-10 text-[9px] font-black uppercase tracking-widest transition-all",
-                reportType === "monthly" ? "bg-primary text-white shadow-lg" : "text-slate-500"
-              )}
-            >
-              Bulanan
-            </Button>
-          </div>
+        <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center sm:justify-end w-full md:w-auto">
+          <div className="grid grid-cols-2 sm:flex sm:items-center gap-2">
+            <div className="bg-white p-1 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+              <Button
+                variant="ghost"
+                onClick={() => setReportType("daily")}
+                className={cn(
+                  "flex-1 sm:flex-none rounded-xl px-3 sm:px-4 h-9 sm:h-10 text-[9px] font-black uppercase tracking-wider transition-all",
+                  reportType === "daily" ? "bg-primary text-white shadow-md" : "text-slate-500"
+                )}
+              >
+                Harian
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setReportType("monthly")}
+                className={cn(
+                  "flex-1 sm:flex-none rounded-xl px-3 sm:px-4 h-9 sm:h-10 text-[9px] font-black uppercase tracking-wider transition-all",
+                  reportType === "monthly" ? "bg-primary text-white shadow-md" : "text-slate-500"
+                )}
+              >
+                Bulanan
+              </Button>
+            </div>
 
-          <div className="bg-white px-4 py-2 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-3">
-            <Calendar className="h-4 w-4 text-primary" />
-            {reportType === "daily" ? (
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="text-[10px] font-black uppercase tracking-widest text-slate-700 bg-transparent border-none outline-none cursor-pointer"
-              />
-            ) : (
-              <input
-                type="month"
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-                className="text-[10px] font-black uppercase tracking-widest text-slate-700 bg-transparent border-none outline-none cursor-pointer"
-              />
-            )}
+            <div className="bg-white px-3 py-1.5 sm:py-2 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center gap-2 min-h-[38px] sm:min-h-[42px]">
+              <Calendar className="h-4 w-4 text-primary shrink-0" />
+              {reportType === "daily" ? (
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="text-[10px] font-black uppercase tracking-wider text-slate-700 bg-transparent border-none outline-none cursor-pointer w-full text-center sm:text-left"
+                />
+              ) : (
+                <input
+                  type="month"
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                  className="text-[10px] font-black uppercase tracking-wider text-slate-700 bg-transparent border-none outline-none cursor-pointer w-full text-center sm:text-left"
+                />
+              )}
+            </div>
           </div>
 
           <Button
             onClick={handleCheck}
             disabled={loading}
-            className="rounded-2xl bg-slate-900 hover:bg-slate-800 text-white px-8 h-12 font-black uppercase tracking-widest text-[10px] gap-2 shadow-lg"
+            className="rounded-xl sm:rounded-2xl bg-slate-900 hover:bg-slate-800 text-white px-5 sm:px-8 h-10 sm:h-12 font-black uppercase tracking-widest text-[9px] sm:text-[10px] gap-2 shadow-md w-full sm:w-auto shrink-0 flex items-center justify-center"
           >
             <Search className="h-4 w-4" />
-            Tampilkan Data
+            <span>Tampilkan Data</span>
           </Button>
         </div>
       </div>
@@ -316,7 +386,7 @@ export default function HppReportPage() {
                   <td colSpan={8} className="py-16 text-center text-slate-500">Memuat data...</td>
                 </tr>
               ) : productSummary.length > 0 ? (
-                productSummary.map((item: any) => (
+                productSummary.map((item: ProductSummaryItem) => (
                   <tr key={item.code} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-6 py-4">
                       <div className="inline-flex px-3 py-1 rounded-lg bg-primary/5 border border-primary/10 text-[10px] font-bold text-primary">
@@ -358,7 +428,7 @@ export default function HppReportPage() {
             </div>
           ) : productSummary.length > 0 ? (
             <div className="p-4 space-y-4 bg-slate-50/30">
-              {productSummary.map((item: any) => (
+              {productSummary.map((item: ProductSummaryItem) => (
                 <Card key={item.code} className="rounded-[1.5rem] bg-white border border-slate-100 p-4 shadow-sm hover:shadow-md transition-shadow relative">
                   <div className="flex justify-between items-start gap-2 mb-3">
                     <div className="space-y-1">

@@ -1,27 +1,46 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Coffee, ArrowLeft, Eye, EyeOff } from "lucide-react";
+import { Coffee, ArrowLeft, Eye, EyeOff, Loader2 } from "lucide-react";
+import { loginWithFirebaseAuth } from "@/lib/auth-service";
 
 export default function OwnerLoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
 
-  const handleLogin = () => {
-    if (username === "zonagdm" && password === "ownerzona") {
+  useEffect(() => {
+    localStorage.setItem("current_branch", "gdm");
+    document.documentElement.setAttribute("data-branch", "gdm");
+  }, []);
+
+  const handleLogin = async () => {
+    setLoading(true);
+    setError("");
+
+    const result = await loginWithFirebaseAuth({
+      username,
+      password,
+      expectedRole: "owner",
+      expectedBranch: "gdm"
+    });
+
+    if (result.success) {
       localStorage.setItem("current_branch", "gdm");
+      localStorage.setItem("user_role", "owner");
       setUsername("");
       setPassword("");
       router.push("/dashboard");
     } else {
-      setError("Username atau password salah");
+      setError(result.error || "Username atau password salah");
+      setLoading(false);
     }
   };
 
@@ -53,6 +72,8 @@ export default function OwnerLoginPage() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="bg-black/20 border-white/30 text-white"
+                placeholder="zonagdm"
+                disabled={loading}
               />
             </div>
             <div className="space-y-2">
@@ -64,6 +85,7 @@ export default function OwnerLoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="bg-black/20 border-white/30 text-white pr-10"
+                  disabled={loading}
                 />
                 <div className="absolute inset-y-0 right-2 flex items-center">
                   <Button
@@ -72,15 +94,21 @@ export default function OwnerLoginPage() {
                     onClick={() => setShowPassword((s) => !s)}
                     className="text-white/80 bg-transparent hover:bg-white/10"
                     type="button"
+                    disabled={loading}
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
                 </div>
               </div>
             </div>
-            {error && <p className="text-red-400 text-sm">{error}</p>}
-            <Button onClick={handleLogin} className="w-full bg-white text-[#8b1a1a] hover:bg-slate-100 font-bold uppercase tracking-widest">
-              Login
+            {error && <p className="text-red-400 text-sm font-semibold">{error}</p>}
+            <Button 
+              onClick={handleLogin} 
+              disabled={loading}
+              className="w-full bg-white text-[#8b1a1a] hover:bg-slate-100 font-bold uppercase tracking-widest"
+            >
+              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {loading ? "Memproses..." : "Login Owner"}
             </Button>
           </div>
         </div>

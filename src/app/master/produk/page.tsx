@@ -248,7 +248,7 @@ export default function ProdukPage() {
         Manajemen Katalog Produk & Penetapan Harga Dasar (Murni Katalog / Standalone) • Zona Waktu
       </p>
     </div>
-        <div className="flex gap-3 flex-wrap items-center">
+        <div className="grid grid-cols-3 gap-1.5 sm:flex sm:items-center sm:gap-3 w-full md:w-auto">
           <input 
             type="file" 
             ref={fileInputRef} 
@@ -256,35 +256,32 @@ export default function ProdukPage() {
             accept=".xlsx, .xls" 
             className="hidden" 
           />
-          <div className="flex items-center gap-2 bg-white p-1 rounded-2xl shadow-sm border border-slate-100">
-            <Button 
-              variant="ghost"
-              onClick={() => fileInputRef.current?.click()}
-              className="rounded-xl px-4 font-bold h-10 text-[10px] uppercase tracking-wider gap-2 text-slate-700 hover:bg-slate-50"
-            >
-              <FileUp className="h-4 w-4 text-primary" />
-              Import
-            </Button>
-            <div className="w-[1px] h-6 bg-slate-100" />
-            <Button 
-              variant="ghost"
-              onClick={handleExportPDF}
-              className="rounded-xl px-4 font-bold h-10 text-[10px] uppercase tracking-wider gap-2 text-slate-700 hover:bg-slate-50"
-            >
-              <FileDown className="h-4 w-4 text-primary" />
-              PDF
-            </Button>
-          </div>
+          <Button 
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            className="rounded-xl sm:rounded-2xl border-slate-200 bg-white hover:bg-slate-50 font-black h-10 sm:h-12 text-[8px] sm:text-[10px] uppercase tracking-wider gap-1 sm:gap-2 text-slate-700 shadow-sm flex items-center justify-center text-center px-1.5 sm:px-4 w-full sm:w-auto"
+          >
+            <FileUp className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary shrink-0" />
+            <span>Import</span>
+          </Button>
 
+          <Button 
+            variant="outline"
+            onClick={handleExportPDF}
+            className="rounded-xl sm:rounded-2xl border-slate-200 bg-white hover:bg-slate-50 font-black h-10 sm:h-12 text-[8px] sm:text-[10px] uppercase tracking-wider gap-1 sm:gap-2 text-slate-700 shadow-sm flex items-center justify-center text-center px-1.5 sm:px-4 w-full sm:w-auto"
+          >
+            <FileDown className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary shrink-0" />
+            <span>PDF</span>
+          </Button>
 
           <Dialog open={isDialogOpen} onOpenChange={(open) => {
             setIsDialogOpen(open);
             if (!open) setEditingItem(null);
           }}>
             <DialogTrigger asChild>
-              <Button className="rounded-2xl bg-primary hover:bg-primary/90 px-8 font-black shadow-xl shadow-primary/20 h-12 uppercase tracking-widest text-[10px] gap-2 border-none">
-                <Plus className="h-4 w-4" />
-                Produk Baru
+              <Button className="rounded-xl sm:rounded-2xl bg-primary hover:bg-primary/90 px-1.5 sm:px-8 font-black shadow-lg sm:shadow-xl shadow-primary/20 h-10 sm:h-12 uppercase tracking-wider sm:tracking-widest text-[8px] sm:text-[10px] gap-1 sm:gap-2 border-none flex items-center justify-center text-center w-full sm:w-auto">
+                <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+                <span className="truncate">Produk Baru</span>
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-md rounded-[2.5rem] p-10 border-none shadow-2xl">

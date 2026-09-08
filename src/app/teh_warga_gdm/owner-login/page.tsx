@@ -5,24 +5,29 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CupSoda, ArrowLeft, Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { CupSoda, ArrowLeft, Eye, EyeOff, ShieldCheck, Loader2 } from "lucide-react";
+import { loginWithFirebaseAuth } from "@/lib/auth-service";
 
 export default function TehWargaOwnerLoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
 
-  const handleLogin = () => {
-    const inputUser = username.trim();
-    const inputPass = password.trim();
+  const handleLogin = async () => {
+    setLoading(true);
+    setError("");
 
-    if (
-      (inputUser === "tehgdm" && inputPass === "ownerteh") ||
-      (inputUser === "tehwargagdm" && inputPass === "ownerteh") ||
-      (inputUser === "zonatehwarga" && inputPass === "ownerteh")
-    ) {
+    const result = await loginWithFirebaseAuth({
+      username,
+      password,
+      expectedRole: "owner",
+      expectedBranch: "tehwarga"
+    });
+
+    if (result.success) {
       localStorage.setItem("current_branch", "tehwarga");
       localStorage.setItem("user_role", "owner");
       document.documentElement.setAttribute("data-branch", "tehwarga");
@@ -31,7 +36,8 @@ export default function TehWargaOwnerLoginPage() {
       setPassword("");
       router.push("/dashboard");
     } else {
-      setError("Username atau password owner Teh Warga salah. Akun toko lain tidak dapat mengakses cabang ini.");
+      setError(result.error || "Username atau password owner Teh Warga salah.");
+      setLoading(false);
     }
   };
 

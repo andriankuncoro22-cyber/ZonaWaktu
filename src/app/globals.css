@@ -42,6 +42,32 @@
     --theme-muted: #64748b;
   }
 
+  /* Kusus Tema Toko 1 - Zona Waktu Cabang Gandrungmangu (Merah Marun) */
+  html[data-branch="gdm"],
+  body.theme-gdm,
+  [data-branch="gdm"] {
+    --primary: 0 72% 35%; /* Merah Marun */
+    --primary-foreground: 210 20% 98%;
+    --ring: 0 72% 35%;
+    --accent: 0 72% 96%;
+    --accent-foreground: 222 47% 11%;
+    --theme-primary: #8b1a1a;
+    --theme-primary-foreground: #fffdf7;
+  }
+
+  /* Kusus Tema Toko 2 - Zona Waktu Cabang Kedungreja (Dominasi Biru Tua / Deep Navy Blue) */
+  html[data-branch="kedungreja"],
+  body.theme-kedungreja,
+  [data-branch="kedungreja"] {
+    --primary: 221 83% 36%; /* Deep Navy Blue */
+    --primary-foreground: 210 100% 98%;
+    --ring: 221 83% 36%;
+    --accent: 214 95% 93%;
+    --accent-foreground: 224 71% 15%;
+    --theme-primary: #0f224a; /* Biru Tua Navy */
+    --theme-primary-foreground: #f0f9ff;
+  }
+
   /* Kusus Tema Toko 3 - Teh Warga Gandrungmangu (Dominasi Hijau Segar) */
   html[data-branch="tehwarga"],
   body.theme-tehwarga,
@@ -69,6 +95,12 @@
   ::selection {
     background-color: rgba(139, 26, 26, 0.2);
     color: #111827;
+  }
+
+  html[data-branch="kedungreja"] ::selection,
+  [data-branch="kedungreja"] ::selection {
+    background-color: rgba(15, 34, 74, 0.25);
+    color: #0f172a;
   }
 
   html[data-branch="tehwarga"] ::selection,

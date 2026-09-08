@@ -301,40 +301,42 @@ export default function LaporanPemakaianBahanBakuPage() {
         <TabsContent value="harian">
           <Card className="rounded-[2.5rem] border-none shadow-sm bg-white overflow-hidden">
             {/* Controls */}
-            <div className="p-6 md:p-8 border-b border-slate-50 flex flex-wrap items-end gap-4">
-              <div className="flex flex-col gap-1">
-                <label className="text-[9px] font-black uppercase tracking-widest text-slate-500">
-                  Tanggal
-                </label>
-                <input
-                  type="date"
-                  value={hariDate}
-                  onChange={(e) => {
-                    setHariDate(e.target.value);
-                    setHariRows(null);
-                  }}
-                  className="h-12 px-4 rounded-xl bg-slate-50 border-none text-xs font-black text-slate-800 outline-none focus:ring-2 focus:ring-primary/20"
-                />
+            <div className="p-4 sm:p-6 md:p-8 border-b border-slate-50 flex flex-col md:flex-row md:items-end gap-3 md:gap-4">
+              <div className="grid grid-cols-2 gap-2 items-end w-full md:w-auto md:flex md:items-end md:gap-4">
+                <div className="flex flex-col gap-1 w-full md:w-auto">
+                  <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 truncate">
+                    Tanggal
+                  </label>
+                  <input
+                    type="date"
+                    value={hariDate}
+                    onChange={(e) => {
+                      setHariDate(e.target.value);
+                      setHariRows(null);
+                    }}
+                    className="h-11 md:h-12 px-3 sm:px-4 rounded-xl bg-slate-50 border border-slate-200/80 text-xs font-black text-slate-800 outline-none focus:ring-2 focus:ring-primary/20 w-full"
+                  />
+                </div>
+                <Button
+                  onClick={() => fetchReport("harian")}
+                  disabled={loadingReport}
+                  className="h-11 md:h-12 px-3 sm:px-8 rounded-xl bg-primary text-white font-black uppercase tracking-widest text-[9.5px] sm:text-[10px] shadow-lg shadow-primary/20 gap-1.5 sm:gap-2 w-full md:w-auto flex items-center justify-center"
+                >
+                  {loadingReport ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4" />
+                  )}
+                  Tampilkan
+                </Button>
               </div>
-              <Button
-                onClick={() => fetchReport("harian")}
-                disabled={loadingReport}
-                className="h-12 px-8 rounded-xl bg-primary text-white font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20 gap-2"
-              >
-                {loadingReport ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
-                Tampilkan
-              </Button>
 
               {hariRows && hariRows.length > 0 && (
-                <>
+                <div className="grid grid-cols-2 gap-2 w-full md:w-auto md:flex md:items-center">
                   <Button
                     variant="outline"
                     onClick={() => exportExcel(hariRows, hariDate)}
-                    className="h-12 px-5 rounded-xl border-slate-200 font-black uppercase tracking-widest text-[9px] gap-2 bg-white"
+                    className="h-11 md:h-12 px-3 sm:px-5 rounded-xl border-slate-200 font-black uppercase tracking-widest text-[9px] gap-1.5 sm:gap-2 bg-white flex items-center justify-center"
                   >
                     <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
                     Excel
@@ -342,12 +344,12 @@ export default function LaporanPemakaianBahanBakuPage() {
                   <Button
                     variant="outline"
                     onClick={() => exportPDF(hariRows, hariDate)}
-                    className="h-12 px-5 rounded-xl border-slate-200 font-black uppercase tracking-widest text-[9px] gap-2 bg-white"
+                    className="h-11 md:h-12 px-3 sm:px-5 rounded-xl border-slate-200 font-black uppercase tracking-widest text-[9px] gap-1.5 sm:gap-2 bg-white flex items-center justify-center"
                   >
                     <FileDown className="h-4 w-4 text-primary" />
                     PDF
                   </Button>
-                </>
+                </div>
               )}
             </div>
 
@@ -385,40 +387,42 @@ export default function LaporanPemakaianBahanBakuPage() {
         <TabsContent value="bulanan">
           <Card className="rounded-[2.5rem] border-none shadow-sm bg-white overflow-hidden">
             {/* Controls */}
-            <div className="p-6 md:p-8 border-b border-slate-50 flex flex-wrap items-end gap-4">
-              <div className="flex flex-col gap-1">
-                <label className="text-[9px] font-black uppercase tracking-widest text-slate-500">
-                  Bulan
-                </label>
-                <input
-                  type="month"
-                  value={bulanYM}
-                  onChange={(e) => {
-                    setBulanYM(e.target.value);
-                    setBulanRows(null);
-                  }}
-                  className="h-12 px-4 rounded-xl bg-slate-50 border-none text-xs font-black text-slate-800 outline-none focus:ring-2 focus:ring-primary/20"
-                />
+            <div className="p-4 sm:p-6 md:p-8 border-b border-slate-50 flex flex-col md:flex-row md:items-end gap-3 md:gap-4">
+              <div className="grid grid-cols-2 gap-2 items-end w-full md:w-auto md:flex md:items-end md:gap-4">
+                <div className="flex flex-col gap-1 w-full md:w-auto">
+                  <label className="text-[9px] font-black uppercase tracking-widest text-slate-500 truncate">
+                    Bulan
+                  </label>
+                  <input
+                    type="month"
+                    value={bulanYM}
+                    onChange={(e) => {
+                      setBulanYM(e.target.value);
+                      setBulanRows(null);
+                    }}
+                    className="h-11 md:h-12 px-3 sm:px-4 rounded-xl bg-slate-50 border border-slate-200/80 text-xs font-black text-slate-800 outline-none focus:ring-2 focus:ring-primary/20 w-full"
+                  />
+                </div>
+                <Button
+                  onClick={() => fetchReport("bulanan")}
+                  disabled={loadingReport}
+                  className="h-11 md:h-12 px-3 sm:px-8 rounded-xl bg-primary text-white font-black uppercase tracking-widest text-[9.5px] sm:text-[10px] shadow-lg shadow-primary/20 gap-1.5 sm:gap-2 w-full md:w-auto flex items-center justify-center"
+                >
+                  {loadingReport ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4" />
+                  )}
+                  Tampilkan
+                </Button>
               </div>
-              <Button
-                onClick={() => fetchReport("bulanan")}
-                disabled={loadingReport}
-                className="h-12 px-8 rounded-xl bg-primary text-white font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20 gap-2"
-              >
-                {loadingReport ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
-                Tampilkan
-              </Button>
 
               {bulanRows && bulanRows.length > 0 && (
-                <>
+                <div className="grid grid-cols-2 gap-2 w-full md:w-auto md:flex md:items-center">
                   <Button
                     variant="outline"
                     onClick={() => exportExcel(bulanRows, monthLabel(bulanYM))}
-                    className="h-12 px-5 rounded-xl border-slate-200 font-black uppercase tracking-widest text-[9px] gap-2 bg-white"
+                    className="h-11 md:h-12 px-3 sm:px-5 rounded-xl border-slate-200 font-black uppercase tracking-widest text-[9px] gap-1.5 sm:gap-2 bg-white flex items-center justify-center"
                   >
                     <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
                     Excel
@@ -426,12 +430,12 @@ export default function LaporanPemakaianBahanBakuPage() {
                   <Button
                     variant="outline"
                     onClick={() => exportPDF(bulanRows, monthLabel(bulanYM))}
-                    className="h-12 px-5 rounded-xl border-slate-200 font-black uppercase tracking-widest text-[9px] gap-2 bg-white"
+                    className="h-11 md:h-12 px-3 sm:px-5 rounded-xl border-slate-200 font-black uppercase tracking-widest text-[9px] gap-1.5 sm:gap-2 bg-white flex items-center justify-center"
                   >
                     <FileDown className="h-4 w-4 text-primary" />
                     PDF
                   </Button>
-                </>
+                </div>
               )}
             </div>
 

@@ -505,7 +505,7 @@ export default function MasterBahanBakuPage() {
             Database Logistik & Inventori • Zona Waktu
           </p>
         </div>
-        <div className="flex gap-3 flex-wrap items-center">
+        <div className="grid grid-cols-5 gap-1 sm:flex sm:items-center sm:gap-3 w-full md:w-auto">
           <input 
             type="file" 
             ref={fileInputRef} 
@@ -513,54 +513,56 @@ export default function MasterBahanBakuPage() {
             accept=".xlsx, .xls" 
             className="hidden" 
           />
-          <div className="flex items-center gap-2 bg-white p-1 rounded-2xl shadow-sm border border-slate-100">
-            <Button 
-              variant="ghost"
-              onClick={handleDownloadTemplate}
-              className="rounded-xl px-3 font-bold h-10 text-[10px] uppercase tracking-wider gap-1.5 text-slate-700 hover:bg-slate-50"
-              title="Unduh Format Template Excel"
-            >
-              <Download className="h-4 w-4 text-blue-600" />
-              Template
-            </Button>
-            <div className="w-[1px] h-6 bg-slate-100" />
-            <Button 
-              variant="ghost"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isImporting}
-              className="rounded-xl px-4 font-bold h-10 text-[10px] uppercase tracking-wider gap-2 text-slate-700 hover:bg-slate-50"
-            >
-              {isImporting ? <Loader2 className="h-4 w-4 text-primary animate-spin" /> : <FileUp className="h-4 w-4 text-primary" />}
-              {isImporting ? "Mengimpor..." : "Import Excel"}
-            </Button>
-            <div className="w-[1px] h-6 bg-slate-100" />
-            <Button 
-              variant="ghost"
-              onClick={handleExportExcel}
-              className="rounded-xl px-4 font-bold h-10 text-[10px] uppercase tracking-wider gap-2 text-slate-700 hover:bg-slate-50"
-            >
-              <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-              XLSX
-            </Button>
-            <div className="w-[1px] h-6 bg-slate-100" />
-            <Button 
-              variant="ghost"
-              onClick={handleExportPDF}
-              className="rounded-xl px-4 font-bold h-10 text-[10px] uppercase tracking-wider gap-2 text-slate-700 hover:bg-slate-50"
-            >
-              <FileDown className="h-4 w-4 text-primary" />
-              PDF
-            </Button>
-          </div>
+          
+          <Button 
+            variant="outline"
+            onClick={handleDownloadTemplate}
+            className="rounded-xl sm:rounded-2xl border-slate-200 bg-white hover:bg-slate-50 font-black h-10 sm:h-12 text-[8px] sm:text-[10px] uppercase tracking-wider gap-1 sm:gap-2 text-slate-700 shadow-sm flex items-center justify-center text-center px-1 sm:px-3 w-full sm:w-auto"
+            title="Unduh Format Template Excel"
+          >
+            <Download className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-blue-600 shrink-0" />
+            <span className="truncate">Template</span>
+          </Button>
+
+          <Button 
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isImporting}
+            className="rounded-xl sm:rounded-2xl border-slate-200 bg-white hover:bg-slate-50 font-black h-10 sm:h-12 text-[8px] sm:text-[10px] uppercase tracking-wider gap-1 sm:gap-2 text-slate-700 shadow-sm flex items-center justify-center text-center px-1 sm:px-3 w-full sm:w-auto"
+          >
+            {isImporting ? <Loader2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary animate-spin shrink-0" /> : <FileUp className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary shrink-0" />}
+            <span className="truncate">{isImporting ? "..." : "Import"}</span>
+          </Button>
+
+          <Button 
+            variant="outline"
+            onClick={handleExportExcel}
+            className="rounded-xl sm:rounded-2xl border-slate-200 bg-white hover:bg-slate-50 font-black h-10 sm:h-12 text-[8px] sm:text-[10px] uppercase tracking-wider gap-1 sm:gap-2 text-slate-700 shadow-sm flex items-center justify-center text-center px-1 sm:px-3 w-full sm:w-auto"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 shrink-0" />
+            <span className="truncate">XLSX</span>
+          </Button>
+
+          <Button 
+            variant="outline"
+            onClick={handleExportPDF}
+            className="rounded-xl sm:rounded-2xl border-slate-200 bg-white hover:bg-slate-50 font-black h-10 sm:h-12 text-[8px] sm:text-[10px] uppercase tracking-wider gap-1 sm:gap-2 text-slate-700 shadow-sm flex items-center justify-center text-center px-1 sm:px-3 w-full sm:w-auto"
+          >
+            <FileDown className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary shrink-0" />
+            <span className="truncate">PDF</span>
+          </Button>
 
           <Dialog open={isDialogOpen} onOpenChange={(open) => {
             setIsDialogOpen(open);
             if (!open) setEditingItem(null);
           }}>
             <DialogTrigger asChild>
-              <Button className="rounded-2xl bg-primary hover:bg-primary/90 px-8 font-black shadow-xl shadow-primary/20 h-12 uppercase tracking-widest text-[10px] gap-2 border-none">
-                <Plus className="h-4 w-4" />
-                Bahan Baru
+              <Button className="rounded-xl sm:rounded-2xl bg-primary hover:bg-primary/90 px-1 sm:px-8 font-black shadow-lg sm:shadow-xl shadow-primary/20 h-10 sm:h-12 uppercase tracking-wider sm:tracking-widest text-[8px] sm:text-[10px] gap-1 sm:gap-2 border-none flex items-center justify-center text-center w-full sm:w-auto text-white">
+                <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+                <span className="truncate">
+                  <span className="sm:hidden">+ Bahan</span>
+                  <span className="hidden sm:inline">Bahan Baru</span>
+                </span>
               </Button>
             </DialogTrigger>
             <DialogContent className="w-[95vw] max-w-3xl max-h-[90vh] overflow-y-auto rounded-[1.25rem] border-none p-4 shadow-2xl sm:rounded-[2rem] sm:p-6 md:p-8 lg:p-10">

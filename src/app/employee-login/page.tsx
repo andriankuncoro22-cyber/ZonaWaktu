@@ -1,15 +1,13 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Coffee, Loader2, ArrowLeft, Eye, EyeOff } from "lucide-react";
-import { useFirestore, doc, collection } from "@/firebase";
-import { getDoc, getDocs, query, where } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
-import { normalizeBranchId } from "@/lib/branch-helper";
+import { loginWithFirebaseAuth } from "@/lib/auth-service";
 
 export default function EmployeeLoginPage() {
   const [username, setUsername] = useState("");
@@ -18,8 +16,12 @@ export default function EmployeeLoginPage() {
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
-  const db = useFirestore();
   const { toast } = useToast();
+
+  useEffect(() => {
+    localStorage.setItem("current_branch", "gdm");
+    document.documentElement.setAttribute("data-branch", "gdm");
+  }, []);
 
   const handleLogin = async () => {
     const inputUsername = username.trim();
@@ -34,96 +36,25 @@ export default function EmployeeLoginPage() {
     setError("");
 
     try {
-      let userFound = false;
-      let matchedNama = inputUsername;
+      const result = await loginWithFirebaseAuth({
+        username: inputUsername,
+        password: inputPassword,
+        expectedRole: "employee",
+        expectedBranch: "gdm"
+      });
 
-      // 1. Cek langsung ke koleksi karyawan
-      const q = query(
-        collection(db, "karyawan"),
-        where("username", "==", inputUsername),
-        where("password", "==", inputPassword)
-      );
-      const kSnap = await getDocs(q);
-
-      if (!kSnap.empty) {
-        const kData = kSnap.docs[0].data();
-        const kCabang = (kData.cabang || "gdm").toLowerCase();
-        if (kCabang === "kedungreja") {
-          setError("Akses Ditolak: Akun Anda terdaftar di Cabang Kedungreja (/zona_kedungreja/employee-login).");
-          return;
-        }
-        if (kCabang === "tehwarga") {
-          setError("Akses Ditolak: Akun Anda terdaftar di Cabang Teh Warga (/teh_warga_gdm/employee-login).");
-          return;
-        }
-        userFound = true;
-        matchedNama = kData.nama || inputUsername;
-      } else {
-        // Fallback case-insensitive di koleksi karyawan
-        const allKSnap = await getDocs(collection(db, "karyawan"));
-        const foundDoc = allKSnap.docs.find(d => {
-          const dData = d.data();
-          return (
-            String(dData.username || "").trim().toLowerCase() === inputUsername.toLowerCase() &&
-            String(dData.password || "").trim() === inputPassword
-          );
-        });
-
-        if (foundDoc) {
-          const dData = foundDoc.data();
-          const kCabang = normalizeBranchId(dData.cabang);
-          if (kCabang === "kedungreja") {
-            setError("Akses Ditolak: Akun Anda terdaftar di Cabang Kedungreja (/zona_kedungreja/employee-login).");
-            return;
-          }
-          if (kCabang === "tehwarga") {
-            setError("Akses Ditolak: Akun Anda terdaftar di Cabang Teh Warga (/teh_warga_gdm/employee-login).");
-            return;
-          }
-          userFound = true;
-          matchedNama = dData.nama || inputUsername;
-        }
-      }
-
-      // 2. Cek ke dokumen employee_credentials (system_logins_gdm, logins_gdm, logins)
-      if (!userFound) {
-        const docNames = ["system_logins_gdm", "logins_gdm", "logins"];
-        for (const docName of docNames) {
-          if (userFound) break;
-          const docSnap = await getDoc(doc(db, "employee_credentials", docName));
-          if (docSnap.exists()) {
-            const credentials = docSnap.data().users || [];
-            const user = credentials.find(
-              (u: { username?: string; password?: string; nama?: string; cabang?: string }) => 
-                String(u.username || "").trim().toLowerCase() === inputUsername.toLowerCase() && 
-                String(u.password || "").trim() === inputPassword
-            );
-
-            if (user) {
-              const uCabang = normalizeBranchId(user.cabang);
-              if (uCabang === "kedungreja" || uCabang === "tehwarga") {
-                setError(`Akses Ditolak: Akun Anda terdaftar di Cabang ${uCabang === 'tehwarga' ? 'Teh Warga' : 'Kedungreja'}. Akun tidak dapat digunakan di Outlet Gandrungmangu.`);
-                return;
-              }
-              userFound = true;
-              matchedNama = user.nama || inputUsername;
-            }
-          }
-        }
-      }
-
-      if (userFound) {
+      if (result.success && result.profile) {
         try {
           localStorage.setItem("current_branch", "gdm");
         } catch (storageErr) {
           console.warn("Storage error on mobile webview:", storageErr);
         }
-        toast({ title: "Login Berhasil", description: `Selamat datang, ${matchedNama}!` });
+        toast({ title: "Login Berhasil", description: `Selamat datang, ${result.profile.nama || inputUsername}!` });
         setUsername("");
         setPassword("");
         router.push("/employee/dashboard");
       } else {
-        setError("Username atau password salah. Pastikan huruf besar/kecil dan spasi sudah sesuai.");
+        setError(result.error || "Username atau password salah. Pastikan huruf besar/kecil dan spasi sudah sesuai.");
       }
     } catch (err) {
       setError("Gagal terhubung ke server. Coba lagi nanti.");

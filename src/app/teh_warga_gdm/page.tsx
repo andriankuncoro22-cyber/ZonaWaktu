@@ -3,10 +3,9 @@
 import React, { useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { CupSoda, Menu, Store } from "lucide-react";
+import { CupSoda, Store } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useFirestore, useDoc, useMemoFirebase, doc } from "@/firebase";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
 export default function TehWargaLandingPage() {
   const db = useFirestore();
@@ -54,57 +53,14 @@ export default function TehWargaLandingPage() {
           </Link>
         </div>
 
-        {/* Desktop Login Buttons & Store Switcher */}
-        <div className="hidden md:flex items-center gap-3">
+        {/* Desktop Store Switcher */}
+        <div className="flex items-center gap-3">
           <Link href="/">
-            <Button variant="ghost" className="text-white/80 hover:text-white hover:bg-white/10 border border-white/10 rounded-full px-4 h-10 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
+            <Button variant="ghost" className="text-white/90 hover:text-white hover:bg-white/10 border border-white/20 rounded-full px-4 h-10 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
               <Store className="h-3.5 w-3.5" />
-              Pilih Cabang
+              <span>Pilih Cabang</span>
             </Button>
           </Link>
-          <div className="h-4 w-[1px] bg-white/20 mx-1"></div>
-          <Link href="/teh_warga_gdm/owner-login">
-            <Button variant="ghost" className="text-white hover:bg-white/10 border border-white/20 rounded-full px-5 h-10 text-xs font-black uppercase tracking-widest">
-              Login Owner
-            </Button>
-          </Link>
-          <Link href="/teh_warga_gdm/admin-login">
-            <Button variant="ghost" className="text-white hover:bg-white/10 border border-white/20 rounded-full px-5 h-10 text-xs font-black uppercase tracking-widest">
-              Login Admin
-            </Button>
-          </Link>
-        </div>
-
-        {/* Mobile Hamburger Dropdown */}
-        <div className="md:hidden">
-          <Sheet>
-            <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="text-white hover:bg-white/10 h-10 w-10 rounded-xl">
-                <Menu className="h-6 w-6" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="right" className="bg-[#064e3b] border-none text-white p-8 flex flex-col justify-start gap-4 w-72">
-              <div className="text-[10px] font-black tracking-[0.2em] uppercase mb-2 text-emerald-200/60">Menu Akses Teh Warga GDM</div>
-              <Link href="/teh_warga_gdm/owner-login" className="w-full">
-                <Button className="w-full bg-white text-[#064e3b] hover:bg-slate-100 rounded-full h-12 font-black uppercase tracking-widest text-xs border-none">
-                  Login Owner
-                </Button>
-              </Link>
-              <Link href="/teh_warga_gdm/admin-login" className="w-full">
-                <Button className="w-full bg-white text-[#064e3b] hover:bg-slate-100 rounded-full h-12 font-black uppercase tracking-widest text-xs border-none">
-                  Login Admin
-                </Button>
-              </Link>
-              <div className="border-t border-white/10 pt-4 mt-2">
-                <Link href="/" className="w-full">
-                  <Button variant="ghost" className="w-full text-white hover:bg-white/10 rounded-full h-11 font-bold uppercase tracking-wider text-xs border border-white/20 flex items-center justify-center gap-2">
-                    <Store className="h-4 w-4" />
-                    Pilih Cabang Lain
-                  </Button>
-                </Link>
-              </div>
-            </SheetContent>
-          </Sheet>
         </div>
       </nav>
 

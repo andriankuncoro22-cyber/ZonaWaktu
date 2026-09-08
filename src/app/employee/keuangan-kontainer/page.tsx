@@ -21,6 +21,117 @@ import { addDoc, query, serverTimestamp, where } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
+interface KeuanganKontainerDoc {
+  id?: string;
+  tanggal?: string;
+  shift?: number;
+  modalAwal?: number;
+  modalTambahan?: number;
+  shift1Difference?: number;
+  diambilOwner?: number;
+  shift2DiambilOwner?: number;
+  cashSales?: number;
+  qrisSales?: number;
+  totalSales?: number;
+  cashFromClosing?: number;
+  qrisFromClosing?: number;
+  totalFromClosing?: number;
+  operationalTotal?: number;
+  purchaseTotal?: number;
+  freeTotal?: number;
+  expectedCashToSettle?: number;
+  cashOnHand?: number;
+  difference?: number;
+  note?: string;
+  createdAt?: { toDate?: () => Date };
+  freeDetails?: Array<{
+    id?: string;
+    shift?: number;
+    karyawanNama?: string;
+    items?: FreeItem[];
+    totalNominal?: number;
+    notes?: string;
+  }>;
+  operationalDetails?: Array<{
+    id?: string;
+    pembayaran?: string;
+    nominal?: number;
+    shift?: number;
+    karyawanNama?: string;
+  }>;
+  purchaseDetails?: Array<{
+    id?: string;
+    nomorNota?: string;
+    total?: number;
+    shift?: number;
+    karyawanNama?: string;
+    items?: PurchaseItem[];
+  }>;
+  [key: string]: unknown;
+}
+
+interface OperationalLogDoc {
+  id: string;
+  nominal?: number;
+  pembayaran?: string;
+  shift?: number;
+  karyawanNama?: string;
+  type?: string;
+  inputFreeId?: string;
+  tanggal?: string;
+  createdAt?: { toDate?: () => Date };
+  [key: string]: unknown;
+}
+
+interface PurchaseItem {
+  materialName?: string;
+  materialCode?: string;
+  qty?: number;
+  price?: number;
+  purchasePrice?: number;
+}
+
+interface PurchaseLogDoc {
+  id: string;
+  nomorNota?: string;
+  items?: PurchaseItem[];
+  shift?: number;
+  karyawanNama?: string;
+  karyawanId?: string;
+  location?: string;
+  createdAt?: { toDate?: () => Date };
+  [key: string]: unknown;
+}
+
+interface FreeItem {
+  productName?: string;
+  qty?: number;
+  harga?: number;
+  subtotal?: number;
+}
+
+interface FreeLogDoc {
+  id: string;
+  shift?: number;
+  karyawanNama?: string;
+  totalNominal?: number;
+  notes?: string;
+  tanggal?: string;
+  items?: FreeItem[];
+  createdAt?: { toDate?: () => Date };
+  [key: string]: unknown;
+}
+
+interface ClosingLogDoc {
+  id: string;
+  total?: number;
+  transactionReport?: {
+    cashTotal?: number;
+    qrisTotal?: number;
+  };
+  [key: string]: unknown;
+}
+
 const formatCurrency = (value: number) =>
   `Rp ${Number(value || 0).toLocaleString("id-ID")}`;
 
@@ -66,70 +177,75 @@ export default function EmployeeKeuanganKontainerPage() {
     [db, selectedDate]
   );
   const { data: closingLogs } = useCollection(closingQuery);
+  const typedClosingLogs = closingLogs as ClosingLogDoc[] | null;
 
   const operationalQuery = useMemoFirebase(
     () => query(collection(db, "operasional-kontainer"), where("tanggal", "==", selectedDate)),
     [db, selectedDate]
   );
   const { data: operationalLogs } = useCollection(operationalQuery);
+  const typedOperationalLogs = operationalLogs as OperationalLogDoc[] | null;
 
   const purchaseQuery = useMemoFirebase(
     () => query(collection(db, "log_pembelian_bahan"), where("location", "==", "kontainer")),
     [db]
   );
   const { data: purchaseLogs } = useCollection(purchaseQuery);
+  const typedPurchaseLogs = purchaseLogs as PurchaseLogDoc[] | null;
 
   const freeQuery = useMemoFirebase(
     () => query(collection(db, "input-free"), where("tanggal", "==", selectedDate)),
     [db, selectedDate]
   );
   const { data: freeLogs } = useCollection(freeQuery);
+  const typedFreeLogs = freeLogs as FreeLogDoc[] | null;
 
   const keuanganQuery = useMemoFirebase(
     () => query(collection(db, "keuangan-kontainer"), where("tanggal", "==", selectedDate)),
     [db, selectedDate]
   );
   const { data: keuanganLogs, loading: loadingKeuangan } = useCollection(keuanganQuery);
+  const typedKeuanganLogs = keuanganLogs as KeuanganKontainerDoc[] | null;
 
   const shift1Log = useMemo(() => {
-    if (!keuanganLogs) return null;
-    return keuanganLogs.find((log: any) => (log.shift ?? 2) === 1);
-  }, [keuanganLogs]);
+    if (!typedKeuanganLogs) return null;
+    return typedKeuanganLogs.find((log) => (log.shift ?? 2) === 1) || null;
+  }, [typedKeuanganLogs]);
 
   const currentShiftLog = useMemo(() => {
-    if (!keuanganLogs) return null;
-    return keuanganLogs.find((log: any) => (log.shift ?? 2) === shift);
-  }, [keuanganLogs, shift]);
+    if (!typedKeuanganLogs) return null;
+    return typedKeuanganLogs.find((log) => (log.shift ?? 2) === shift) || null;
+  }, [typedKeuanganLogs, shift]);
 
   const hasClosedShift = useMemo(() => {
     return !loadingKeuangan && !!currentShiftLog;
   }, [currentShiftLog, loadingKeuangan]);
 
   const dailyClosing = useMemo(() => {
-    if (!closingLogs || closingLogs.length === 0) return null;
-    return closingLogs[0];
-  }, [closingLogs]);
+    if (!typedClosingLogs || typedClosingLogs.length === 0) return null;
+    return typedClosingLogs[0];
+  }, [typedClosingLogs]);
 
   const pureOperationalLogs = useMemo(() => {
-    return (operationalLogs || []).filter((item: any) => {
+    return (typedOperationalLogs || []).filter((item) => {
       const matchesShift = shift === 2 ? true : (item.shift ?? 2) === 1;
       const isNotFree = item.type !== "input-free" && !item.inputFreeId;
       return matchesShift && isNotFree;
     });
-  }, [operationalLogs, shift]);
+  }, [typedOperationalLogs, shift]);
 
   const pureOperationalTotal = useMemo(() => {
-    return pureOperationalLogs.reduce((sum: number, item: any) => sum + Number(item.nominal || 0), 0);
+    return pureOperationalLogs.reduce((sum: number, item) => sum + Number(item.nominal || 0), 0);
   }, [pureOperationalLogs]);
 
   const freeTotal = useMemo(() => {
-    return (freeLogs || [])
-      .filter((item: any) => shift === 2 ? true : (item.shift ?? 2) === 1)
-      .reduce((sum: number, item: any) => sum + Number(item.totalNominal || 0), 0);
-  }, [freeLogs, shift]);
+    return (typedFreeLogs || [])
+      .filter((item) => shift === 2 ? true : (item.shift ?? 2) === 1)
+      .reduce((sum: number, item) => sum + Number(item.totalNominal || 0), 0);
+  }, [typedFreeLogs, shift]);
 
-  const getPurchaseSubtotal = (log: any) => {
-    return (log.items || []).reduce((sum: number, item: any) => {
+  const getPurchaseSubtotal = (log: PurchaseLogDoc) => {
+    return (log.items || []).reduce((sum: number, item) => {
       const qty = Number(item.qty || 0);
       const price = Number(item.price ?? item.purchasePrice ?? 0);
       return sum + qty * price;
@@ -137,8 +253,8 @@ export default function EmployeeKeuanganKontainerPage() {
   };
 
   const purchaseTotal = useMemo(() => {
-    return (purchaseLogs || [])
-      .filter((log: any) => {
+    return (typedPurchaseLogs || [])
+      .filter((log) => {
         const createdAt = log.createdAt?.toDate ? log.createdAt.toDate() : null;
         if (!createdAt) return false;
         const matchesDate = createdAt.toISOString().split("T")[0] === selectedDate;
@@ -146,8 +262,8 @@ export default function EmployeeKeuanganKontainerPage() {
         const isKaryawanInput = !!log.karyawanId;
         return matchesDate && matchesShift && isKaryawanInput;
       })
-      .reduce((sum: number, log: any) => sum + getPurchaseSubtotal(log), 0);
-  }, [purchaseLogs, selectedDate, shift]);
+      .reduce((sum: number, log) => sum + getPurchaseSubtotal(log), 0);
+  }, [typedPurchaseLogs, selectedDate, shift]);
 
   const currentExpectedCashToSettle = useMemo(() => {
     if (shift === 2) {
@@ -365,10 +481,10 @@ export default function EmployeeKeuanganKontainerPage() {
 
     setSaving(true);
     try {
-      const dataToSave: any = {
+      const dataToSave: KeuanganKontainerDoc = {
         tanggal: selectedDate,
         shift: shift,
-        createdAt: serverTimestamp(),
+        createdAt: serverTimestamp() as unknown as { toDate?: () => Date },
         operationalTotal: pureOperationalTotal,
         purchaseTotal,
         freeTotal,
@@ -376,9 +492,9 @@ export default function EmployeeKeuanganKontainerPage() {
         cashOnHand: Number(cashOnHand || 0),
         difference,
         note: note.trim(),
-        freeDetails: (freeLogs || [])
-          .filter((log: any) => shift === 2 ? true : (log.shift ?? 2) === 1)
-          .map((log: any) => ({
+        freeDetails: (typedFreeLogs || [])
+          .filter((log) => shift === 2 ? true : (log.shift ?? 2) === 1)
+          .map((log) => ({
             id: log.id,
             shift: Number(log.shift ?? 2),
             karyawanNama: log.karyawanNama || "-",
@@ -386,28 +502,28 @@ export default function EmployeeKeuanganKontainerPage() {
             totalNominal: Number(log.totalNominal || 0),
             notes: log.notes || "-",
           })),
-        operationalDetails: pureOperationalLogs.map((log: any) => ({
+        operationalDetails: pureOperationalLogs.map((log) => ({
           id: log.id,
           pembayaran: log.pembayaran,
           nominal: Number(log.nominal || 0),
           shift: Number(log.shift ?? 2),
           karyawanNama: log.karyawanNama || "-",
         })),
-        purchaseDetails: (purchaseLogs || [])
-          .filter((log: any) => {
+        purchaseDetails: (typedPurchaseLogs || [])
+          .filter((log) => {
             const createdAt = log.createdAt?.toDate ? log.createdAt.toDate() : null;
             const matchesDate = createdAt && createdAt.toISOString().split("T")[0] === selectedDate;
             const matchesShift = shift === 2 ? true : (log.shift ?? 2) === 1;
             const isKaryawanInput = !!log.karyawanId;
             return matchesDate && matchesShift && isKaryawanInput;
           })
-          .map((log: any) => ({
+          .map((log) => ({
             id: log.id,
             nomorNota: log.nomorNota || "-",
             total: getPurchaseSubtotal(log),
             shift: Number(log.shift ?? 2),
             karyawanNama: log.karyawanNama || "-",
-            items: (log.items || []).map((item: any) => ({
+            items: (log.items || []).map((item) => ({
               materialName: item.materialName || item.materialCode || "-",
               qty: Number(item.qty || 0),
               price: Number(item.price || 0),
@@ -501,23 +617,23 @@ export default function EmployeeKeuanganKontainerPage() {
     <div className="space-y-6 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-700">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-black uppercase italic tracking-tighter text-slate-900 md:text-4xl">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-black uppercase italic tracking-tighter text-slate-900 leading-none">
             Keuangan Kontainer
           </h1>
-          <p className="mt-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 md:text-xs">
+          <p className="mt-2 text-[9px] sm:text-[10px] md:text-xs font-black uppercase tracking-[0.2em] text-slate-500">
             Hitung kas yang harus disetorkan dari hasil closing dan pengeluaran hari ini
           </p>
         </div>
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          {/* Shift Selection Pills */}
-          <div className="flex items-center gap-1.5 rounded-2xl border border-slate-100 bg-white p-1.5 shadow-sm">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 w-full md:w-auto">
+          {/* Shift Selection Pills - Grid 2 cols on mobile */}
+          <div className="grid grid-cols-2 gap-1 rounded-2xl border border-slate-100 bg-white p-1.5 shadow-sm w-full sm:w-auto">
             <button
               onClick={() => {
                 setShift(1);
                 resetFormFields();
               }}
               className={cn(
-                "rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all",
+                "rounded-xl px-3 sm:px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all text-center",
                 shift === 1
                   ? "bg-primary text-white shadow-md shadow-primary/10"
                   : "text-slate-500 hover:bg-slate-50"
@@ -531,7 +647,7 @@ export default function EmployeeKeuanganKontainerPage() {
                 resetFormFields();
               }}
               className={cn(
-                "rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all",
+                "rounded-xl px-3 sm:px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all text-center",
                 shift === 2
                   ? "bg-primary text-white shadow-md shadow-primary/10"
                   : "text-slate-500 hover:bg-slate-50"
@@ -541,8 +657,8 @@ export default function EmployeeKeuanganKontainerPage() {
             </button>
           </div>
 
-          <div className="flex items-center gap-3 rounded-[1.5rem] border border-slate-100 bg-white px-5 py-3 shadow-sm">
-            <CalendarIcon className="h-4 w-4 text-primary" />
+          <div className="flex items-center gap-2.5 rounded-2xl border border-slate-100 bg-white px-4 py-2 sm:py-3 shadow-sm w-full sm:w-auto h-11 sm:h-auto">
+            <CalendarIcon className="h-4 w-4 text-primary shrink-0" />
             <input
               type="date"
               value={selectedDate}
@@ -558,49 +674,49 @@ export default function EmployeeKeuanganKontainerPage() {
 
       {hasClosedShift ? (
         <div className="space-y-6 animate-in fade-in zoom-in duration-500">
-          <Card className="overflow-hidden rounded-[2.5rem] border-none bg-gradient-to-br from-emerald-50 to-emerald-100/50 p-8 text-center shadow-sm flex flex-col items-center justify-center space-y-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/20">
-              <CheckCircle2 className="h-8 w-8" />
+          <Card className="overflow-hidden rounded-2xl sm:rounded-[2.5rem] border-none bg-gradient-to-br from-emerald-50 to-emerald-100/50 p-6 sm:p-8 text-center shadow-sm flex flex-col items-center justify-center space-y-4">
+            <div className="flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/20">
+              <CheckCircle2 className="h-7 w-7 sm:h-8 sm:w-8" />
             </div>
             <div className="space-y-1">
-              <h2 className="text-xl md:text-2xl font-black uppercase italic tracking-tight text-slate-800">
-                Shift {shift === 1 ? "1 (Pagi)" : "2 (Malam)"} Telah Dicclosing
+              <h2 className="text-lg sm:text-xl md:text-2xl font-black uppercase italic tracking-tight text-slate-800">
+                Shift {shift === 1 ? "1 (Pagi)" : "2 (Malam)"} Telah Diclosing
               </h2>
-              <p className="text-[10px] md:text-xs text-slate-500 font-bold uppercase tracking-widest">
+              <p className="text-[10px] md:text-xs text-slate-500 font-bold uppercase tracking-widest max-w-md mx-auto">
                 Laporan keuangan kontainer tanggal {new Date(selectedDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })} untuk Shift {shift} telah berhasil disimpan.
               </p>
             </div>
           </Card>
 
           {/* Read Only Summary Card */}
-          <Card className="overflow-hidden rounded-[2rem] border border-slate-100 bg-white p-6 md:p-8 shadow-sm space-y-6">
-            <div className="flex items-center gap-3 border-b border-slate-50 pb-4">
-              <Calculator className="h-5 w-5 text-emerald-600" />
-              <h3 className="text-sm font-black uppercase italic text-slate-900">Rekapitulasi Data Terkirim - Shift {shift}</h3>
+          <Card className="overflow-hidden rounded-2xl sm:rounded-[2rem] border border-slate-100 bg-white p-4 sm:p-6 md:p-8 shadow-sm space-y-5 sm:space-y-6">
+            <div className="flex items-center gap-2.5 border-b border-slate-50 pb-3 sm:pb-4">
+              <Calculator className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-600" />
+              <h3 className="text-xs sm:text-sm font-black uppercase italic text-slate-900">Rekapitulasi Data Terkirim - Shift {shift}</h3>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
-              <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4">
-                <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Total Penjualan</span>
-                <p className="text-base font-black text-slate-900 mt-1">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
+              <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3 sm:p-4">
+                <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider text-slate-400">Total Penjualan</span>
+                <p className="text-xs sm:text-base font-black text-slate-900 mt-1">
                   {formatCurrency(rekapValues?.totalSales || 0)}
                 </p>
               </div>
-              <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4">
-                <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Total QRIS</span>
-                <p className="text-base font-black text-purple-700 mt-1">
+              <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3 sm:p-4">
+                <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider text-slate-400">Total QRIS</span>
+                <p className="text-xs sm:text-base font-black text-purple-700 mt-1">
                   {formatCurrency(rekapValues?.qrisSales || 0)}
                 </p>
               </div>
-              <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4">
-                <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Total Cash</span>
-                <p className="text-base font-black text-sky-700 mt-1">
+              <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-3 sm:p-4">
+                <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider text-slate-400">Total Cash</span>
+                <p className="text-xs sm:text-base font-black text-sky-700 mt-1">
                   {formatCurrency(rekapValues?.cashSales || 0)}
                 </p>
               </div>
-              <div className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-4">
-                <span className="text-[9px] font-black uppercase tracking-wider text-emerald-700">Wajib Setor</span>
-                <p className="text-base font-black text-emerald-700 mt-1">
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3 sm:p-4">
+                <span className="text-[8px] sm:text-[9px] font-black uppercase tracking-wider text-emerald-700">Wajib Setor</span>
+                <p className="text-xs sm:text-base font-black text-emerald-700 mt-1">
                   {formatCurrency(rekapValues?.expectedCashToSettle || 0)}
                 </p>
               </div>
@@ -659,102 +775,102 @@ export default function EmployeeKeuanganKontainerPage() {
         </div>
       ) : (
         <>
-          <Card className="overflow-hidden rounded-[2rem] border-none bg-white shadow-sm">
-            <div className="border-b border-slate-50 bg-slate-50/40 p-6 md:p-8">
-              <div className="flex items-center gap-3">
-                <Calculator className="h-5 w-5 text-primary" />
-                <h2 className="text-lg font-black uppercase italic text-slate-900">
+          <Card className="overflow-hidden rounded-2xl sm:rounded-[2rem] border-none bg-white shadow-sm">
+            <div className="border-b border-slate-50 bg-slate-50/40 p-4 sm:p-6 md:p-8">
+              <div className="flex items-center gap-2.5 sm:gap-3">
+                <Calculator className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
+                <h2 className="text-sm sm:text-lg font-black uppercase italic text-slate-900">
                   Ringkasan Kas Kontainer - Shift {shift === 1 ? "1 (Pagi)" : "2 (Malam)"}
                 </h2>
               </div>
             </div>
 
-            <div className="grid gap-6 p-6 md:grid-cols-[1.2fr_0.8fr] md:p-8">
-              <div className="grid grid-cols-2 gap-3 sm:gap-4">
+            <div className="grid gap-5 sm:gap-6 p-4 sm:p-6 md:grid-cols-[1.2fr_0.8fr] md:p-8">
+              <div className="grid grid-cols-2 gap-2 sm:gap-3">
                 {summaryRows.map((row) => (
                   <div 
                     key={row.label} 
                     className={cn(
-                      "rounded-2xl p-3 sm:p-5 border flex flex-col justify-between min-h-[90px] sm:min-h-[115px] shadow-sm/5 transition-all hover:scale-[1.01] duration-300", 
+                      "rounded-xl sm:rounded-2xl p-2.5 sm:p-4 border flex flex-col justify-between min-h-[75px] sm:min-h-[105px] shadow-sm/5 transition-all hover:scale-[1.01] duration-300", 
                       row.bgClass
                     )}
                   >
-                    <span className={cn("text-[8px] sm:text-[9px] font-black uppercase tracking-wider leading-relaxed", row.labelClass)}>
+                    <span className={cn("text-[8px] sm:text-[9px] font-black uppercase tracking-wider leading-tight", row.labelClass)}>
                       {row.label}
                     </span>
-                    <span className={cn("text-sm sm:text-lg font-black mt-2 sm:mt-3 tabular-nums", row.valueClass)}>
+                    <span className={cn("text-xs sm:text-base font-black mt-1.5 sm:mt-2 tabular-nums", row.valueClass)}>
                       {formatCurrency(row.value)}
                     </span>
                   </div>
                 ))}
               </div>
 
-              <div className="space-y-6">
+              <div className="space-y-4 sm:space-y-6">
                 {/* Kartu 1: Input Penjualan & Modal Shift */}
-                <div className="rounded-[1.5rem] border border-primary/10 bg-primary/5 p-5">
-                  <div className="flex items-center gap-3 mb-4">
-                    <HandCoins className="h-5 w-5 text-primary" />
-                    <h3 className="text-sm font-black uppercase italic text-slate-900">Input Closing Shift {shift}</h3>
+                <div className="rounded-2xl sm:rounded-[1.5rem] border border-primary/10 bg-primary/5 p-4 sm:p-5">
+                  <div className="flex items-center gap-2.5 mb-3.5 sm:mb-4">
+                    <HandCoins className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
+                    <h3 className="text-xs sm:text-sm font-black uppercase italic text-slate-900">Input Closing Shift {shift}</h3>
                   </div>
 
                   {/* Shift 1 (Pagi) Manual Sales & Modal Inputs */}
                   {shift === 1 && (
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600">Total Penjualan</Label>
+                    <div className="space-y-3.5 sm:space-y-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.15em] text-slate-600">Total Penjualan</Label>
                         <Input
                           type="text"
                           inputMode="numeric"
                           value={manualTotalSales === "" ? "" : formatThousand(manualTotalSales)}
                           onChange={(e) => setManualTotalSales(e.target.value.replace(/\D/g, ""))}
                           placeholder="0"
-                          className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-800"
+                          className="h-11 sm:h-12 rounded-xl border-none bg-white shadow-sm font-black text-xs sm:text-sm text-slate-800"
                         />
                       </div>
-                      <div className="space-y-2">
-                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600">Input QRIS</Label>
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.15em] text-slate-600">Input QRIS</Label>
                         <Input
                           type="text"
                           inputMode="numeric"
                           value={manualQrisSales === "" ? "" : formatThousand(manualQrisSales)}
                           onChange={(e) => setManualQrisSales(e.target.value.replace(/\D/g, ""))}
                           placeholder="0"
-                          className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-800"
+                          className="h-11 sm:h-12 rounded-xl border-none bg-white shadow-sm font-black text-xs sm:text-sm text-slate-800"
                         />
                       </div>
-                      <div className="space-y-2">
-                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-sky-700">Penjualan Cash (Terisi Otomatis: Total - QRIS)</Label>
-                        <div className="h-12 rounded-xl bg-sky-50 border border-sky-200/80 px-4 flex items-center justify-between font-black text-sky-900 text-sm shadow-sm">
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.15em] text-sky-700">Penjualan Cash (Total - QRIS)</Label>
+                        <div className="h-11 sm:h-12 rounded-xl bg-sky-50 border border-sky-200/80 px-3.5 sm:px-4 flex items-center justify-between font-black text-sky-900 text-xs sm:text-sm shadow-sm">
                           <span>{formatCurrency(manualCashSales)}</span>
-                          <span className="text-[9px] font-black text-sky-600 uppercase tracking-widest bg-sky-100 px-2.5 py-1 rounded-lg">Otomatis</span>
+                          <span className="text-[8px] sm:text-[9px] font-black text-sky-600 uppercase tracking-widest bg-sky-100 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-md sm:rounded-lg">Otomatis</span>
                         </div>
                       </div>
-                      <div className="space-y-2">
-                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600">Modal Awal (Pagi)</Label>
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.15em] text-slate-600">Modal Awal (Pagi)</Label>
                         <Input
                           type="text"
                           inputMode="numeric"
                           value={modalAwal === "" ? "" : formatThousand(modalAwal)}
                           onChange={(e) => setModalAwal(e.target.value.replace(/\D/g, ""))}
                           placeholder="0"
-                          className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-800"
+                          className="h-11 sm:h-12 rounded-xl border-none bg-white shadow-sm font-black text-xs sm:text-sm text-slate-800"
                         />
                       </div>
-                      <div className="space-y-2">
-                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600">Modal Tambahan (Opsional)</Label>
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.15em] text-slate-600">Modal Tambahan (Opsional)</Label>
                         <Input
                           type="text"
                           inputMode="numeric"
                           value={modalTambahan === "" ? "" : formatThousand(modalTambahan)}
                           onChange={(e) => setModalTambahan(e.target.value.replace(/\D/g, ""))}
                           placeholder="0"
-                          className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-800"
+                          className="h-11 sm:h-12 rounded-xl border-none bg-white shadow-sm font-black text-xs sm:text-sm text-slate-800"
                         />
                       </div>
-                      <div className="space-y-2">
-                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-700 flex items-center justify-between">
-                          <span>Diambil Owner Sebagian (Opsional)</span>
-                          <span className="text-[8px] font-bold text-orange-600 bg-orange-100 px-2 py-0.5 rounded">Mengurangi Kas Kasir</span>
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.15em] text-orange-700 flex items-center justify-between">
+                          <span>Diambil Owner (Opsional)</span>
+                          <span className="text-[8px] font-bold text-orange-600 bg-orange-100 px-1.5 py-0.5 rounded">Kurangi Kas</span>
                         </Label>
                         <Input
                           type="text"
@@ -762,10 +878,10 @@ export default function EmployeeKeuanganKontainerPage() {
                           value={diambilOwner === "" ? "" : formatThousand(diambilOwner)}
                           onChange={(e) => setDiambilOwner(e.target.value.replace(/\D/g, ""))}
                           placeholder="0"
-                          className="h-12 rounded-xl border border-orange-200 bg-orange-50/40 shadow-sm font-black text-slate-800 focus:ring-2 focus:ring-orange-400"
+                          className="h-11 sm:h-12 rounded-xl border border-orange-200 bg-orange-50/40 shadow-sm font-black text-xs sm:text-sm text-slate-800 focus:ring-2 focus:ring-orange-400"
                         />
-                        <p className="text-[9px] text-slate-400 font-medium">
-                          *Jika ada uang tunai yang diserahkan/diambil owner pada Shift 1, masukkan di sini agar otomatis memotong uang yang wajib dipegang kasir.
+                        <p className="text-[8px] sm:text-[9px] text-slate-400 font-medium">
+                          *Jika ada uang tunai yang diserahkan/diambil owner pada Shift 1, masukkan di sini.
                         </p>
                       </div>
                     </div>
@@ -773,22 +889,22 @@ export default function EmployeeKeuanganKontainerPage() {
 
                   {/* Shift 2 (Malam) Modal Tambahan & Diambil Owner Inputs */}
                   {shift === 2 && (
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Modal Tambahan (Opsional)</Label>
+                    <div className="space-y-3.5 sm:space-y-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.15em] text-slate-500">Modal Tambahan (Opsional)</Label>
                         <Input
                           type="text"
                           inputMode="numeric"
                           value={modalTambahan === "" ? "" : formatThousand(modalTambahan)}
                           onChange={(e) => setModalTambahan(e.target.value.replace(/\D/g, ""))}
                           placeholder="0"
-                          className="h-12 rounded-xl border-none bg-white shadow-sm font-black text-slate-800"
+                          className="h-11 sm:h-12 rounded-xl border-none bg-white shadow-sm font-black text-xs sm:text-sm text-slate-800"
                         />
                       </div>
-                      <div className="space-y-2">
-                        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-orange-700 flex items-center justify-between">
-                          <span>Diambil Owner Sebagian (Opsional)</span>
-                          <span className="text-[8px] font-bold text-orange-600 bg-orange-100 px-2 py-0.5 rounded">Mengurangi Kas Kasir</span>
+                      <div className="space-y-1.5">
+                        <Label className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.15em] text-orange-700 flex items-center justify-between">
+                          <span>Diambil Owner (Opsional)</span>
+                          <span className="text-[8px] font-bold text-orange-600 bg-orange-100 px-1.5 py-0.5 rounded">Kurangi Kas</span>
                         </Label>
                         <Input
                           type="text"
@@ -796,31 +912,31 @@ export default function EmployeeKeuanganKontainerPage() {
                           value={diambilOwner === "" ? "" : formatThousand(diambilOwner)}
                           onChange={(e) => setDiambilOwner(e.target.value.replace(/\D/g, ""))}
                           placeholder="0"
-                          className="h-12 rounded-xl border border-orange-200 bg-orange-50/40 shadow-sm font-black text-slate-800 focus:ring-2 focus:ring-orange-400"
+                          className="h-11 sm:h-12 rounded-xl border border-orange-200 bg-orange-50/40 shadow-sm font-black text-xs sm:text-sm text-slate-800 focus:ring-2 focus:ring-orange-400"
                         />
-                        <p className="text-[9px] text-slate-400 font-medium">
-                          *Jika ada uang tunai yang diserahkan/diambil owner pada Shift 2, masukkan di sini agar otomatis memotong uang yang wajib dipegang kasir.
+                        <p className="text-[8px] sm:text-[9px] text-slate-400 font-medium">
+                          *Jika ada uang tunai yang diserahkan/diambil owner pada Shift 2, masukkan di sini.
                         </p>
                       </div>
                     </div>
                   )}
                 </div>
 
-                {/* Kartu 2: Terpisah Khusus Nominal Kas & Hitung Selisih (Warna Dasar Dark Emerald) */}
-                <div className="rounded-[1.5rem] border border-emerald-900/60 bg-gradient-to-br from-slate-900 to-emerald-950 p-5 text-white shadow-lg">
-                  <div className="flex items-center gap-3 mb-4">
-                    <Wallet className="h-5 w-5 text-emerald-400" />
+                {/* Kartu 2: Terpisah Khusus Nominal Kas & Hitung Selisih (Dark Emerald) */}
+                <div className="rounded-2xl sm:rounded-[1.5rem] border border-emerald-900/60 bg-gradient-to-br from-slate-900 to-emerald-950 p-4 sm:p-5 text-white shadow-lg">
+                  <div className="flex items-center gap-2.5 mb-3.5 sm:mb-4">
+                    <Wallet className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-400 shrink-0" />
                     <div>
-                      <h3 className="text-sm font-black uppercase italic text-white leading-none">Nominal Kas (Uang di Pegang)</h3>
-                      <p className="text-[9px] text-emerald-300/80 font-bold uppercase tracking-wider mt-1">Hitung Fisik Uang Tunai Kasir</p>
+                      <h3 className="text-xs sm:text-sm font-black uppercase italic text-white leading-none">Nominal Kas (Uang di Pegang)</h3>
+                      <p className="text-[8px] sm:text-[9px] text-emerald-300/80 font-bold uppercase tracking-wider mt-1">Hitung Fisik Uang Tunai Kasir</p>
                     </div>
                   </div>
 
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-200 flex items-center justify-between">
+                  <div className="space-y-3.5 sm:space-y-4">
+                    <div className="space-y-1.5">
+                      <Label className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.15em] text-emerald-200 flex items-center justify-between">
                         <span>Uang Fisik Kasir (Cash on Hand)</span>
-                        <span className="text-[8px] font-black text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20">*WAJIB DIISI</span>
+                        <span className="text-[8px] font-black text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">*WAJIB</span>
                       </Label>
                       <Input
                         type="text"
@@ -828,13 +944,13 @@ export default function EmployeeKeuanganKontainerPage() {
                         value={cashOnHand === "" ? "" : formatThousand(cashOnHand)}
                         onChange={(e) => setCashOnHand(e.target.value.replace(/\D/g, ""))}
                         placeholder="0"
-                        className="h-12 rounded-xl border-emerald-700/60 bg-slate-800/90 text-white placeholder:text-slate-500 font-black text-base focus:ring-2 focus:ring-emerald-400"
+                        className="h-12 sm:h-14 rounded-xl border-emerald-700/60 bg-slate-800/90 text-white placeholder:text-slate-500 font-black text-base sm:text-lg focus:ring-2 focus:ring-emerald-400"
                       />
                     </div>
 
                     {/* Box Selisih */}
                     <div className={cn(
-                      "rounded-2xl p-4 border transition-all",
+                      "rounded-xl sm:rounded-2xl p-3 sm:p-4 border transition-all",
                       difference === 0 
                         ? "bg-emerald-900/40 border-emerald-500/40 text-emerald-200" 
                         : difference > 0 
@@ -842,36 +958,36 @@ export default function EmployeeKeuanganKontainerPage() {
                           : "bg-rose-900/40 border-rose-500/40 text-rose-200"
                     )}>
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80">Perhitungan Selisih</span>
+                        <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.15em] opacity-80">Perhitungan Selisih</span>
                         <span className={cn(
-                          "text-[9px] font-black uppercase px-2 py-0.5 rounded-md",
+                          "text-[8px] sm:text-[9px] font-black uppercase px-2 py-0.5 rounded-md",
                           difference === 0 ? "bg-emerald-500/20 text-emerald-300" : difference > 0 ? "bg-amber-500/20 text-amber-300" : "bg-rose-500/20 text-rose-300"
                         )}>
                           {difference === 0 ? "Pas / Sesuai" : difference > 0 ? "Kas Lebih" : "Kas Kurang"}
                         </span>
                       </div>
-                      <p className="mt-2 text-2xl font-black tabular-nums">
+                      <p className="mt-1.5 sm:mt-2 text-xl sm:text-2xl font-black tabular-nums">
                         {formatCurrency(difference)}
                       </p>
                     </div>
 
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-300">Catatan Bila Ada Selisih (Opsional)</Label>
+                    <div className="space-y-1.5">
+                      <Label className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.15em] text-slate-300">Catatan Selisih (Opsional)</Label>
                       <Input
                         value={note}
                         onChange={(e) => setNote(e.target.value)}
-                        placeholder="Contoh: Ada kembalian kurang / sisa tips..."
-                        className="h-11 rounded-xl border-slate-700 bg-slate-800/80 text-white placeholder:text-slate-500 text-xs"
+                        placeholder="Cth: Ada kembalian kurang / sisa tips..."
+                        className="h-10 sm:h-11 rounded-xl border-slate-700 bg-slate-800/80 text-white placeholder:text-slate-500 text-xs"
                       />
                     </div>
 
                     {shift === 2 && !dailyClosing && (
-                      <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 text-amber-200 flex items-start gap-3 text-xs">
-                        <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+                      <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl sm:rounded-2xl p-3.5 sm:p-4 text-amber-200 flex items-start gap-2.5 text-xs">
+                        <AlertCircle className="h-4 w-4 sm:h-5 sm:w-5 text-amber-400 shrink-0 mt-0.5" />
                         <div className="text-left">
-                          <p className="font-black uppercase tracking-wide text-[9px]">Menunggu Excel Closing Toko</p>
-                          <p className="text-[11px] mt-1 leading-relaxed font-bold">
-                            Owner belum menyelesaikan laporan / mengunggah Excel penjualan harian. Hubungi Owner untuk mengunggah Excel penjualan hari ini terlebih dahulu agar Anda dapat menyimpan data closing Shift 2.
+                          <p className="font-black uppercase tracking-wide text-[8px] sm:text-[9px]">Menunggu Excel Closing Toko</p>
+                          <p className="text-[10px] sm:text-[11px] mt-0.5 sm:mt-1 leading-relaxed font-bold">
+                            Owner belum mengunggah Excel penjualan harian hari ini. Hubungi Owner untuk mengunggah Excel penjualan terlebih dahulu agar dapat menyimpan closing Shift 2.
                           </p>
                         </div>
                       </div>
@@ -880,7 +996,7 @@ export default function EmployeeKeuanganKontainerPage() {
                     <Button
                       onClick={handleSave}
                       disabled={saving || (shift === 2 && !dailyClosing)}
-                      className="mt-2 h-14 w-full rounded-2xl bg-emerald-500 hover:bg-emerald-600 font-black uppercase tracking-[0.2em] text-slate-950 text-[11px] shadow-lg shadow-emerald-950 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                      className="mt-1.5 h-12 sm:h-14 w-full rounded-xl sm:rounded-2xl bg-emerald-500 hover:bg-emerald-600 font-black uppercase tracking-wider sm:tracking-[0.2em] text-slate-950 text-[10px] sm:text-[11px] shadow-lg shadow-emerald-950 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                     >
                       {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                       Simpan Histori Closing Shift {shift}
@@ -891,120 +1007,120 @@ export default function EmployeeKeuanganKontainerPage() {
             </div>
           </Card>
 
-          <div className="grid gap-6 lg:grid-cols-3">
-            <Card className="rounded-[2rem] border-none bg-white p-6 shadow-sm">
-              <div className="flex items-center gap-3">
-                <Wallet className="h-5 w-5 text-primary" />
-                <h3 className="text-lg font-black uppercase italic text-slate-900">Rincian Operasional</h3>
+          <div className="grid gap-4 sm:gap-6 lg:grid-cols-3">
+            <Card className="rounded-2xl sm:rounded-[2rem] border-none bg-white p-4 sm:p-6 shadow-sm">
+              <div className="flex items-center gap-2.5 sm:gap-3">
+                <Wallet className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
+                <h3 className="text-sm sm:text-base font-black uppercase italic text-slate-900">Rincian Operasional</h3>
               </div>
-              <div className="mt-4 space-y-3">
+              <div className="mt-3.5 sm:mt-4 space-y-2.5 sm:space-y-3">
                 {pureOperationalLogs.length > 0 ? (
-                  pureOperationalLogs.map((log: any) => (
-                    <div key={log.id} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50/60 px-4 py-3">
+                  pureOperationalLogs.map((log: OperationalLogDoc) => (
+                    <div key={log.id} className="flex items-center justify-between rounded-xl sm:rounded-2xl border border-slate-100 bg-slate-50/60 p-3 sm:px-4 sm:py-3">
                       <div>
-                        <p className="text-sm font-black text-slate-900">{log.pembayaran}</p>
-                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 leading-relaxed flex flex-wrap gap-1">
+                        <p className="text-xs sm:text-sm font-black text-slate-900">{log.pembayaran}</p>
+                        <p className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400 leading-relaxed flex flex-wrap gap-1 mt-0.5">
                           <span>{log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "-"}</span>
                           {log.shift && <span>• Shift {log.shift}</span>}
                           {log.karyawanNama && <span>• {log.karyawanNama}</span>}
                         </p>
                       </div>
-                      <p className="text-sm font-black text-rose-600">{formatCurrency(log.nominal || 0)}</p>
+                      <p className="text-xs sm:text-sm font-black text-rose-600">{formatCurrency(log.nominal || 0)}</p>
                     </div>
                   ))
                 ) : (
-                  <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
+                  <div className="rounded-xl sm:rounded-2xl border border-dashed border-slate-200 p-4 sm:p-6 text-center text-xs sm:text-sm text-slate-500 font-medium">
                     Belum ada operasional kontainer hari ini.
                   </div>
                 )}
               </div>
             </Card>
  
-            <Card className="rounded-[2rem] border-none bg-white p-6 shadow-sm">
-              <div className="flex items-center gap-3">
-                <Coins className="h-5 w-5 text-primary" />
-                <h3 className="text-lg font-black uppercase italic text-slate-900">Rincian Belanja Bahan Baku</h3>
+            <Card className="rounded-2xl sm:rounded-[2rem] border-none bg-white p-4 sm:p-6 shadow-sm">
+              <div className="flex items-center gap-2.5 sm:gap-3">
+                <Coins className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
+                <h3 className="text-sm sm:text-base font-black uppercase italic text-slate-900">Rincian Belanja Bahan</h3>
               </div>
-              <div className="mt-4 space-y-3">
-                {purchaseLogs && purchaseLogs.filter((log: any) => {
+              <div className="mt-3.5 sm:mt-4 space-y-2.5 sm:space-y-3">
+                {typedPurchaseLogs && typedPurchaseLogs.filter((log: PurchaseLogDoc) => {
                     const createdAt = log.createdAt?.toDate ? log.createdAt.toDate() : null;
                     if (!createdAt) return false;
                     const matchesDate = createdAt.toISOString().split("T")[0] === selectedDate;
                     const matchesShift = shift === 2 ? true : (log.shift ?? 2) === 1;
                     const isKaryawanInput = !!log.karyawanId;
                     return matchesDate && matchesShift && isKaryawanInput;
-                  }).length > 0 ? purchaseLogs.filter((log: any) => {
+                  }).length > 0 ? typedPurchaseLogs.filter((log: PurchaseLogDoc) => {
                     const createdAt = log.createdAt?.toDate ? log.createdAt.toDate() : null;
                     if (!createdAt) return false;
                     const matchesDate = createdAt.toISOString().split("T")[0] === selectedDate;
                     const matchesShift = shift === 2 ? true : (log.shift ?? 2) === 1;
                     const isKaryawanInput = !!log.karyawanId;
                     return matchesDate && matchesShift && isKaryawanInput;
-                  }).map((log: any) => (
-                    <div key={log.id} className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
-                      <div className="flex items-center justify-between gap-3">
+                  }).map((log: PurchaseLogDoc) => (
+                    <div key={log.id} className="rounded-xl sm:rounded-2xl border border-slate-100 bg-slate-50/60 p-3 sm:p-4">
+                      <div className="flex items-center justify-between gap-2">
                         <div>
-                          <p className="text-sm font-black text-slate-900">Nota {log.nomorNota || "-"}</p>
-                          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 leading-relaxed flex flex-wrap gap-1">
-                            <span>{log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleString("id-ID") : "-"}</span>
+                          <p className="text-xs sm:text-sm font-black text-slate-900">Nota {log.nomorNota || "-"}</p>
+                          <p className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400 leading-relaxed flex flex-wrap gap-1 mt-0.5">
+                            <span>{log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "-"}</span>
                             {log.shift && <span>• Shift {log.shift}</span>}
                             {log.karyawanNama && <span>• {log.karyawanNama}</span>}
                           </p>
                         </div>
-                        <p className="text-sm font-black text-rose-600">{formatCurrency(getPurchaseSubtotal(log))}</p>
+                        <p className="text-xs sm:text-sm font-black text-rose-600">{formatCurrency(getPurchaseSubtotal(log))}</p>
                       </div>
-                      <div className="mt-3 space-y-2">
-                        {(log.items || []).map((item: any, idx: number) => (
-                          <div key={`${log.id}-${idx}`} className="flex items-center justify-between text-xs text-slate-600">
-                            <span>{item.materialName || item.materialCode || "-"}</span>
-                            <span>{item.qty} x {formatCurrency(item.price || 0)}</span>
+                      <div className="mt-2.5 space-y-1.5 border-t border-slate-200/40 pt-2">
+                        {(log.items || []).map((item: PurchaseItem, idx: number) => (
+                          <div key={`${log.id}-${idx}`} className="flex items-center justify-between text-[11px] sm:text-xs text-slate-600">
+                            <span className="truncate pr-2">{item.materialName || item.materialCode || "-"}</span>
+                            <span className="shrink-0 font-medium">{item.qty} x {formatCurrency(item.price || 0)}</span>
                           </div>
                         ))}
                       </div>
                     </div>
                   )) : (
-                  <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
+                  <div className="rounded-xl sm:rounded-2xl border border-dashed border-slate-200 p-4 sm:p-6 text-center text-xs sm:text-sm text-slate-500 font-medium">
                     Belum ada belanja bahan baku kontainer hari ini.
                   </div>
                 )}
               </div>
             </Card>
 
-            <Card className="rounded-[2rem] border-none bg-white p-6 shadow-sm">
-              <div className="flex items-center gap-3">
-                <Gift className="h-5 w-5 text-pink-600" />
-                <h3 className="text-lg font-black uppercase italic text-slate-900">Rincian Input Free</h3>
+            <Card className="rounded-2xl sm:rounded-[2rem] border-none bg-white p-4 sm:p-6 shadow-sm">
+              <div className="flex items-center gap-2.5 sm:gap-3">
+                <Gift className="h-4 w-4 sm:h-5 sm:w-5 text-pink-600" />
+                <h3 className="text-sm sm:text-base font-black uppercase italic text-slate-900">Rincian Input Free</h3>
               </div>
-              <div className="mt-4 space-y-3">
-                {freeLogs && freeLogs.filter((log: any) => shift === 2 ? true : (log.shift ?? 2) === 1).length > 0 ? (
-                  freeLogs
-                    .filter((log: any) => shift === 2 ? true : (log.shift ?? 2) === 1)
-                    .map((log: any) => (
-                      <div key={log.id} className="rounded-2xl border border-pink-100 bg-pink-50/40 p-4">
-                        <div className="flex items-center justify-between gap-3">
+              <div className="mt-3.5 sm:mt-4 space-y-2.5 sm:space-y-3">
+                {typedFreeLogs && typedFreeLogs.filter((log: FreeLogDoc) => shift === 2 ? true : (log.shift ?? 2) === 1).length > 0 ? (
+                  typedFreeLogs
+                    .filter((log: FreeLogDoc) => shift === 2 ? true : (log.shift ?? 2) === 1)
+                    .map((log: FreeLogDoc) => (
+                      <div key={log.id} className="rounded-xl sm:rounded-2xl border border-pink-100 bg-pink-50/40 p-3 sm:p-4">
+                        <div className="flex items-center justify-between gap-2">
                           <div>
-                            <p className="text-sm font-black text-slate-900">
+                            <p className="text-xs sm:text-sm font-black text-slate-900">
                               Shift {log.shift} • {log.karyawanNama}
                             </p>
-                            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 leading-relaxed">
+                            <p className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-slate-400 leading-relaxed mt-0.5">
                               {log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }) : "-"}
                               {log.notes && log.notes !== "-" && ` • ${log.notes}`}
                             </p>
                           </div>
-                          <p className="text-sm font-black text-pink-700">{formatCurrency(log.totalNominal || 0)}</p>
+                          <p className="text-xs sm:text-sm font-black text-pink-700">{formatCurrency(log.totalNominal || 0)}</p>
                         </div>
-                        <div className="mt-3 space-y-1.5 border-t border-pink-100/60 pt-2">
-                          {(log.items || []).map((item: any, idx: number) => (
-                            <div key={`${log.id}-${idx}`} className="flex items-center justify-between text-xs text-slate-600">
-                              <span>{item.productName}</span>
-                              <span className="font-bold">{item.qty} x {formatCurrency(item.harga || 0)} = {formatCurrency(item.subtotal || 0)}</span>
+                        <div className="mt-2.5 space-y-1.5 border-t border-pink-100/60 pt-2">
+                          {(log.items || []).map((item: FreeItem, idx: number) => (
+                            <div key={`${log.id}-${idx}`} className="flex items-center justify-between text-[11px] sm:text-xs text-slate-600">
+                              <span className="truncate pr-2">{item.productName}</span>
+                              <span className="shrink-0 font-bold">{item.qty} x {formatCurrency(item.harga || 0)} = {formatCurrency(item.subtotal || 0)}</span>
                             </div>
                           ))}
                         </div>
                       </div>
                     ))
                 ) : (
-                  <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm text-slate-500">
+                  <div className="rounded-xl sm:rounded-2xl border border-dashed border-slate-200 p-4 sm:p-6 text-center text-xs sm:text-sm text-slate-500 font-medium">
                     Belum ada input free produk hari ini.
                   </div>
                 )}

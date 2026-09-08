@@ -198,35 +198,35 @@ export default function LaporanPemindahanBarangPage() {
       </header>
 
       {/* Date Interval & Type Filter Bar */}
-      <Card className="rounded-[2rem] border-none bg-white p-6 shadow-sm space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <Card className="rounded-[2rem] border-none bg-white p-4 sm:p-6 shadow-sm space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4">
           {/* Date Interval Pickers */}
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-2xl border border-slate-200">
-              <CalendarIcon className="h-4 w-4 text-primary shrink-0" />
-              <div className="flex flex-col">
-                <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Dari Tanggal</span>
-                <Input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="h-7 border-none bg-transparent font-black text-xs text-slate-800 focus-visible:ring-0 p-0 w-auto"
-                />
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 flex-1">
+            <div className="grid grid-cols-2 gap-2 flex-1 items-center">
+              <div className="flex items-center gap-2 bg-slate-50 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-2xl border border-slate-200">
+                <CalendarIcon className="h-4 w-4 text-primary shrink-0" />
+                <div className="flex flex-col min-w-0 flex-1">
+                  <span className="text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider text-slate-500 truncate">Dari Tanggal</span>
+                  <Input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="h-6 sm:h-7 border-none bg-transparent font-black text-[11px] sm:text-xs text-slate-800 focus-visible:ring-0 p-0 w-full"
+                  />
+                </div>
               </div>
-            </div>
 
-            <span className="text-slate-600 font-black text-xs">s/d</span>
-
-            <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-2xl border border-slate-200">
-              <CalendarIcon className="h-4 w-4 text-primary shrink-0" />
-              <div className="flex flex-col">
-                <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Sampai Tanggal</span>
-                <Input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="h-7 border-none bg-transparent font-black text-xs text-slate-800 focus-visible:ring-0 p-0 w-auto"
-                />
+              <div className="flex items-center gap-2 bg-slate-50 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-2xl border border-slate-200">
+                <CalendarIcon className="h-4 w-4 text-primary shrink-0" />
+                <div className="flex flex-col min-w-0 flex-1">
+                  <span className="text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider text-slate-500 truncate">Sampai Tanggal</span>
+                  <Input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="h-6 sm:h-7 border-none bg-transparent font-black text-[11px] sm:text-xs text-slate-800 focus-visible:ring-0 p-0 w-full"
+                  />
+                </div>
               </div>
             </div>
 
@@ -234,68 +234,80 @@ export default function LaporanPemindahanBarangPage() {
               <Button
                 variant="ghost"
                 onClick={handleResetFilter}
-                className="h-10 px-3 rounded-2xl text-rose-600 hover:bg-rose-50 font-bold text-xs gap-1.5"
+                className="h-8 sm:h-10 px-3 rounded-2xl text-rose-600 hover:bg-rose-50 font-black text-[10px] sm:text-xs gap-1.5 shrink-0 justify-center"
               >
-                <RotateCcw className="h-3.5 w-3.5" /> Reset Filter
+                <RotateCcw className="h-3.5 w-3.5" /> Reset
               </Button>
             )}
           </div>
 
           {/* Transfer Type Filters */}
-          <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
+          <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 sm:p-1.5 rounded-2xl border border-slate-200 w-full lg:w-auto shrink-0">
             <Button
               variant={transferType === "all" ? "default" : "ghost"}
               onClick={() => setTransferType("all")}
-              className={cn("rounded-xl px-3 h-8 font-black text-[10px] uppercase", transferType === "all" ? "bg-primary text-white" : "text-slate-600")}
+              className={cn(
+                "rounded-xl h-8 font-black text-[8.5px] sm:text-[10px] uppercase px-1 transition-all text-center flex items-center justify-center",
+                transferType === "all" ? "bg-primary text-white shadow-sm" : "text-slate-600 hover:bg-slate-200/60"
+              )}
             >
-              Semua Arah
+              <span className="hidden sm:inline">Semua Arah</span>
+              <span className="sm:hidden">Semua</span>
             </Button>
             <Button
               variant={transferType === "ambil-gudang" ? "default" : "ghost"}
               onClick={() => setTransferType("ambil-gudang")}
-              className={cn("rounded-xl px-3 h-8 font-black text-[10px] uppercase", transferType === "ambil-gudang" ? "bg-amber-600 text-white" : "text-slate-600")}
+              className={cn(
+                "rounded-xl h-8 font-black text-[8.5px] sm:text-[10px] uppercase px-1 transition-all text-center flex items-center justify-center",
+                transferType === "ambil-gudang" ? "bg-amber-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200/60"
+              )}
             >
-              Gudang → Kontainer
+              Gudang → Kont.
             </Button>
             <Button
               variant={transferType === "kembali-gudang" ? "default" : "ghost"}
               onClick={() => setTransferType("kembali-gudang")}
-              className={cn("rounded-xl px-3 h-8 font-black text-[10px] uppercase", transferType === "kembali-gudang" ? "bg-emerald-600 text-white" : "text-slate-600")}
+              className={cn(
+                "rounded-xl h-8 font-black text-[8.5px] sm:text-[10px] uppercase px-1 transition-all text-center flex items-center justify-center",
+                transferType === "kembali-gudang" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200/60"
+              )}
             >
-              Kontainer → Gudang
+              Kont. → Gudang
             </Button>
           </div>
         </div>
 
         {/* Quick Date Presets & Search */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-100">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] font-black uppercase text-slate-400 mr-1">Preset:</span>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-slate-100">
+          <div className="grid grid-cols-4 gap-1 bg-slate-100/70 p-1 rounded-xl border border-slate-200 w-full sm:w-auto">
             <Button
               variant={!startDate && !endDate ? "secondary" : "ghost"}
               onClick={() => handleSetPreset("all")}
-              className="rounded-xl px-2.5 h-7 font-black text-[9px] uppercase"
+              className={cn(
+                "rounded-lg h-7 font-black text-[8.5px] sm:text-[9px] uppercase px-1 text-center",
+                !startDate && !endDate ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:bg-slate-200/60"
+              )}
             >
               Semua
             </Button>
             <Button
               variant="ghost"
               onClick={() => handleSetPreset("today")}
-              className="rounded-xl px-2.5 h-7 font-black text-[9px] uppercase text-slate-600 hover:bg-slate-100"
+              className="rounded-lg h-7 font-black text-[8.5px] sm:text-[9px] uppercase px-1 text-center text-slate-600 hover:bg-slate-200/60"
             >
               Hari Ini
             </Button>
             <Button
               variant="ghost"
               onClick={() => handleSetPreset("7-days")}
-              className="rounded-xl px-2.5 h-7 font-black text-[9px] uppercase text-slate-600 hover:bg-slate-100"
+              className="rounded-lg h-7 font-black text-[8.5px] sm:text-[9px] uppercase px-1 text-center text-slate-600 hover:bg-slate-200/60"
             >
               7 Hari
             </Button>
             <Button
               variant="ghost"
               onClick={() => handleSetPreset("this-month")}
-              className="rounded-xl px-2.5 h-7 font-black text-[9px] uppercase text-slate-600 hover:bg-slate-100"
+              className="rounded-lg h-7 font-black text-[8.5px] sm:text-[9px] uppercase px-1 text-center text-slate-600 hover:bg-slate-200/60"
             >
               Bulan Ini
             </Button>

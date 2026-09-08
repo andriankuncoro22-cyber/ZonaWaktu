@@ -27,6 +27,21 @@ import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
+interface BahanRusakLogDoc {
+  id: string;
+  tanggal?: string;
+  shift?: number | string;
+  materialCode?: string;
+  materialName?: string;
+  materialId?: string;
+  jumlah?: number | string;
+  satuanKecil?: string;
+  keterangan?: string;
+  karyawanNama?: string;
+  createdAt?: unknown;
+  [key: string]: unknown;
+}
+
 export default function LaporanBahanRusakPage() {
   const db = useFirestore();
   const { toast } = useToast();
@@ -50,7 +65,7 @@ export default function LaporanBahanRusakPage() {
   const filteredLogs = useMemo(() => {
     if (!rawLogs) return [];
 
-    return rawLogs.filter((log: any) => {
+    return (rawLogs as unknown as BahanRusakLogDoc[]).filter((log: BahanRusakLogDoc) => {
       // Date filter
       const matchesDate = reportType === "daily" 
         ? log.tanggal === selectedDate 
@@ -73,13 +88,13 @@ export default function LaporanBahanRusakPage() {
   // Statistics
   const stats = useMemo(() => {
     const totalIncidents = filteredLogs.length;
-    const uniqueMaterials = new Set(filteredLogs.map((l: any) => l.materialId || l.materialName)).size;
-    const totalQty = filteredLogs.reduce((sum: number, l: any) => sum + Number(l.jumlah || 0), 0);
+    const uniqueMaterials = new Set(filteredLogs.map((l: BahanRusakLogDoc) => l.materialId || l.materialName)).size;
+    const totalQty = filteredLogs.reduce((sum: number, l: BahanRusakLogDoc) => sum + Number(l.jumlah || 0), 0);
 
     return { totalIncidents, uniqueMaterials, totalQty };
   }, [filteredLogs]);
 
-  const handleDelete = async (log: any) => {
+  const handleDelete = async (log: BahanRusakLogDoc) => {
     const confirmMessage = `Hapus catatan bahan rusak "${log.materialName}" (${log.jumlah} ${log.satuanKecil})?\n\nTindakan ini akan OTOMATIS mengembalikan ${log.jumlah} ${log.satuanKecil} ke stok kontainer bahan baku.`;
     if (!confirm(confirmMessage)) return;
 
@@ -110,7 +125,7 @@ export default function LaporanBahanRusakPage() {
   };
 
   const handleExportExcel = () => {
-    const dataToExport = filteredLogs.map((log: any, idx: number) => ({
+    const dataToExport = filteredLogs.map((log: BahanRusakLogDoc, idx: number) => ({
       No: idx + 1,
       Tanggal: log.tanggal || "-",
       Shift: `Shift ${log.shift || 1}`,
@@ -159,7 +174,7 @@ export default function LaporanBahanRusakPage() {
     docPDF.setTextColor(0);
     docPDF.text(`LAPORAN BAHAN RUSAK / AFKIR (${reportType === "daily" ? selectedDate : selectedMonth})`, 105, 36, { align: 'center' });
 
-    const tableData = filteredLogs.map((log: any) => [
+    const tableData = filteredLogs.map((log: BahanRusakLogDoc) => [
       log.materialCode || "-",
       log.materialName || "-",
       `${log.jumlah} ${log.satuanKecil || "pcs"}`,
@@ -183,21 +198,22 @@ export default function LaporanBahanRusakPage() {
   return (
     <div className="space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-16">
       {/* Filters Bar */}
-      <Card className="rounded-[2rem] border-none bg-white p-6 shadow-sm">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-3">
+      <Card className="rounded-[2rem] border-none bg-white p-4 sm:p-6 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4">
+          {/* Row 1: Period Switcher & Date Input */}
+          <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-3 w-full sm:w-auto">
             <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200">
               <Button
                 variant={reportType === "daily" ? "default" : "ghost"}
                 onClick={() => setReportType("daily")}
-                className={cn("rounded-xl px-4 font-bold text-xs h-9", reportType === "daily" ? "bg-rose-600 hover:bg-rose-700 text-white" : "text-slate-600")}
+                className={cn("flex-1 sm:flex-none rounded-xl px-3 sm:px-4 font-black text-[9px] sm:text-xs h-9 uppercase tracking-wider", reportType === "daily" ? "bg-rose-600 hover:bg-rose-700 text-white shadow-sm" : "text-slate-600")}
               >
                 Harian
               </Button>
               <Button
                 variant={reportType === "monthly" ? "default" : "ghost"}
                 onClick={() => setReportType("monthly")}
-                className={cn("rounded-xl px-4 font-bold text-xs h-9", reportType === "monthly" ? "bg-rose-600 hover:bg-rose-700 text-white" : "text-slate-600")}
+                className={cn("flex-1 sm:flex-none rounded-xl px-3 sm:px-4 font-black text-[9px] sm:text-xs h-9 uppercase tracking-wider", reportType === "monthly" ? "bg-rose-600 hover:bg-rose-700 text-white shadow-sm" : "text-slate-600")}
               >
                 Bulanan
               </Button>
@@ -208,32 +224,35 @@ export default function LaporanBahanRusakPage() {
                 type="date"
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
-                className="h-11 rounded-2xl border-slate-200 bg-slate-50 font-bold text-xs text-slate-800 w-auto"
+                className="h-9 sm:h-11 rounded-xl sm:rounded-2xl border-slate-200 bg-slate-50 font-black text-[10px] sm:text-xs text-slate-800 w-full sm:w-auto text-center sm:text-left"
               />
             ) : (
               <Input
                 type="month"
                 value={selectedMonth}
                 onChange={(e) => setSelectedMonth(e.target.value)}
-                className="h-11 rounded-2xl border-slate-200 bg-slate-50 font-bold text-xs text-slate-800 w-auto"
+                className="h-9 sm:h-11 rounded-xl sm:rounded-2xl border-slate-200 bg-slate-50 font-black text-[10px] sm:text-xs text-slate-800 w-full sm:w-auto text-center sm:text-left"
               />
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Row 2: Export Buttons (Excel & PDF in 1 row on mobile) */}
+          <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto">
             <Button
               variant="outline"
               onClick={handleExportExcel}
-              className="rounded-2xl border-slate-200 font-bold text-xs h-11 px-4 gap-2 text-slate-700 hover:bg-slate-50"
+              className="rounded-xl sm:rounded-2xl border-slate-200 font-black text-[9px] sm:text-xs h-9 sm:h-11 px-3 sm:px-4 gap-1.5 sm:gap-2 text-slate-700 hover:bg-slate-50 w-full sm:w-auto flex items-center justify-center uppercase tracking-wider"
             >
-              <FileDown className="h-4 w-4 text-emerald-600" /> Excel
+              <FileDown className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-emerald-600 shrink-0" />
+              <span>Excel</span>
             </Button>
             <Button
               variant="outline"
               onClick={handleExportPDF}
-              className="rounded-2xl border-slate-200 font-bold text-xs h-11 px-4 gap-2 text-slate-700 hover:bg-slate-50"
+              className="rounded-xl sm:rounded-2xl border-slate-200 font-black text-[9px] sm:text-xs h-9 sm:h-11 px-3 sm:px-4 gap-1.5 sm:gap-2 text-slate-700 hover:bg-slate-50 w-full sm:w-auto flex items-center justify-center uppercase tracking-wider"
             >
-              <FileUp className="h-4 w-4 text-rose-600" /> PDF
+              <FileUp className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-rose-600 shrink-0" />
+              <span>PDF</span>
             </Button>
           </div>
         </div>

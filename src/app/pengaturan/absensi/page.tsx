@@ -23,7 +23,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFirestore, useCollection, useMemoFirebase, collection, doc } from "@/firebase";
 import { setDoc, addDoc, updateDoc, deleteDoc, query, orderBy, where, getDoc, getDocs, writeBatch, serverTimestamp, Firestore } from "firebase/firestore";
 import { cn } from "@/lib/utils";
-import { normalizeBranchId } from "@/lib/branch-helper";
+import { normalizeBranchId, BranchId } from "@/lib/branch-helper";
+import { provisionAuthUserWithoutSessionSwitch, syncAllAccountsToFirebaseAuth } from "@/lib/auth-service";
 import Image from "next/image";
 
 interface KaryawanData {
@@ -99,7 +100,7 @@ const calculateTotalWorkHours = (jamMasuk?: string, jamPulang?: string): string 
 export default function PengaturanAbsensiPage() {
   const db = useFirestore();
   const [activeTab, setActiveTab] = useState("jam-kerja");
-  const [selectedBranch, setSelectedBranch] = useState<"all" | "gdm" | "kedungreja" | "tehwarga">("all");
+  const [selectedBranch, setSelectedBranch] = useState<"all" | "gdm" | "kedungreja" | "tehwarga">("gdm");
   const [syncing, setSyncing] = useState(false);
 
   // State for Jam Kerja
@@ -140,7 +141,7 @@ export default function PengaturanAbsensiPage() {
   }, [karyawanList]);
 
   // Map each attendance log to its real branch (prioritizing employee master data, then log.cabang)
-  const getLogBranch = useCallback((log: AbsensiLogData): "gdm" | "kedungreja" | "tehwarga" => {
+  const getLogBranch = useCallback((log: AbsensiLogData): BranchId => {
     const kId = log.karyawanId ? String(log.karyawanId) : "";
     if (kId && karyawanMap[kId]?.cabang) {
       return normalizeBranchId(karyawanMap[kId].cabang);
@@ -373,7 +374,18 @@ export default function PengaturanAbsensiPage() {
       // Otomatis sinkronisasi kredensial ke SELURUH CABANG
       await syncCredentialsToFirestore(db);
 
-      alert(editingKaryawan ? "Data karyawan berhasil diupdate & disinkronkan ke seluruh cabang!" : "Karyawan baru berhasil ditambahkan & disinkronkan ke seluruh cabang!");
+      // Sinkronkan akun ke Firebase Authentication
+      try {
+        await provisionAuthUserWithoutSessionSwitch(
+          cleanUsername,
+          cleanPassword,
+          { role: "employee", cabang: formCabang, nama: cleanNama }
+        );
+      } catch (authErr) {
+        console.warn("Auth provision warning in absensi settings:", authErr);
+      }
+
+      alert(editingKaryawan ? "Data karyawan berhasil diupdate & disinkronkan ke seluruh cabang serta Firebase Auth!" : "Karyawan baru berhasil ditambahkan & disinkronkan ke seluruh cabang serta Firebase Auth!");
 
       // Reset Form
       setEditingKaryawan(null);
@@ -417,7 +429,14 @@ export default function PengaturanAbsensiPage() {
       // Sinkronkan seluruh kredensial logins untuk SEMUA TOKO (GDM, Kedungreja, Teh Warga)
       const totalSynced = await syncCredentialsToFirestore(db);
 
-      alert(`Sinkronisasi Kaderisasi Berhasil!\n${totalSynced} akun karyawan aktif telah disinkronkan ke Firestore untuk SEMUA TOKO (PC, Mobile Android, dan POS).`);
+      // Sinkronkan juga ke Firebase Authentication
+      try {
+        await syncAllAccountsToFirebaseAuth(db);
+      } catch (authSyncErr) {
+        console.warn("Auth sync error during kaderisasi sync:", authSyncErr);
+      }
+
+      alert(`Sinkronisasi Kaderisasi Berhasil!\n${totalSynced} akun karyawan aktif telah disinkronkan ke Firestore & Firebase Authentication untuk SEMUA TOKO (PC, Mobile Android, dan POS).`);
     } catch (err) {
       console.error("Error syncing kaderisasi:", err);
       alert("Gagal melakukan sinkronisasi kaderisasi.");
@@ -559,161 +578,155 @@ export default function PengaturanAbsensiPage() {
         </div>
 
         {/* Store / Branch Selector Bar */}
-        <div className="flex flex-wrap items-center gap-1.5 p-1.5 bg-white/90 backdrop-blur-md rounded-2xl border border-slate-200 shadow-sm">
-          <button
-            type="button"
-            onClick={() => setSelectedBranch("all")}
-            className={cn(
-              "px-3 py-2 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-wider transition-all duration-200",
-              selectedBranch === "all"
-                ? "bg-slate-900 text-white shadow-sm"
-                : "text-slate-500 hover:text-slate-900 hover:bg-slate-100/60"
-            )}
-          >
-            Semua Toko
-          </button>
+        <div className="grid grid-cols-3 gap-1.5 sm:flex sm:items-center sm:gap-2 w-full md:w-auto p-1.5 bg-white/90 backdrop-blur-md rounded-2xl border border-slate-200 shadow-sm">
           <button
             type="button"
             onClick={() => setSelectedBranch("gdm")}
             className={cn(
-              "px-3 py-2 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-wider transition-all duration-200 flex items-center gap-1.5",
+              "px-2 sm:px-3 py-2 rounded-xl text-[8px] sm:text-[9px] md:text-[10px] font-black uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-1 sm:gap-1.5 text-center",
               selectedBranch === "gdm"
                 ? "bg-emerald-600 text-white shadow-sm font-black"
                 : "text-slate-600 hover:text-emerald-700 hover:bg-emerald-50/60"
             )}
           >
-            <span className={cn("h-2 w-2 rounded-full", selectedBranch === "gdm" ? "bg-white" : "bg-emerald-500")} />
-            Zona Waktu GDM
+            <span className={cn("h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full shrink-0", selectedBranch === "gdm" ? "bg-white" : "bg-emerald-500")} />
+            <span className="truncate">Zona GDM</span>
           </button>
           <button
             type="button"
             onClick={() => setSelectedBranch("kedungreja")}
             className={cn(
-              "px-3 py-2 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-wider transition-all duration-200 flex items-center gap-1.5",
+              "px-2 sm:px-3 py-2 rounded-xl text-[8px] sm:text-[9px] md:text-[10px] font-black uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-1 sm:gap-1.5 text-center",
               selectedBranch === "kedungreja"
                 ? "bg-cyan-600 text-white shadow-sm font-black"
                 : "text-slate-600 hover:text-cyan-700 hover:bg-cyan-50/60"
             )}
           >
-            <span className={cn("h-2 w-2 rounded-full", selectedBranch === "kedungreja" ? "bg-white" : "bg-cyan-500")} />
-            Zona Kedungreja
+            <span className={cn("h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full shrink-0", selectedBranch === "kedungreja" ? "bg-white" : "bg-cyan-500")} />
+            <span className="truncate">Kedungreja</span>
           </button>
           <button
             type="button"
             onClick={() => setSelectedBranch("tehwarga")}
             className={cn(
-              "px-3 py-2 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-wider transition-all duration-200 flex items-center gap-1.5",
+              "px-2 sm:px-3 py-2 rounded-xl text-[8px] sm:text-[9px] md:text-[10px] font-black uppercase tracking-wider transition-all duration-200 flex items-center justify-center gap-1 sm:gap-1.5 text-center",
               selectedBranch === "tehwarga"
                 ? "bg-amber-600 text-white shadow-sm font-black"
                 : "text-slate-600 hover:text-amber-700 hover:bg-amber-50/60"
             )}
           >
-            <span className={cn("h-2 w-2 rounded-full", selectedBranch === "tehwarga" ? "bg-white" : "bg-amber-500")} />
-            Teh Warga GDM
+            <span className={cn("h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full shrink-0", selectedBranch === "tehwarga" ? "bg-white" : "bg-amber-500")} />
+            <span className="truncate">Teh Warga</span>
           </button>
         </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 w-full h-auto lg:h-16 rounded-[1.5rem] bg-white shadow-sm p-2 mb-8 gap-2">
-          <TabsTrigger value="jam-kerja" className="rounded-xl font-black uppercase text-[9px] md:text-[10px] tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all py-3">
-            <Clock className="h-4 w-4 mr-2 hidden md:inline" /> Jam Kerja
+        <TabsList className="grid grid-cols-3 lg:grid-cols-6 w-full h-auto rounded-2xl sm:rounded-[1.5rem] bg-white shadow-sm p-1.5 sm:p-2 mb-8 gap-1.5 sm:gap-2">
+          <TabsTrigger value="jam-kerja" className="rounded-xl font-black uppercase text-[8px] sm:text-[9px] md:text-[10px] tracking-wider sm:tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all py-2.5 sm:py-3 px-1 sm:px-4 flex items-center justify-center text-center">
+            <Clock className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 hidden sm:inline shrink-0" />
+            <span className="truncate">Jam Kerja</span>
           </TabsTrigger>
-          <TabsTrigger value="lokasi" className="rounded-xl font-black uppercase text-[9px] md:text-[10px] tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all py-3">
-            <MapPin className="h-4 w-4 mr-2 hidden md:inline" /> Lokasi
+          <TabsTrigger value="lokasi" className="rounded-xl font-black uppercase text-[8px] sm:text-[9px] md:text-[10px] tracking-wider sm:tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all py-2.5 sm:py-3 px-1 sm:px-4 flex items-center justify-center text-center">
+            <MapPin className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 hidden sm:inline shrink-0" />
+            <span className="truncate">Lokasi</span>
           </TabsTrigger>
-          <TabsTrigger value="cloudinary" className="rounded-xl font-black uppercase text-[9px] md:text-[10px] tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all py-3">
-            <Camera className="h-4 w-4 mr-2 hidden md:inline" /> Cloudinary
+          <TabsTrigger value="cloudinary" className="rounded-xl font-black uppercase text-[8px] sm:text-[9px] md:text-[10px] tracking-wider sm:tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all py-2.5 sm:py-3 px-1 sm:px-4 flex items-center justify-center text-center">
+            <Camera className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 hidden sm:inline shrink-0" />
+            <span className="truncate">Cloudinary</span>
           </TabsTrigger>
-          <TabsTrigger value="karyawan" className="rounded-xl font-black uppercase text-[9px] md:text-[10px] tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all py-3">
-            <Users className="h-4 w-4 mr-2 hidden md:inline" /> Karyawan
+          <TabsTrigger value="karyawan" className="rounded-xl font-black uppercase text-[8px] sm:text-[9px] md:text-[10px] tracking-wider sm:tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all py-2.5 sm:py-3 px-1 sm:px-4 flex items-center justify-center text-center">
+            <Users className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 hidden sm:inline shrink-0" />
+            <span className="truncate">Karyawan</span>
           </TabsTrigger>
-          <TabsTrigger value="penjadwalan" className="rounded-xl font-black uppercase text-[9px] md:text-[10px] tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all py-3">
-            <CalendarDays className="h-4 w-4 mr-2 hidden md:inline" /> Penjadwalan
+          <TabsTrigger value="penjadwalan" className="rounded-xl font-black uppercase text-[8px] sm:text-[9px] md:text-[10px] tracking-wider sm:tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all py-2.5 sm:py-3 px-1 sm:px-4 flex items-center justify-center text-center">
+            <CalendarDays className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 hidden sm:inline shrink-0" />
+            <span className="truncate">Penjadwalan</span>
           </TabsTrigger>
-          <TabsTrigger value="monitoring" className="rounded-xl font-black uppercase text-[9px] md:text-[10px] tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all py-3">
-            <Monitor className="h-4 w-4 mr-2 hidden md:inline" /> Monitoring
+          <TabsTrigger value="monitoring" className="rounded-xl font-black uppercase text-[8px] sm:text-[9px] md:text-[10px] tracking-wider sm:tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all py-2.5 sm:py-3 px-1 sm:px-4 flex items-center justify-center text-center">
+            <Monitor className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1 hidden sm:inline shrink-0" />
+            <span className="truncate">Monitoring</span>
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="jam-kerja" className="space-y-6">
-          <Card className="rounded-[2.5rem] border-none shadow-sm p-10 bg-white">
-            <h3 className="text-xl font-black uppercase italic tracking-tight mb-8">Kelola Shifting</h3>
-            <div className="grid md:grid-cols-2 gap-8">
-              <div className="bg-slate-50 p-8 rounded-[2rem] border border-slate-100 space-y-4">
-                <p className="font-black text-primary uppercase text-xs tracking-widest">Shift 1 (Pagi)</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label className="text-[10px] font-black uppercase">Jam Masuk</Label>
-                    <Input type="time" value={shifts.pagi.masuk} onChange={(e) => setShifts({...shifts, pagi: {...shifts.pagi, masuk: e.target.value}})} className="rounded-xl bg-white" />
+          <Card className="rounded-2xl sm:rounded-[2.5rem] border-none shadow-sm p-4 sm:p-8 md:p-10 bg-white">
+            <h3 className="text-lg sm:text-xl font-black uppercase italic tracking-tight mb-4 sm:mb-8">Kelola Shifting</h3>
+            <div className="grid md:grid-cols-2 gap-4 sm:gap-8">
+              <div className="bg-slate-50 p-4 sm:p-8 rounded-xl sm:rounded-[2rem] border border-slate-100 space-y-3 sm:space-y-4">
+                <p className="font-black text-primary uppercase text-[10px] sm:text-xs tracking-widest">Shift 1 (Pagi)</p>
+                <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                  <div className="space-y-1.5 sm:space-y-2">
+                    <Label className="text-[9px] sm:text-[10px] font-black uppercase">Jam Masuk</Label>
+                    <Input type="time" value={shifts.pagi.masuk} onChange={(e) => setShifts({...shifts, pagi: {...shifts.pagi, masuk: e.target.value}})} className="rounded-xl bg-white h-9 sm:h-10 text-xs font-bold" />
                   </div>
-                  <div className="space-y-2">
-                    <Label className="text-[10px] font-black uppercase">Jam Pulang</Label>
-                    <Input type="time" value={shifts.pagi.pulang} onChange={(e) => setShifts({...shifts, pagi: {...shifts.pagi, pulang: e.target.value}})} className="rounded-xl bg-white" />
+                  <div className="space-y-1.5 sm:space-y-2">
+                    <Label className="text-[9px] sm:text-[10px] font-black uppercase">Jam Pulang</Label>
+                    <Input type="time" value={shifts.pagi.pulang} onChange={(e) => setShifts({...shifts, pagi: {...shifts.pagi, pulang: e.target.value}})} className="rounded-xl bg-white h-9 sm:h-10 text-xs font-bold" />
                   </div>
                 </div>
               </div>
-              <div className="bg-slate-50 p-8 rounded-[2rem] border border-slate-100 space-y-4">
-                <p className="font-black text-primary uppercase text-xs tracking-widest">Shift 2 (Siang)</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label className="text-[10px] font-black uppercase">Jam Masuk</Label>
-                    <Input type="time" value={shifts.siang.masuk} onChange={(e) => setShifts({...shifts, siang: {...shifts.siang, masuk: e.target.value}})} className="rounded-xl bg-white" />
+              <div className="bg-slate-50 p-4 sm:p-8 rounded-xl sm:rounded-[2rem] border border-slate-100 space-y-3 sm:space-y-4">
+                <p className="font-black text-primary uppercase text-[10px] sm:text-xs tracking-widest">Shift 2 (Siang)</p>
+                <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                  <div className="space-y-1.5 sm:space-y-2">
+                    <Label className="text-[9px] sm:text-[10px] font-black uppercase">Jam Masuk</Label>
+                    <Input type="time" value={shifts.siang.masuk} onChange={(e) => setShifts({...shifts, siang: {...shifts.siang, masuk: e.target.value}})} className="rounded-xl bg-white h-9 sm:h-10 text-xs font-bold" />
                   </div>
-                  <div className="space-y-2">
-                    <Label className="text-[10px] font-black uppercase">Jam Pulang</Label>
-                    <Input type="time" value={shifts.siang.pulang} onChange={(e) => setShifts({...shifts, siang: {...shifts.siang, pulang: e.target.value}})} className="rounded-xl bg-white" />
+                  <div className="space-y-1.5 sm:space-y-2">
+                    <Label className="text-[9px] sm:text-[10px] font-black uppercase">Jam Pulang</Label>
+                    <Input type="time" value={shifts.siang.pulang} onChange={(e) => setShifts({...shifts, siang: {...shifts.siang, pulang: e.target.value}})} className="rounded-xl bg-white h-9 sm:h-10 text-xs font-bold" />
                   </div>
                 </div>
               </div>
             </div>
-            <Button onClick={() => handleSaveConfig('jam-kerja')} className="mt-8 rounded-2xl bg-primary px-8 font-black uppercase tracking-widest text-[10px] h-12 shadow-xl shadow-primary/20">
+            <Button onClick={() => handleSaveConfig('jam-kerja')} className="mt-6 sm:mt-8 rounded-xl sm:rounded-2xl bg-primary px-6 sm:px-8 font-black uppercase tracking-wider sm:tracking-widest text-[9px] sm:text-[10px] h-10 sm:h-12 shadow-lg sm:shadow-xl shadow-primary/20">
               Simpan Konfigurasi Jam
             </Button>
           </Card>
         </TabsContent>
 
         <TabsContent value="lokasi" className="space-y-6">
-          <Card className="rounded-[2.5rem] border-none shadow-sm p-10 bg-white">
-            <h3 className="text-xl font-black uppercase italic tracking-tight mb-8">Titik Koordinat Toko</h3>
-            <div className="grid md:grid-cols-3 gap-6">
-              <div className="space-y-2">
-                <Label className="text-[10px] font-black uppercase">Latitude</Label>
-                <Input value={location.lat} onChange={(e) => setLocation({...location, lat: e.target.value})} placeholder="-6.xxx" className="rounded-xl" />
+          <Card className="rounded-2xl sm:rounded-[2.5rem] border-none shadow-sm p-4 sm:p-8 md:p-10 bg-white">
+            <h3 className="text-lg sm:text-xl font-black uppercase italic tracking-tight mb-4 sm:mb-8">Titik Koordinat Toko</h3>
+            <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6">
+              <div className="space-y-1.5 sm:space-y-2">
+                <Label className="text-[9px] sm:text-[10px] font-black uppercase">Latitude</Label>
+                <Input value={location.lat} onChange={(e) => setLocation({...location, lat: e.target.value})} placeholder="-6.xxx" className="rounded-xl h-9 sm:h-10 text-xs font-bold" />
               </div>
-              <div className="space-y-2">
-                <Label className="text-[10px] font-black uppercase">Longitude</Label>
-                <Input value={location.lng} onChange={(e) => setLocation({...location, lng: e.target.value})} placeholder="106.xxx" className="rounded-xl" />
+              <div className="space-y-1.5 sm:space-y-2">
+                <Label className="text-[9px] sm:text-[10px] font-black uppercase">Longitude</Label>
+                <Input value={location.lng} onChange={(e) => setLocation({...location, lng: e.target.value})} placeholder="106.xxx" className="rounded-xl h-9 sm:h-10 text-xs font-bold" />
               </div>
-              <div className="space-y-2">
-                <Label className="text-[10px] font-black uppercase">Radius (Meter)</Label>
-                <Input value={location.radius} onChange={(e) => setLocation({...location, radius: e.target.value})} placeholder="50" className="rounded-xl" />
+              <div className="space-y-1.5 sm:space-y-2 sm:col-span-2 md:col-span-1">
+                <Label className="text-[9px] sm:text-[10px] font-black uppercase">Radius (Meter)</Label>
+                <Input value={location.radius} onChange={(e) => setLocation({...location, radius: e.target.value})} placeholder="50" className="rounded-xl h-9 sm:h-10 text-xs font-bold" />
               </div>
             </div>
-            <Button onClick={() => handleSaveConfig('lokasi')} className="mt-8 rounded-2xl bg-primary px-8 font-black uppercase tracking-widest text-[10px] h-12 shadow-xl shadow-primary/20">
+            <Button onClick={() => handleSaveConfig('lokasi')} className="mt-6 sm:mt-8 rounded-xl sm:rounded-2xl bg-primary px-6 sm:px-8 font-black uppercase tracking-wider sm:tracking-widest text-[9px] sm:text-[10px] h-10 sm:h-12 shadow-lg sm:shadow-xl shadow-primary/20">
               Simpan Lokasi
             </Button>
           </Card>
         </TabsContent>
 
         <TabsContent value="cloudinary" className="space-y-6">
-          <Card className="rounded-[2.5rem] border-none shadow-sm p-10 bg-white">
-            <h3 className="text-xl font-black uppercase italic tracking-tight mb-8">Konfigurasi Upload Selfie</h3>
-            <div className="grid md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <Label className="text-[10px] font-black uppercase">Cloud Name</Label>
-                <Input value={cloudinaryConfig.cloudinaryCloudName} onChange={(e) => setCloudinaryConfig({...cloudinaryConfig, cloudinaryCloudName: e.target.value})} className="rounded-xl" placeholder="cloudinary-name" />
+          <Card className="rounded-2xl sm:rounded-[2.5rem] border-none shadow-sm p-4 sm:p-8 md:p-10 bg-white">
+            <h3 className="text-lg sm:text-xl font-black uppercase italic tracking-tight mb-4 sm:mb-8">Konfigurasi Upload Selfie</h3>
+            <div className="grid md:grid-cols-2 gap-4 sm:gap-6">
+              <div className="space-y-1.5 sm:space-y-2">
+                <Label className="text-[9px] sm:text-[10px] font-black uppercase">Cloud Name</Label>
+                <Input value={cloudinaryConfig.cloudinaryCloudName} onChange={(e) => setCloudinaryConfig({...cloudinaryConfig, cloudinaryCloudName: e.target.value})} className="rounded-xl h-9 sm:h-10 text-xs font-bold" placeholder="cloudinary-name" />
               </div>
-              <div className="space-y-2">
-                <Label className="text-[10px] font-black uppercase">Upload Preset</Label>
-                <Input value={cloudinaryConfig.cloudinaryUploadPreset} onChange={(e) => setCloudinaryConfig({...cloudinaryConfig, cloudinaryUploadPreset: e.target.value})} className="rounded-xl" placeholder="unsigned_preset" />
+              <div className="space-y-1.5 sm:space-y-2">
+                <Label className="text-[9px] sm:text-[10px] font-black uppercase">Upload Preset</Label>
+                <Input value={cloudinaryConfig.cloudinaryUploadPreset} onChange={(e) => setCloudinaryConfig({...cloudinaryConfig, cloudinaryUploadPreset: e.target.value})} className="rounded-xl h-9 sm:h-10 text-xs font-bold" placeholder="unsigned_preset" />
               </div>
             </div>
-            <div className="mt-6 space-y-2">
-              <Label className="text-[10px] font-black uppercase">Folder</Label>
-              <Input value={cloudinaryConfig.cloudinaryFolder} onChange={(e) => setCloudinaryConfig({...cloudinaryConfig, cloudinaryFolder: e.target.value})} className="rounded-xl" placeholder="absensi-selfie" />
+            <div className="mt-4 sm:mt-6 space-y-1.5 sm:space-y-2">
+              <Label className="text-[9px] sm:text-[10px] font-black uppercase">Folder</Label>
+              <Input value={cloudinaryConfig.cloudinaryFolder} onChange={(e) => setCloudinaryConfig({...cloudinaryConfig, cloudinaryFolder: e.target.value})} className="rounded-xl h-9 sm:h-10 text-xs font-bold" placeholder="absensi-selfie" />
             </div>
-            <Button onClick={() => handleSaveConfig('cloudinary')} className="mt-8 rounded-2xl bg-primary px-8 font-black uppercase tracking-widest text-[10px] h-12 shadow-xl shadow-primary/20">
+            <Button onClick={() => handleSaveConfig('cloudinary')} className="mt-6 sm:mt-8 rounded-xl sm:rounded-2xl bg-primary px-6 sm:px-8 font-black uppercase tracking-wider sm:tracking-widest text-[9px] sm:text-[10px] h-10 sm:h-12 shadow-lg sm:shadow-xl shadow-primary/20">
               Simpan Konfigurasi Cloudinary
             </Button>
           </Card>
@@ -932,10 +945,11 @@ export default function PengaturanAbsensiPage() {
                                 setFormNama(k.nama || "");
                                 setFormUsername(k.username || "");
                                 setFormPassword(k.password || "");
-                                setFormGender(k.gender || "Laki-laki");
-                                setFormTeam(k.team || "tim1");
-                                setFormCabang(normalizeBranchId(k.cabang));
-                                setTimeout(() => {
+                                 setFormGender(k.gender || "Laki-laki");
+                                 setFormTeam(k.team || "tim1");
+                                 const branchValue = normalizeBranchId(k.cabang);
+                                 setFormCabang(branchValue === "all" ? "gdm" : branchValue);
+                                 setTimeout(() => {
                                   formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
                                 }, 50);
                               }} 
@@ -969,18 +983,18 @@ export default function PengaturanAbsensiPage() {
         </TabsContent>
 
         <TabsContent value="penjadwalan" className="space-y-6">
-          <Card className="rounded-[2.5rem] border-none shadow-sm bg-white overflow-hidden p-4 sm:p-8">
-            <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 mb-8">
+          <Card className="rounded-2xl sm:rounded-[2.5rem] border-none shadow-sm bg-white overflow-hidden p-3 sm:p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 sm:mb-6">
               <div>
-                <h3 className="text-xl font-black uppercase italic tracking-tight">Penjadwalan Karyawan</h3>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Atur Shift Harian Zona Waktu</p>
+                <h3 className="text-base sm:text-xl font-black uppercase italic tracking-tight">Penjadwalan Karyawan</h3>
+                <p className="text-[8.5px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5">Atur Shift Harian Zona Waktu</p>
               </div>
-              <div className="flex flex-wrap items-center gap-4">
-                <div className="flex gap-2">
+              <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2">
+                <div className="flex gap-1.5 w-full xs:w-auto sm:w-auto">
                   <Button 
                     onClick={handleAutoFillSchedules}
                     disabled={processingSchedule || !karyawanList || karyawanList.length === 0}
-                    className="rounded-xl bg-slate-900 text-white font-black uppercase tracking-widest text-[9px] h-10 px-4 shadow-sm"
+                    className="rounded-xl bg-slate-900 text-white font-black uppercase tracking-wider text-[8px] sm:text-[9px] h-8 sm:h-9 px-3 shadow-sm flex-1 sm:flex-none"
                   >
                     Isi Otomatis
                   </Button>
@@ -988,30 +1002,32 @@ export default function PengaturanAbsensiPage() {
                     onClick={handleClearSchedules}
                     disabled={processingSchedule}
                     variant="ghost"
-                    className="rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 font-black uppercase tracking-widest text-[9px] h-10 px-4"
+                    className="rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 font-black uppercase tracking-wider text-[8px] sm:text-[9px] h-8 sm:h-9 px-3 flex-1 sm:flex-none"
                   >
                     Hapus Semua
                   </Button>
                 </div>
-                <div className="flex items-center gap-4 bg-slate-50 p-2 rounded-2xl border border-slate-100">
-                  <Button variant="ghost" size="icon" onClick={() => changeMonth(-1)} className="rounded-xl h-10 w-10">
-                    <ChevronLeft className="h-4 w-4" />
+                <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-xl border border-slate-100">
+                  <Button variant="ghost" size="icon" onClick={() => changeMonth(-1)} className="rounded-lg h-7 w-7 sm:h-8 sm:w-8">
+                    <ChevronLeft className="h-3.5 w-3.5" />
                   </Button>
-                  <span className="text-xs font-black uppercase tracking-widest w-32 text-center">{monthLabel}</span>
-                  <Button variant="ghost" size="icon" onClick={() => changeMonth(1)} className="rounded-xl h-10 w-10">
-                    <ChevronRight className="h-4 w-4" />
+                  <span className="text-[9px] sm:text-xs font-black uppercase tracking-wider px-2 text-center">{monthLabel}</span>
+                  <Button variant="ghost" size="icon" onClick={() => changeMonth(1)} className="rounded-lg h-7 w-7 sm:h-8 sm:w-8">
+                    <ChevronRight className="h-3.5 w-3.5" />
                   </Button>
                 </div>
               </div>
             </div>
 
             <div className="overflow-x-auto custom-scrollbar">
-              <table className="w-full text-left border-collapse min-w-[1200px]">
+              <table className="w-full text-left border-collapse min-w-[700px] sm:min-w-[1000px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-100">
-                    <th className="sticky left-0 bg-slate-50 z-20 px-6 py-4 text-[9px] font-black uppercase text-slate-500 min-w-[200px] border-r border-slate-100">Nama Karyawan</th>
+                    <th className="sticky left-0 bg-slate-50 z-20 px-2.5 sm:px-4 py-2 sm:py-3 text-[8px] sm:text-[9px] font-black uppercase text-slate-500 min-w-[100px] sm:min-w-[160px] border-r border-slate-100">
+                      Nama Karyawan
+                    </th>
                     {Array.from({ length: daysInMonth }).map((_, i) => (
-                      <th key={i} className="px-3 py-4 text-center text-[9px] font-black uppercase text-slate-500 border-r border-slate-100">
+                      <th key={i} className="px-1 sm:px-2 py-2 sm:py-3 text-center text-[7.5px] sm:text-[9px] font-black uppercase text-slate-500 border-r border-slate-100 min-w-[26px] sm:min-w-[34px]">
                         {i + 1}
                       </th>
                     ))}
@@ -1020,30 +1036,30 @@ export default function PengaturanAbsensiPage() {
                 <tbody className="divide-y divide-slate-100">
                   {/* Header Tim 1 */}
                   <tr className="bg-amber-50/50">
-                    <td className="sticky left-0 bg-amber-50/80 z-10 px-6 py-3 border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.01)] font-black text-[9px] uppercase tracking-widest text-amber-700" colSpan={daysInMonth + 1}>
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full bg-amber-500" /> Karyawan Tim 1
+                    <td className="sticky left-0 bg-amber-50/80 z-10 px-2.5 sm:px-4 py-1.5 sm:py-2 border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.01)] font-black text-[8px] sm:text-[9px] uppercase tracking-wider text-amber-700" colSpan={daysInMonth + 1}>
+                      <div className="flex items-center gap-1.5">
+                        <div className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Karyawan Tim 1
                       </div>
                     </td>
                   </tr>
                   
                   {tim1Karyawan.map((k: KaryawanData) => (
                     <tr key={k.id} className="hover:bg-slate-50/30 transition-colors">
-                      <td className="sticky left-0 bg-white z-10 px-6 py-4 border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.02)]">
-                        <p className="text-xs font-black text-slate-900 uppercase truncate">{k.nama}</p>
+                      <td className="sticky left-0 bg-white z-10 px-2.5 sm:px-4 py-1.5 sm:py-2 border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.02)]">
+                        <p className="text-[9.5px] sm:text-xs font-black text-slate-900 uppercase truncate max-w-[95px] sm:max-w-[160px]">{k.nama}</p>
                       </td>
                       {Array.from({ length: daysInMonth }).map((_, i) => {
                         const day = i + 1;
                         const type = getScheduleType(k.id, day);
                         return (
-                          <td key={i} className="px-1 py-2 text-center border-r border-slate-100">
+                          <td key={i} className="px-0.5 sm:px-1 py-1 sm:py-1.5 text-center border-r border-slate-100">
                             <select 
                               value={type}
                               onChange={(e) => handleUpdateSchedule(k.id, day, e.target.value)}
                               className={cn(
-                                "w-10 h-10 rounded-lg text-[9px] font-black appearance-none text-center cursor-pointer transition-all outline-none",
-                                type === 'shift1' ? "bg-amber-100 text-amber-600 border border-amber-200" :
-                                type === 'shift2' ? "bg-indigo-100 text-indigo-600 border border-indigo-200" :
+                                "w-6 h-6 sm:w-7 sm:h-7 rounded-md text-[7.5px] sm:text-[8.5px] font-black appearance-none text-center cursor-pointer transition-all outline-none",
+                                type === 'shift1' ? "bg-amber-100 text-amber-700 border border-amber-200" :
+                                type === 'shift2' ? "bg-indigo-100 text-indigo-700 border border-indigo-200" :
                                 "bg-slate-100 text-slate-400 border border-slate-200"
                               )}
                             >
@@ -1059,37 +1075,37 @@ export default function PengaturanAbsensiPage() {
 
                   {/* Spacer / Divider row for separation */}
                   <tr className="bg-slate-100/50">
-                    <td className="sticky left-0 bg-slate-100/50 z-10 px-6 py-4 border-r border-slate-100" colSpan={daysInMonth + 1}>
-                      <div className="h-4" /> {/* Visual spacer */}
+                    <td className="sticky left-0 bg-slate-100/50 z-10 px-2 sm:px-4 py-1 border-r border-slate-100" colSpan={daysInMonth + 1}>
+                      <div className="h-1.5 sm:h-3" />
                     </td>
                   </tr>
 
                   {/* Header Tim 2 */}
                   <tr className="bg-indigo-50/50">
-                    <td className="sticky left-0 bg-indigo-50/80 z-10 px-6 py-3 border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.01)] font-black text-[9px] uppercase tracking-widest text-indigo-700" colSpan={daysInMonth + 1}>
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full bg-indigo-500" /> Karyawan Tim 2
+                    <td className="sticky left-0 bg-indigo-50/80 z-10 px-2.5 sm:px-4 py-1.5 sm:py-2 border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.01)] font-black text-[8px] sm:text-[9px] uppercase tracking-wider text-indigo-700" colSpan={daysInMonth + 1}>
+                      <div className="flex items-center gap-1.5">
+                        <div className="h-1.5 w-1.5 rounded-full bg-indigo-500" /> Karyawan Tim 2
                       </div>
                     </td>
                   </tr>
 
                   {tim2Karyawan.map((k: KaryawanData) => (
                     <tr key={k.id} className="hover:bg-slate-50/30 transition-colors">
-                      <td className="sticky left-0 bg-white z-10 px-6 py-4 border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.02)]">
-                        <p className="text-xs font-black text-slate-900 uppercase truncate">{k.nama}</p>
+                      <td className="sticky left-0 bg-white z-10 px-2.5 sm:px-4 py-1.5 sm:py-2 border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.02)]">
+                        <p className="text-[9.5px] sm:text-xs font-black text-slate-900 uppercase truncate max-w-[95px] sm:max-w-[160px]">{k.nama}</p>
                       </td>
                       {Array.from({ length: daysInMonth }).map((_, i) => {
                         const day = i + 1;
                         const type = getScheduleType(k.id, day);
                         return (
-                          <td key={i} className="px-1 py-2 text-center border-r border-slate-100">
+                          <td key={i} className="px-0.5 sm:px-1 py-1 sm:py-1.5 text-center border-r border-slate-100">
                             <select 
                               value={type}
                               onChange={(e) => handleUpdateSchedule(k.id, day, e.target.value)}
                               className={cn(
-                                "w-10 h-10 rounded-lg text-[9px] font-black appearance-none text-center cursor-pointer transition-all outline-none",
-                                type === 'shift1' ? "bg-amber-100 text-amber-600 border border-amber-200" :
-                                type === 'shift2' ? "bg-indigo-100 text-indigo-600 border border-indigo-200" :
+                                "w-6 h-6 sm:w-7 sm:h-7 rounded-md text-[7.5px] sm:text-[8.5px] font-black appearance-none text-center cursor-pointer transition-all outline-none",
+                                type === 'shift1' ? "bg-amber-100 text-amber-700 border border-amber-200" :
+                                type === 'shift2' ? "bg-indigo-100 text-indigo-700 border border-indigo-200" :
                                 "bg-slate-100 text-slate-400 border border-slate-200"
                               )}
                             >
@@ -1105,18 +1121,18 @@ export default function PengaturanAbsensiPage() {
                 </tbody>
               </table>
             </div>
-            <div className="mt-8 flex flex-wrap gap-4 md:gap-6 px-4 py-4 bg-slate-50 rounded-2xl border border-slate-100">
-               <div className="flex items-center gap-2">
-                 <div className="h-4 w-4 rounded-md bg-amber-100 border border-amber-200" />
-                 <span className="text-[9px] font-black uppercase text-slate-500">S1: Shift 1 ({shifts.pagi.masuk}-{shifts.pagi.pulang})</span>
+            <div className="mt-4 sm:mt-6 flex flex-wrap gap-2 sm:gap-4 px-3 py-2.5 bg-slate-50 rounded-xl sm:rounded-2xl border border-slate-100">
+               <div className="flex items-center gap-1.5">
+                 <div className="h-3 w-3 sm:h-4 sm:w-4 rounded-md bg-amber-100 border border-amber-200" />
+                 <span className="text-[7.5px] sm:text-[9px] font-black uppercase text-slate-500">S1: Shift 1 ({shifts.pagi.masuk}-{shifts.pagi.pulang})</span>
                </div>
-               <div className="flex items-center gap-2">
-                 <div className="h-4 w-4 rounded-md bg-indigo-100 border border-indigo-200" />
-                 <span className="text-[9px] font-black uppercase text-slate-500">S2: Shift 2 ({shifts.siang.masuk}-{shifts.siang.pulang})</span>
+               <div className="flex items-center gap-1.5">
+                 <div className="h-3 w-3 sm:h-4 sm:w-4 rounded-md bg-indigo-100 border border-indigo-200" />
+                 <span className="text-[7.5px] sm:text-[9px] font-black uppercase text-slate-500">S2: Shift 2 ({shifts.siang.masuk}-{shifts.siang.pulang})</span>
                </div>
-               <div className="flex items-center gap-2">
-                 <div className="h-4 w-4 rounded-md bg-slate-100 border border-slate-200" />
-                 <span className="text-[9px] font-black uppercase text-slate-500">L: Libur</span>
+               <div className="flex items-center gap-1.5">
+                 <div className="h-3 w-3 sm:h-4 sm:w-4 rounded-md bg-slate-100 border border-slate-200" />
+                 <span className="text-[7.5px] sm:text-[9px] font-black uppercase text-slate-500">L: Libur</span>
                </div>
             </div>
           </Card>

@@ -23,7 +23,35 @@ import {
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
-const getLogDateStr = (log: any): string => {
+interface PurchaseItem {
+  materialId?: string;
+  materialCode?: string;
+  materialName?: string;
+  qty?: number;
+  unit?: string;
+  satuan?: string;
+  price?: number;
+  purchasePrice?: number;
+  isBeliSendiri?: boolean;
+  metodePembelian?: string;
+  supplierName?: string;
+  suplier?: string;
+}
+
+interface PurchaseLog {
+  id: string;
+  nomorNota?: string;
+  tanggal?: string;
+  createdAt?: { toDate?: () => Date; seconds?: number; nanoseconds?: number } | null;
+  type?: string;
+  purchaseType?: string;
+  supplier?: string;
+  suplier?: string;
+  supplierName?: string;
+  items?: PurchaseItem[];
+}
+
+const getLogDateStr = (log: PurchaseLog): string => {
   if (log.tanggal && typeof log.tanggal === "string") return log.tanggal;
   if (log.createdAt?.toDate) {
     const d = log.createdAt.toDate();
@@ -45,7 +73,7 @@ const getLogDateStr = (log: any): string => {
 const formatCurrency = (val: number) => `Rp ${Number(val || 0).toLocaleString("id-ID")}`;
 
 // Helper to determine Supliyer vs Beli Sendiri info
-const getMetodeInfo = (log: any, item?: any) => {
+const getMetodeInfo = (log: PurchaseLog, item?: PurchaseItem) => {
   const supplierName = log.supplier || log.suplier || log.supplierName || item?.supplierName || item?.suplier;
   
   const isBeliSendiri = item?.isBeliSendiri === true || 
@@ -58,7 +86,7 @@ const getMetodeInfo = (log: any, item?: any) => {
 
   if (isBeliSendiri) {
     return {
-      type: "beli-sendiri",
+      type: "beli-sendiri" as const,
       label: "Beli Sendiri",
       badgeClass: "bg-amber-50 text-amber-800 border-amber-200/80",
       itemBadgeClass: "bg-amber-100/80 text-amber-900 border-amber-200",
@@ -68,7 +96,7 @@ const getMetodeInfo = (log: any, item?: any) => {
 
   const labelText = supplierName ? `Supliyer: ${supplierName}` : "Supliyer";
   return {
-    type: "supplier",
+    type: "supplier" as const,
     label: labelText,
     badgeClass: "bg-blue-50 text-blue-800 border-blue-200/80",
     itemBadgeClass: "bg-blue-100/80 text-blue-900 border-blue-200",
@@ -91,13 +119,14 @@ export default function LaporanBelanjaBahanBakuPage() {
     () => query(collection(db, "log_pembelian_bahan"), orderBy("createdAt", "desc"), limit(500)),
     [db]
   );
-  const { data: logs, loading } = useCollection(logsQuery);
+  const { data: rawLogs, loading } = useCollection(logsQuery);
+  const logs = rawLogs as PurchaseLog[] | null;
 
   // Filter logs by date range, method, & search term
   const filteredLogs = useMemo(() => {
     if (!logs) return [];
 
-    return logs.filter((log: any) => {
+    return logs.filter((log: PurchaseLog) => {
       // Exclude transfer logs if any mixed in
       if (log.type === "ambil-gudang" || log.type === "kembali-gudang") return false;
 
@@ -117,7 +146,7 @@ export default function LaporanBelanjaBahanBakuPage() {
         const term = searchTerm.toLowerCase();
         const matchNota = (log.nomorNota || "").toLowerCase().includes(term);
         const matchSupplier = (log.supplier || log.suplier || "").toLowerCase().includes(term);
-        const matchItems = (log.items || []).some((it: any) =>
+        const matchItems = (log.items || []).some((it: PurchaseItem) =>
           (it.materialName || "").toLowerCase().includes(term) ||
           (it.materialCode || "").toLowerCase().includes(term)
         );
@@ -135,9 +164,9 @@ export default function LaporanBelanjaBahanBakuPage() {
     let totalSupplierSpending = 0;
     let totalBeliSendiriSpending = 0;
 
-    filteredLogs.forEach((log: any) => {
+    filteredLogs.forEach((log: PurchaseLog) => {
       const logInfo = getMetodeInfo(log);
-      (log.items ?? []).forEach((it: any) => {
+      (log.items ?? []).forEach((it: PurchaseItem) => {
         const price = it.price ?? it.purchasePrice ?? 0;
         const qty = it.qty ?? 0;
         const sub = price * qty;
@@ -155,30 +184,32 @@ export default function LaporanBelanjaBahanBakuPage() {
 
     return {
       totalSpending,
-      totalNota: filteredLogs.length,
       totalItemsCount,
       totalSupplierSpending,
-      totalBeliSendiriSpending
+      totalBeliSendiriSpending,
+      totalNota: filteredLogs.length
     };
   }, [filteredLogs]);
 
   // Quick Preset Handlers
-  const handleSetPreset = (preset: "today" | "this-month" | "7-days" | "all") => {
-    const today = new Date();
-    const todayStr = today.toISOString().split("T")[0];
+  const handleSetPreset = (preset: "today" | "7-days" | "this-month" | "all") => {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const fmt = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
     if (preset === "today") {
-      setStartDate(todayStr);
-      setEndDate(todayStr);
+      const t = fmt(now);
+      setStartDate(t);
+      setEndDate(t);
     } else if (preset === "7-days") {
-      const past7 = new Date();
-      past7.setDate(past7.getDate() - 6);
-      setStartDate(past7.toISOString().split("T")[0]);
-      setEndDate(todayStr);
+      const past = new Date();
+      past.setDate(now.getDate() - 6);
+      setStartDate(fmt(past));
+      setEndDate(fmt(now));
     } else if (preset === "this-month") {
-      const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-      setStartDate(firstDay.toISOString().split("T")[0]);
-      setEndDate(todayStr);
+      const first = new Date(now.getFullYear(), now.getMonth(), 1);
+      setStartDate(fmt(first));
+      setEndDate(fmt(now));
     } else {
       setStartDate("");
       setEndDate("");
@@ -211,11 +242,11 @@ export default function LaporanBelanjaBahanBakuPage() {
 
   // Export Excel
   const handleExportExcel = () => {
-    const exportRows: any[] = [];
-    filteredLogs.forEach((log: any) => {
+    const exportRows: Record<string, string | number>[] = [];
+    filteredLogs.forEach((log: PurchaseLog) => {
       const dateDisplay = getLogDateStr(log) || (log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleDateString("id-ID") : "-");
 
-      (log.items || []).forEach((item: any) => {
+      (log.items || []).forEach((item: PurchaseItem) => {
         const itemInfo = getMetodeInfo(log, item);
         const price = item.price ?? item.purchasePrice ?? 0;
         const qty = item.qty ?? 0;
@@ -255,35 +286,35 @@ export default function LaporanBelanjaBahanBakuPage() {
       </header>
 
       {/* Date Interval & Method Filter Bar */}
-      <Card className="rounded-[2rem] border-none bg-white p-6 shadow-sm space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <Card className="rounded-[2rem] border-none bg-white p-4 sm:p-6 shadow-sm space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4">
           {/* Interval Date Pickers */}
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-2xl border border-slate-200">
-              <CalendarIcon className="h-4 w-4 text-primary shrink-0" />
-              <div className="flex flex-col">
-                <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Dari Tanggal</span>
-                <Input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="h-7 border-none bg-transparent font-black text-xs text-slate-800 focus-visible:ring-0 p-0 w-auto"
-                />
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 flex-1">
+            <div className="grid grid-cols-2 gap-2 flex-1 items-center">
+              <div className="flex items-center gap-2 bg-slate-50 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-2xl border border-slate-200">
+                <CalendarIcon className="h-4 w-4 text-primary shrink-0" />
+                <div className="flex flex-col min-w-0 flex-1">
+                  <span className="text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider text-slate-500 truncate">Dari Tanggal</span>
+                  <Input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="h-6 sm:h-7 border-none bg-transparent font-black text-[11px] sm:text-xs text-slate-800 focus-visible:ring-0 p-0 w-full"
+                  />
+                </div>
               </div>
-            </div>
 
-            <span className="text-slate-600 font-black text-xs">s/d</span>
-
-            <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-2xl border border-slate-200">
-              <CalendarIcon className="h-4 w-4 text-primary shrink-0" />
-              <div className="flex flex-col">
-                <span className="text-[9px] font-black uppercase tracking-widest text-slate-600">Sampai Tanggal</span>
-                <Input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="h-7 border-none bg-transparent font-black text-xs text-slate-800 focus-visible:ring-0 p-0 w-auto"
-                />
+              <div className="flex items-center gap-2 bg-slate-50 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-2xl border border-slate-200">
+                <CalendarIcon className="h-4 w-4 text-primary shrink-0" />
+                <div className="flex flex-col min-w-0 flex-1">
+                  <span className="text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider text-slate-500 truncate">Sampai Tanggal</span>
+                  <Input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="h-6 sm:h-7 border-none bg-transparent font-black text-[11px] sm:text-xs text-slate-800 focus-visible:ring-0 p-0 w-full"
+                  />
+                </div>
               </div>
             </div>
 
@@ -291,68 +322,82 @@ export default function LaporanBelanjaBahanBakuPage() {
               <Button
                 variant="ghost"
                 onClick={handleResetFilter}
-                className="h-10 px-3 rounded-2xl text-rose-600 hover:bg-rose-50 font-bold text-xs gap-1.5"
+                className="h-8 sm:h-10 px-3 rounded-2xl text-rose-600 hover:bg-rose-50 font-black text-[10px] sm:text-xs gap-1.5 shrink-0 justify-center"
               >
-                <RotateCcw className="h-3.5 w-3.5" /> Reset Filter
+                <RotateCcw className="h-3.5 w-3.5" /> Reset
               </Button>
             )}
           </div>
 
           {/* Filter Supliyer vs Beli Sendiri */}
-          <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
+          <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 sm:p-1.5 rounded-2xl border border-slate-200 w-full lg:w-auto shrink-0">
             <Button
               variant={methodFilter === "all" ? "default" : "ghost"}
               onClick={() => setMethodFilter("all")}
-              className={cn("rounded-xl px-3 h-8 font-black text-[10px] uppercase", methodFilter === "all" ? "bg-primary text-white" : "text-slate-600")}
+              className={cn(
+                "rounded-xl h-8 font-black text-[8.5px] sm:text-[10px] uppercase px-1 transition-all text-center flex items-center justify-center",
+                methodFilter === "all" ? "bg-primary text-white shadow-sm" : "text-slate-600 hover:bg-slate-200/60"
+              )}
             >
-              Semua Metode
+              <span className="hidden sm:inline">Semua Metode</span>
+              <span className="sm:hidden">Semua</span>
             </Button>
             <Button
               variant={methodFilter === "supplier" ? "default" : "ghost"}
               onClick={() => setMethodFilter("supplier")}
-              className={cn("rounded-xl px-3 h-8 font-black text-[10px] uppercase gap-1.5", methodFilter === "supplier" ? "bg-blue-600 text-white" : "text-slate-600")}
+              className={cn(
+                "rounded-xl h-8 font-black text-[8.5px] sm:text-[10px] uppercase px-1 transition-all text-center flex items-center justify-center gap-1",
+                methodFilter === "supplier" ? "bg-blue-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200/60"
+              )}
             >
-              <Building2 className="h-3.5 w-3.5" /> Supliyer
+              <Building2 className="h-3 w-3 shrink-0 hidden xs:inline" />
+              Supliyer
             </Button>
             <Button
               variant={methodFilter === "beli-sendiri" ? "default" : "ghost"}
               onClick={() => setMethodFilter("beli-sendiri")}
-              className={cn("rounded-xl px-3 h-8 font-black text-[10px] uppercase gap-1.5", methodFilter === "beli-sendiri" ? "bg-amber-600 text-white" : "text-slate-600")}
+              className={cn(
+                "rounded-xl h-8 font-black text-[8.5px] sm:text-[10px] uppercase px-1 transition-all text-center flex items-center justify-center gap-1",
+                methodFilter === "beli-sendiri" ? "bg-amber-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200/60"
+              )}
             >
-              <Store className="h-3.5 w-3.5" /> Beli Sendiri
+              <Store className="h-3 w-3 shrink-0 hidden xs:inline" />
+              Beli Sendiri
             </Button>
           </div>
         </div>
 
         {/* Search & Presets & Export */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-100">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] font-black uppercase text-slate-400 mr-1">Preset:</span>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-slate-100">
+          <div className="grid grid-cols-4 gap-1 bg-slate-100/70 p-1 rounded-xl border border-slate-200 w-full sm:w-auto">
             <Button
               variant={!startDate && !endDate ? "secondary" : "ghost"}
               onClick={() => handleSetPreset("all")}
-              className="rounded-xl px-2.5 h-7 font-black text-[9px] uppercase"
+              className={cn(
+                "rounded-lg h-7 font-black text-[8.5px] sm:text-[9px] uppercase px-1 text-center",
+                !startDate && !endDate ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:bg-slate-200/60"
+              )}
             >
               Semua
             </Button>
             <Button
               variant="ghost"
               onClick={() => handleSetPreset("today")}
-              className="rounded-xl px-2.5 h-7 font-black text-[9px] uppercase text-slate-600 hover:bg-slate-100"
+              className="rounded-lg h-7 font-black text-[8.5px] sm:text-[9px] uppercase px-1 text-center text-slate-600 hover:bg-slate-200/60"
             >
               Hari Ini
             </Button>
             <Button
               variant="ghost"
               onClick={() => handleSetPreset("7-days")}
-              className="rounded-xl px-2.5 h-7 font-black text-[9px] uppercase text-slate-600 hover:bg-slate-100"
+              className="rounded-lg h-7 font-black text-[8.5px] sm:text-[9px] uppercase px-1 text-center text-slate-600 hover:bg-slate-200/60"
             >
               7 Hari
             </Button>
             <Button
               variant="ghost"
               onClick={() => handleSetPreset("this-month")}
-              className="rounded-xl px-2.5 h-7 font-black text-[9px] uppercase text-slate-600 hover:bg-slate-100"
+              className="rounded-lg h-7 font-black text-[8.5px] sm:text-[9px] uppercase px-1 text-center text-slate-600 hover:bg-slate-200/60"
             >
               Bulan Ini
             </Button>
@@ -433,9 +478,9 @@ export default function LaporanBelanjaBahanBakuPage() {
         )}
         {!loading && filteredLogs.length > 0 ? (
           <div className="space-y-6">
-            {filteredLogs.map((log: any) => {
+            {filteredLogs.map((log: PurchaseLog) => {
               const dateDisplay = getLogDateStr(log) || (log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleDateString("id-ID") : "Baru saja");
-              const logTotal = (log.items || []).reduce((s: number, it: any) => s + (it.price ?? it.purchasePrice ?? 0) * (it.qty ?? 0), 0);
+              const logTotal = (log.items || []).reduce((s: number, it: PurchaseItem) => s + (it.price ?? it.purchasePrice ?? 0) * (it.qty ?? 0), 0);
               const logMetode = getMetodeInfo(log);
 
               return (
@@ -482,7 +527,7 @@ export default function LaporanBelanjaBahanBakuPage() {
                     <div className="col-span-3 text-right">Total</div>
                   </div>
 
-                  {log.items?.map((item: any, idx: number) => {
+                  {log.items?.map((item: PurchaseItem, idx: number) => {
                     const itemMetode = getMetodeInfo(log, item);
                     const price = item.price ?? item.purchasePrice ?? 0;
                     const qty = item.qty ?? 0;

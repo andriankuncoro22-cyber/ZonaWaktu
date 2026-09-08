@@ -3,11 +3,9 @@
 import React, { useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { Coffee, Menu, Store } from "lucide-react";
+import { Coffee, Store } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useFirestore, useDoc, useMemoFirebase, doc } from "@/firebase";
-
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 
 export default function ZonaKedungrejaLandingPage() {
   const db = useFirestore();
@@ -22,12 +20,16 @@ export default function ZonaKedungrejaLandingPage() {
   return (
     <div
       className="min-h-screen overflow-hidden relative font-sans flex flex-col"
-      style={{ backgroundColor: "var(--theme-primary, #8b1a1a)", color: "var(--theme-primary-foreground, #ffffff)" }}
+      style={{
+        backgroundColor: "#0a192f",
+        backgroundImage: "radial-gradient(ellipse at 50% 0%, #1e3a8a 0%, #0f224a 50%, #0a192f 100%)",
+        color: "#f0f9ff"
+      }}
     >
       {/* Background Pattern Overlay */}
       <div 
-        className="absolute inset-0 opacity-[0.05] pointer-events-none" 
-        style={{ backgroundImage: "radial-gradient(circle, white 1px, transparent 1px)", backgroundSize: "40px 40px" }}
+        className="absolute inset-0 opacity-[0.06] pointer-events-none" 
+        style={{ backgroundImage: "radial-gradient(circle, #93c5fd 1px, transparent 1px)", backgroundSize: "36px 36px" }}
       ></div>
 
       {/* Navigation - Minimalist */}
@@ -42,64 +44,21 @@ export default function ZonaKedungrejaLandingPage() {
                 {settings?.name || "ZONA WAKTU"}
               </span>
               <span className="text-[8px] font-bold text-white/60 tracking-widest uppercase flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block animate-pulse"></span>
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 inline-block animate-pulse"></span>
                 Cabang Kedungreja
               </span>
             </div>
           </Link>
         </div>
 
-        {/* Desktop Login Buttons & Store Switcher */}
-        <div className="hidden md:flex items-center gap-3">
+        {/* Desktop Store Switcher */}
+        <div className="flex items-center gap-3">
           <Link href="/">
-            <Button variant="ghost" className="text-white/80 hover:text-white hover:bg-white/10 border border-white/10 rounded-full px-4 h-10 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
+            <Button variant="ghost" className="text-white/90 hover:text-white hover:bg-white/10 border border-white/20 rounded-full px-4 h-10 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
               <Store className="h-3.5 w-3.5" />
-              Pilih Cabang
+              <span>Pilih Cabang</span>
             </Button>
           </Link>
-          <div className="h-4 w-[1px] bg-white/20 mx-1"></div>
-          <Link href="/zona_kedungreja/owner-login">
-            <Button variant="ghost" className="text-white hover:bg-white/10 border border-white/20 rounded-full px-5 h-10 text-xs font-black uppercase tracking-widest">
-              Login Owner
-            </Button>
-          </Link>
-          <Link href="/zona_kedungreja/admin-login">
-            <Button variant="ghost" className="text-white hover:bg-white/10 border border-white/20 rounded-full px-5 h-10 text-xs font-black uppercase tracking-widest">
-              Login Admin
-            </Button>
-          </Link>
-        </div>
-
-        {/* Mobile Hamburger Dropdown */}
-        <div className="md:hidden">
-          <Sheet>
-            <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="text-white hover:bg-white/10 h-10 w-10 rounded-xl">
-                <Menu className="h-6 w-6" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="right" className="bg-[#8b1a1a] border-none text-white p-8 flex flex-col justify-start gap-4 w-72">
-              <div className="text-[10px] font-black tracking-[0.2em] uppercase mb-2 text-white/50">Menu Akses Toko Kedungreja</div>
-              <Link href="/zona_kedungreja/owner-login" className="w-full">
-                <Button className="w-full bg-white text-[#8b1a1a] hover:bg-slate-100 rounded-full h-12 font-black uppercase tracking-widest text-xs border-none">
-                  Login Owner
-                </Button>
-              </Link>
-              <Link href="/zona_kedungreja/admin-login" className="w-full">
-                <Button className="w-full bg-white text-[#8b1a1a] hover:bg-slate-100 rounded-full h-12 font-black uppercase tracking-widest text-xs border-none">
-                  Login Admin
-                </Button>
-              </Link>
-              <div className="border-t border-white/10 pt-4 mt-2">
-                <Link href="/" className="w-full">
-                  <Button variant="ghost" className="w-full text-white hover:bg-white/10 rounded-full h-11 font-bold uppercase tracking-wider text-xs border border-white/20 flex items-center justify-center gap-2">
-                    <Store className="h-4 w-4" />
-                    Pilih Cabang Lain
-                  </Button>
-                </Link>
-              </div>
-            </SheetContent>
-          </Sheet>
         </div>
       </nav>
 
@@ -109,7 +68,7 @@ export default function ZonaKedungrejaLandingPage() {
           
           {/* Branch Pill Badge */}
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/10 border border-white/20 backdrop-blur-md mb-6 shadow-sm">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse"></span>
             <span className="text-[10px] md:text-xs font-black uppercase tracking-[0.25em] text-white">
               OUTLET KEDUNGREJA &bull; ACTIVE
             </span>
@@ -148,7 +107,7 @@ export default function ZonaKedungrejaLandingPage() {
           {/* Action Buttons */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 md:gap-6 w-full max-w-xl px-4 md:px-0">
             <Link href="/zona_kedungreja/employee-login" className="w-full sm:w-1/2">
-              <Button className="w-full bg-white text-[#8b1a1a] hover:bg-slate-100 rounded-full h-14 md:h-20 px-8 text-sm md:text-xl font-black uppercase tracking-widest shadow-2xl transition-all hover:scale-105 active:scale-95 border-none">
+              <Button className="w-full bg-white text-[#0f224a] hover:bg-slate-100 rounded-full h-14 md:h-20 px-8 text-sm md:text-xl font-black uppercase tracking-widest shadow-2xl transition-all hover:scale-105 active:scale-95 border-none">
                 Sistem Karyawan
               </Button>
             </Link>

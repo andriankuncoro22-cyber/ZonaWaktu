@@ -267,86 +267,93 @@ export default function LabaRugiPage() {
           </p>
         </div>
         
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-wrap gap-3 items-center justify-end">
-            <div className="bg-white p-1 rounded-2xl shadow-sm border border-slate-100 flex items-center">
-              <Button 
-                variant="ghost" 
-                onClick={() => setReportType('daily')}
-                className={cn(
-                  "rounded-xl px-4 h-10 text-[9px] font-black uppercase tracking-widest transition-all",
-                  reportType === 'daily' ? "bg-primary text-white shadow-lg" : "text-slate-500"
+        <div className="flex flex-col gap-3 w-full md:w-auto">
+          {/* Row 1: Filter Controls */}
+          <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center sm:justify-end w-full">
+            <div className="grid grid-cols-2 sm:flex sm:items-center gap-2">
+              {/* Type Switcher */}
+              <div className="bg-white p-1 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+                <Button 
+                  variant="ghost" 
+                  onClick={() => setReportType('daily')}
+                  className={cn(
+                    "flex-1 sm:flex-none rounded-xl px-3 sm:px-4 h-9 sm:h-10 text-[9px] font-black uppercase tracking-wider transition-all",
+                    reportType === 'daily' ? "bg-primary text-white shadow-md" : "text-slate-500"
+                  )}
+                >
+                  Harian
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  onClick={() => setReportType('monthly')}
+                  className={cn(
+                    "flex-1 sm:flex-none rounded-xl px-3 sm:px-4 h-9 sm:h-10 text-[9px] font-black uppercase tracking-wider transition-all",
+                    reportType === 'monthly' ? "bg-primary text-white shadow-md" : "text-slate-500"
+                  )}
+                >
+                  Bulanan
+                </Button>
+              </div>
+
+              {/* Date/Month Input */}
+              <div className="bg-white px-3 py-1.5 sm:py-2 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center gap-2 min-h-[38px] sm:min-h-[42px]">
+                <Calendar className="h-4 w-4 text-primary shrink-0" />
+                {reportType === 'daily' ? (
+                  <input 
+                    type="date" 
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="text-[10px] font-black uppercase tracking-wider text-slate-700 bg-transparent border-none outline-none cursor-pointer w-full text-center sm:text-left"
+                  />
+                ) : (
+                  <input 
+                    type="month" 
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(e.target.value)}
+                    className="text-[10px] font-black uppercase tracking-wider text-slate-700 bg-transparent border-none outline-none cursor-pointer w-full text-center sm:text-left"
+                  />
                 )}
-              >
-                Harian
-              </Button>
-              <Button 
-                variant="ghost" 
-                onClick={() => setReportType('monthly')}
-                className={cn(
-                  "rounded-xl px-4 h-10 text-[9px] font-black uppercase tracking-widest transition-all",
-                  reportType === 'monthly' ? "bg-primary text-white shadow-lg" : "text-slate-500"
-                )}
-              >
-                Bulanan
-              </Button>
+              </div>
             </div>
 
-            <div className="bg-white px-4 py-2 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-3">
-              <Calendar className="h-4 w-4 text-primary" />
-              {reportType === 'daily' ? (
-                <input 
-                  type="date" 
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="text-[10px] font-black uppercase tracking-widest text-slate-700 bg-transparent border-none outline-none cursor-pointer"
-                />
-              ) : (
-                <input 
-                  type="month" 
-                  value={selectedMonth}
-                  onChange={(e) => setSelectedMonth(e.target.value)}
-                  className="text-[10px] font-black uppercase tracking-widest text-slate-700 bg-transparent border-none outline-none cursor-pointer"
-                />
-              )}
-            </div>
-
+            {/* Tampilkan Data Button */}
             <Button 
               onClick={handleCheck}
               disabled={loading}
-              className="rounded-2xl bg-slate-900 hover:bg-slate-800 text-white px-8 h-12 font-black uppercase tracking-widest text-[10px] gap-2 shadow-lg"
+              className="rounded-xl sm:rounded-2xl bg-slate-900 hover:bg-slate-800 text-white px-5 sm:px-8 h-10 sm:h-12 font-black uppercase tracking-widest text-[9px] sm:text-[10px] gap-2 shadow-md w-full sm:w-auto shrink-0 flex items-center justify-center"
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-              Tampilkan Data
+              <span>Tampilkan Data</span>
             </Button>
           </div>
 
-          <div className="flex flex-wrap gap-2 items-center justify-end">
+          {/* Row 2: Action Buttons (Excel, PDF A4, Hapus Laporan in 1 Row on Mobile) */}
+          <div className="grid grid-cols-3 sm:flex sm:items-center sm:justify-end gap-1.5 sm:gap-2 w-full">
             <Button 
               variant="outline" 
               onClick={handleExportExcel}
               disabled={loading || filteredData.length === 0}
-              className="rounded-xl border-slate-200 px-6 h-10 font-black uppercase tracking-widest text-[9px] gap-2 shadow-sm bg-white hover:bg-slate-50"
+              className="rounded-xl border-slate-200 px-2 sm:px-5 h-9 sm:h-10 font-black uppercase tracking-tight sm:tracking-widest text-[8.5px] sm:text-[9px] gap-1.5 shadow-sm bg-white hover:bg-slate-50 text-slate-700 w-full sm:w-auto flex items-center justify-center"
             >
-              <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-              Excel
+              <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+              <span className="truncate">Excel</span>
             </Button>
             <Button 
               onClick={handleExportPDF}
               disabled={loading || filteredData.length === 0}
-              className="rounded-xl bg-slate-700 hover:bg-slate-600 text-white px-6 h-10 font-black uppercase tracking-widest text-[9px] gap-2 shadow-sm"
+              className="rounded-xl bg-slate-700 hover:bg-slate-600 text-white px-2 sm:px-5 h-9 sm:h-10 font-black uppercase tracking-tight sm:tracking-widest text-[8.5px] sm:text-[9px] gap-1.5 shadow-sm w-full sm:w-auto flex items-center justify-center"
             >
-              <Printer className="h-4 w-4" />
-              PDF A4
+              <Printer className="h-3.5 w-3.5 text-white shrink-0" />
+              <span className="truncate">PDF A4</span>
             </Button>
             <Button 
               variant="destructive"
               disabled={loading || filteredData.length === 0}
               onClick={handleDeleteReport}
-              className="rounded-xl px-6 h-10 font-black uppercase tracking-widest text-[9px] gap-2 shadow-sm border-none"
+              className="rounded-xl px-2 sm:px-5 h-9 sm:h-10 font-black uppercase tracking-tight sm:tracking-widest text-[8.5px] sm:text-[9px] gap-1.5 shadow-sm border-none bg-rose-500 hover:bg-rose-600 text-white w-full sm:w-auto flex items-center justify-center"
             >
-              <Trash2 className="h-4 w-4" />
-              Hapus Laporan
+              <Trash2 className="h-3.5 w-3.5 text-white shrink-0" />
+              <span className="truncate">Hapus</span>
             </Button>
           </div>
         </div>

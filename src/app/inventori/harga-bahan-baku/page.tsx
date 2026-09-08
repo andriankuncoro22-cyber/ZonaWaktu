@@ -378,25 +378,27 @@ export default function HargaBahanBakuPage() {
         </div>
 
         {/* Action Buttons: Template, Export, Import */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="grid grid-cols-3 gap-1.5 sm:flex sm:items-center sm:gap-2 w-full md:w-auto">
           <Button
             variant="outline"
             size="sm"
             onClick={handleDownloadTemplate}
-            className="rounded-2xl border-slate-200 hover:bg-slate-50 font-black uppercase tracking-wider text-[9px] gap-1.5 h-10 px-3.5 shadow-sm"
+            className="rounded-xl sm:rounded-2xl border-slate-200 hover:bg-slate-50 font-black uppercase tracking-wider text-[8px] sm:text-[9px] gap-1 sm:gap-1.5 h-9 sm:h-10 px-2 sm:px-3.5 shadow-sm flex items-center justify-center text-center"
           >
-            <FileDown className="h-3.5 w-3.5 text-slate-500" />
-            Template Excel
+            <FileDown className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+            <span className="hidden sm:inline">Template Excel</span>
+            <span className="sm:hidden">Template</span>
           </Button>
 
           <Button
             variant="outline"
             size="sm"
             onClick={handleExportExcel}
-            className="rounded-2xl border-emerald-200 bg-emerald-50/50 hover:bg-emerald-100/60 text-emerald-800 font-black uppercase tracking-wider text-[9px] gap-1.5 h-10 px-4 shadow-sm"
+            className="rounded-xl sm:rounded-2xl border-emerald-200 bg-emerald-50/50 hover:bg-emerald-100/60 text-emerald-800 font-black uppercase tracking-wider text-[8px] sm:text-[9px] gap-1 sm:gap-1.5 h-9 sm:h-10 px-2 sm:px-4 shadow-sm flex items-center justify-center text-center"
           >
-            <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
-            Ekspor Excel
+            <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+            <span className="hidden sm:inline">Ekspor Excel</span>
+            <span className="sm:hidden">Ekspor</span>
           </Button>
 
           <input
@@ -412,17 +414,19 @@ export default function HargaBahanBakuPage() {
             size="sm"
             disabled={isImporting}
             onClick={() => fileInputRef.current?.click()}
-            className="rounded-2xl bg-primary hover:bg-primary/90 text-white font-black uppercase tracking-wider text-[9px] gap-1.5 h-10 px-4 shadow-md shadow-primary/20"
+            className="rounded-xl sm:rounded-2xl bg-primary hover:bg-primary/90 text-white font-black uppercase tracking-wider text-[8px] sm:text-[9px] gap-1 sm:gap-1.5 h-9 sm:h-10 px-2 sm:px-4 shadow-md shadow-primary/20 flex items-center justify-center text-center"
           >
             {isImporting ? (
               <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Mengimpor...
+                <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                <span className="hidden sm:inline">Mengimpor...</span>
+                <span className="sm:hidden">Impor...</span>
               </>
             ) : (
               <>
-                <Upload className="h-3.5 w-3.5" />
-                Impor Excel
+                <Upload className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden sm:inline">Impor Excel</span>
+                <span className="sm:hidden">Impor</span>
               </>
             )}
           </Button>

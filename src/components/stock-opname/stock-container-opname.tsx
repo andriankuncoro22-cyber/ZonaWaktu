@@ -432,7 +432,7 @@ export function StockContainerOpnameView({
           </p>
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="grid grid-cols-4 gap-1.5 sm:flex sm:items-center sm:gap-2 w-full md:w-auto">
           <input
             type="file"
             ref={fileInputRef}
@@ -443,30 +443,35 @@ export function StockContainerOpnameView({
           <Button
             variant="outline"
             onClick={() => fileInputRef.current?.click()}
-            className="h-11 rounded-2xl border-slate-200 bg-white px-4 text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 sm:h-12 sm:px-6 hover:text-indigo-600"
+            className="h-9 sm:h-12 rounded-xl sm:rounded-2xl border-slate-200 bg-white px-1 sm:px-5 text-[9px] sm:text-[10px] font-black uppercase tracking-wider hover:bg-slate-50 hover:text-indigo-600 shadow-sm flex items-center justify-center gap-1 sm:gap-2"
           >
-            <Upload className="mr-2 h-4 w-4 text-indigo-600" /> Impor Excel
+            <Upload className="h-3.5 w-3.5 text-indigo-600 shrink-0" />
+            <span className="truncate sm:hidden">Impor</span>
+            <span className="hidden sm:inline">Impor Excel</span>
           </Button>
           <Button
             variant="outline"
             onClick={resetInputs}
-            className="h-11 rounded-2xl border-slate-200 bg-white px-4 text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 sm:h-12 sm:px-6"
+            className="h-9 sm:h-12 rounded-xl sm:rounded-2xl border-slate-200 bg-white px-1 sm:px-5 text-[9px] sm:text-[10px] font-black uppercase tracking-wider hover:bg-slate-50 shadow-sm flex items-center justify-center gap-1 sm:gap-2"
           >
-            <RefreshCcw className="mr-2 h-4 w-4 text-slate-600" /> Bersihkan
+            <RefreshCcw className="h-3.5 w-3.5 text-slate-600 shrink-0" />
+            <span className="truncate">Bersihkan</span>
           </Button>
           <Button
             variant="outline"
             onClick={handleExportExcel}
-            className="h-11 rounded-2xl border-slate-200 bg-white px-4 text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 sm:h-12 sm:px-6"
+            className="h-9 sm:h-12 rounded-xl sm:rounded-2xl border-slate-200 bg-white px-1 sm:px-5 text-[9px] sm:text-[10px] font-black uppercase tracking-wider hover:bg-slate-50 shadow-sm flex items-center justify-center gap-1 sm:gap-2"
           >
-            <FileSpreadsheet className="mr-2 h-4 w-4 text-emerald-600" /> Excel
+            <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+            <span className="truncate">Excel</span>
           </Button>
           <Button
             variant="outline"
             onClick={handleExportPDF}
-            className="h-11 rounded-2xl border-slate-200 bg-white px-4 text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 sm:h-12 sm:px-6"
+            className="h-9 sm:h-12 rounded-xl sm:rounded-2xl border-slate-200 bg-white px-1 sm:px-5 text-[9px] sm:text-[10px] font-black uppercase tracking-wider hover:bg-slate-50 shadow-sm flex items-center justify-center gap-1 sm:gap-2"
           >
-            <FileDown className="mr-2 h-4 w-4 text-primary" /> PDF
+            <FileDown className="h-3.5 w-3.5 text-primary shrink-0" />
+            <span className="truncate">PDF</span>
           </Button>
         </div>
       </div>

@@ -5,9 +5,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ShieldAlert, ArrowLeft, Eye, EyeOff } from "lucide-react";
-import { useFirestore, doc } from "@/firebase";
-import { getDoc } from "firebase/firestore";
+import { ShieldAlert, ArrowLeft, Eye, EyeOff, Loader2 } from "lucide-react";
+import { loginWithFirebaseAuth } from "@/lib/auth-service";
 
 export default function KedungrejaAdminLoginPage() {
   const [username, setUsername] = useState("");
@@ -16,7 +15,6 @@ export default function KedungrejaAdminLoginPage() {
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
-  const db = useFirestore();
 
   const handleLogin = async () => {
     const inputUser = username.trim();
@@ -30,29 +28,21 @@ export default function KedungrejaAdminLoginPage() {
     setLoading(true);
     setError("");
     try {
-      let targetUser = "adminkedungreja";
-      let targetPass = "admin00";
+      const result = await loginWithFirebaseAuth({
+        username: inputUser,
+        password: inputPass,
+        expectedRole: "admin",
+        expectedBranch: "kedungreja"
+      });
 
-      const adminKedungrejaRef = doc(db, "employee_credentials", "admin_kedungreja");
-      const snapKedungreja = await getDoc(adminKedungrejaRef);
-
-      if (snapKedungreja.exists()) {
-        const data = snapKedungreja.data();
-        targetUser = data.username || targetUser;
-        targetPass = data.password || targetPass;
-      }
-
-      if (
-        (inputUser === targetUser && inputPass === targetPass) ||
-        (inputUser === "adminkedungreja" && inputPass === "admin00")
-      ) {
+      if (result.success) {
         localStorage.setItem("user_role", "admin");
         localStorage.setItem("current_branch", "kedungreja");
         setUsername("");
         setPassword("");
         router.push("/penjualan/kasir");
       } else {
-        setError("Username atau password admin Kedungreja salah. Akun toko lain tidak dapat mengakses cabang ini.");
+        setError(result.error || "Username atau password admin Kedungreja salah.");
       }
     } catch (err) {
       console.error(err);

@@ -9,8 +9,6 @@ import {
   History, 
   Trash2, 
   X, 
-  ChevronDown, 
-  ChevronUp, 
   Hash, 
   FileText,
   Loader2,
@@ -18,13 +16,9 @@ import {
   AlertCircle,
   ChefHat,
   PackagePlus,
-  Layers,
-  ArrowRight,
-  CheckCircle2,
   MinusCircle
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { 
@@ -35,7 +29,7 @@ import {
   SelectValue 
 } from "@/components/ui/select";
 import { useFirestore, useCollection, useMemoFirebase, collection, doc } from "@/firebase";
-import { addDoc, serverTimestamp, query, orderBy, limit, getDoc, updateDoc, increment, deleteDoc, writeBatch, where, getDocs } from "firebase/firestore";
+import { serverTimestamp, query, orderBy, limit, getDoc, increment, writeBatch, where } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { applyPurchase } from "@/lib/hpp";
@@ -51,6 +45,106 @@ interface OperationalItem {
   materialId: string;
   qty: number;
   keterangan?: string;
+}
+
+interface BahanBakuDoc {
+  id: string;
+  code?: string;
+  nama: string;
+  satuanBesar?: string;
+  satuanKecil?: string;
+  qtyBesar?: number;
+  qtyKecil?: number;
+  qtyKontainerBesar?: number;
+  qtyKontainerKecil?: number;
+  stockValue?: number;
+  avgPrice?: number;
+  currentPrice?: number;
+  hargaSatuanKecil?: number;
+  hargaBeliSatuanBesar?: number;
+  priceHistory?: Array<{
+    price: number;
+    priceKecil: number;
+    qtyKecilPerUnit: number;
+    recordedAt: string;
+    note: string;
+  }>;
+}
+
+interface KaryawanDoc {
+  id: string;
+  nama: string;
+  status?: string;
+}
+
+interface ResepKomposisi {
+  bahanBakuId: string;
+  nama?: string;
+  jumlah?: number;
+}
+
+interface ResepDoc {
+  id: string;
+  namaPelengkap?: string;
+  bahanBakuId?: string;
+  type?: string;
+  komposisi?: ResepKomposisi[];
+}
+
+interface DeductedIngredient {
+  bahanBakuId?: string;
+  namaBahan: string;
+  code?: string;
+  jumlahDipotong: number;
+  satuanKecil: string;
+}
+
+interface LogEntryItem {
+  materialId?: string;
+  materialName?: string;
+  materialCode?: string;
+  resepId?: string;
+  namaResep?: string;
+  targetMaterialId?: string;
+  targetMaterialName?: string;
+  targetMaterialCode?: string;
+  isBeliSendiri?: boolean;
+  qty?: number;
+  jumlah?: number;
+  jumlahBatch?: number;
+  addedBulkQty?: number;
+  addedSmallUnits?: number;
+  totalYieldKecil?: number;
+  qtyKecilPerPack?: number;
+  satuanBesar?: string;
+  satuanKecil?: string;
+  unit?: string;
+  qtyKecilPerUnit?: number;
+  totalQtyKecil?: number;
+  price?: number;
+  hargaSatuanKecil?: number;
+  avgPrice?: number;
+  subtotal?: number;
+  keterangan?: string;
+  deductedIngredients?: DeductedIngredient[];
+}
+
+interface HistoryLog {
+  id: string;
+  nomorNota?: string;
+  type?: string;
+  location?: string;
+  targetLocation?: string;
+  karyawanId?: string;
+  karyawanNama?: string;
+  shift?: number;
+  tanggal?: string;
+  createdAt?: {
+    toDate?: () => Date;
+  };
+  items?: LogEntryItem[];
+  totalItems?: number;
+  totalResep?: number;
 }
 
 type ActiveTab = "pembelian" | "pemakaian_base" | "pemakaian_luar_resep" | "ambil" | "kembali";
@@ -75,45 +169,50 @@ export default function EmployeeInputBahanBakuPage() {
   const [operationalBatch, setOperationalBatch] = useState<OperationalItem[]>([{ materialId: "", qty: 1, keterangan: "" }]);
   const [selectedPemakaianDate, setSelectedPemakaianDate] = useState(new Date().toISOString().split("T")[0]);
   const [saving, setSaving] = useState(false);
-  const [expandedLog, setExpandedLog] = useState<string | null>(null);
   const [selectedKaryawanId, setSelectedKaryawanId] = useState<string>("");
   const [shift, setShift] = useState<1 | 2>(1);
 
   // Fetch Master Bahan Baku
   const materialsQuery = useMemoFirebase(() => query(collection(db, "bahan-baku"), orderBy("nama", "asc")), [db]);
-  const { data: materials } = useCollection(materialsQuery);
+  const { data: rawMaterials } = useCollection(materialsQuery);
+  const materials = rawMaterials as BahanBakuDoc[] | null;
 
   // Fetch Karyawan
   const karyawanQuery = useMemoFirebase(() => query(collection(db, "karyawan"), orderBy("nama", "asc")), [db]);
-  const { data: listKaryawan } = useCollection(karyawanQuery);
+  const { data: rawKaryawan } = useCollection(karyawanQuery);
+  const listKaryawan = rawKaryawan as KaryawanDoc[] | null;
 
   const resepQuery = useMemoFirebase(() =>
     query(collection(db, "resep"), where("type", "==", "pelengkap")),
     [db]
   );
-  const { data: listResep } = useCollection(resepQuery);
+  const { data: rawResep } = useCollection(resepQuery);
+  const listResep = rawResep as ResepDoc[] | null;
 
   // Fetch Histori Input Bahan
   const historyQuery = useMemoFirebase(() => 
     query(collection(db, "log_pembelian_bahan"), orderBy("createdAt", "desc"), limit(100)), 
     [db]
   );
-  const { data: history } = useCollection(historyQuery);
+  const { data: rawHistory } = useCollection(historyQuery);
+  const history = rawHistory as HistoryLog[] | null;
 
   const pemakaianHistoryQuery = useMemoFirebase(() =>
     query(collection(db, "log_produksi_pelengkap"), orderBy("createdAt", "desc"), limit(50)),
     [db]
   );
-  const { data: pemakaianHistory } = useCollection(pemakaianHistoryQuery);
+  const { data: rawPemakaianHistory } = useCollection(pemakaianHistoryQuery);
+  const pemakaianHistory = rawPemakaianHistory as HistoryLog[] | null;
 
   const pemakaianLuarResepHistoryQuery = useMemoFirebase(() =>
     query(collection(db, "log_pemakaian_luar_resep"), orderBy("createdAt", "desc"), limit(50)),
     [db]
   );
-  const { data: pemakaianLuarResepHistory } = useCollection(pemakaianLuarResepHistoryQuery);
+  const { data: rawPemakaianLuarResepHistory } = useCollection(pemakaianLuarResepHistoryQuery);
+  const pemakaianLuarResepHistory = rawPemakaianLuarResepHistory as HistoryLog[] | null;
 
   const activeHistorySection = useMemo(() => {
-    const filteredHistory = history?.filter((log: any) => log.location === "kontainer") || [];
+    const filteredHistory = history?.filter((log: HistoryLog) => log.location === "kontainer") || [];
 
     switch (activeTab) {
       case "ambil":
@@ -122,7 +221,7 @@ export default function EmployeeInputBahanBakuPage() {
           title: "Histori Pengambilan Gudang",
           icon: Package,
           accent: "bg-amber-50 text-amber-600",
-          logs: filteredHistory.filter((log: any) => log.type === "ambil-gudang"),
+          logs: filteredHistory.filter((log: HistoryLog) => log.type === "ambil-gudang"),
         };
       case "kembali":
         return {
@@ -130,7 +229,7 @@ export default function EmployeeInputBahanBakuPage() {
           title: "Histori Pengembalian Barang",
           icon: Truck,
           accent: "bg-emerald-50 text-emerald-600",
-          logs: filteredHistory.filter((log: any) => log.type === "kembali-gudang"),
+          logs: filteredHistory.filter((log: HistoryLog) => log.type === "kembali-gudang"),
         };
       case "pemakaian_base":
         return {
@@ -154,7 +253,7 @@ export default function EmployeeInputBahanBakuPage() {
           title: "Histori Pembelian",
           icon: ShoppingCart,
           accent: "bg-amber-50 text-amber-600",
-          logs: filteredHistory.filter((log: any) => {
+          logs: filteredHistory.filter((log: HistoryLog) => {
             const isPembelian = log.type === "belanja" || log.type === "supplier";
             const isKaryawan = !!log.karyawanId;
             
@@ -187,12 +286,12 @@ export default function EmployeeInputBahanBakuPage() {
     setItems(items.filter((_, i) => i !== index));
   };
 
-  const handleItemChange = (index: number, field: keyof InputItem, value: any) => {
+  const handleItemChange = (index: number, field: keyof InputItem, value: string | number) => {
     const newItems = [...items];
     newItems[index] = { ...newItems[index], [field]: value };
     
     if (field === 'materialId') {
-      const mat = (materials as any[])?.find(m => m.id === value);
+      const mat = materials?.find(m => m.id === value);
       if (mat) {
         newItems[index].qtyKecilPerUnit = Number(mat.qtyKecil || 1);
         if (mat.currentPrice) {
@@ -214,7 +313,7 @@ export default function EmployeeInputBahanBakuPage() {
     setMovementItems(movementItems.filter((_, i) => i !== index));
   };
 
-  const handleMovementItemChange = (index: number, field: keyof InputItem, value: any) => {
+  const handleMovementItemChange = (index: number, field: keyof InputItem, value: string | number) => {
     const newItems = [...movementItems];
     newItems[index] = { ...newItems[index], [field]: value };
     setMovementItems(newItems);
@@ -228,7 +327,7 @@ export default function EmployeeInputBahanBakuPage() {
     setReturnItems(returnItems.filter((_, i) => i !== index));
   };
 
-  const handleReturnItemChange = (index: number, field: keyof InputItem, value: any) => {
+  const handleReturnItemChange = (index: number, field: keyof InputItem, value: string | number) => {
     const newItems = [...returnItems];
     newItems[index] = { ...newItems[index], [field]: value };
     setReturnItems(newItems);
@@ -242,18 +341,18 @@ export default function EmployeeInputBahanBakuPage() {
     setProductionBatch(productionBatch.filter((_, i) => i !== index));
   };
 
-  const handleProductionItemChange = (index: number, field: string, value: any) => {
+  const handleProductionItemChange = (index: number, field: string, value: string | number) => {
     const newBatch = [...productionBatch];
     
     if (field === "resepId") {
-      newBatch[index] = { ...newBatch[index], resepId: value };
+      newBatch[index] = { ...newBatch[index], resepId: String(value) };
       if (!newBatch[index].qty || Number(newBatch[index].qty) <= 0) {
         newBatch[index].qty = 1;
       }
     } else if (field === "cupQty") {
-      const recipe = listResep?.find((r: any) => r.id === newBatch[index].resepId);
-      const targetMat = (materials as any[])?.find(
-        (m: any) => m.id === recipe?.bahanBakuId || (!recipe?.bahanBakuId && m.nama?.toLowerCase() === recipe?.namaPelengkap?.toLowerCase())
+      const recipe = listResep?.find((r) => r.id === newBatch[index].resepId);
+      const targetMat = materials?.find(
+        (m) => m.id === recipe?.bahanBakuId || (!recipe?.bahanBakuId && m.nama?.toLowerCase() === recipe?.namaPelengkap?.toLowerCase())
       );
       const qtyKecilPerPack = Number(targetMat?.qtyKecil || 1);
       const cupVal = Number(value) || 0;
@@ -273,7 +372,7 @@ export default function EmployeeInputBahanBakuPage() {
     setOperationalBatch(operationalBatch.filter((_, i) => i !== index));
   };
 
-  const handleOperationalItemChange = (index: number, field: keyof OperationalItem, value: any) => {
+  const handleOperationalItemChange = (index: number, field: keyof OperationalItem, value: string | number) => {
     const newBatch = [...operationalBatch];
     newBatch[index] = { ...newBatch[index], [field]: value };
     setOperationalBatch(newBatch);
@@ -306,17 +405,17 @@ export default function EmployeeInputBahanBakuPage() {
       const batch = writeBatch(db);
       const deductions: { [materialId: string]: number } = {};
       const additions: { [materialId: string]: number } = {};
-      const logItems: any[] = [];
+      const logItems: LogEntryItem[] = [];
 
       validBatch.forEach((prodItem) => {
-        const recipe = listResep?.find((r: any) => r.id === prodItem.resepId);
+        const recipe = listResep?.find((r) => r.id === prodItem.resepId);
         if (!recipe) return;
 
         // 1. Potong bahan baku penyusun sesuai komposisi resep
-        const deductedList: any[] = [];
+        const deductedList: DeductedIngredient[] = [];
         if (recipe.komposisi) {
-          recipe.komposisi.forEach((comp: any) => {
-            const ingMat = (materials as any[])?.find((m: any) => m.id === comp.bahanBakuId);
+          recipe.komposisi.forEach((comp: ResepKomposisi) => {
+            const ingMat = materials?.find((m) => m.id === comp.bahanBakuId);
             const totalDeduct = Number(comp.jumlah || 0) * prodItem.qty;
             deductions[comp.bahanBakuId] = (deductions[comp.bahanBakuId] || 0) + totalDeduct;
 
@@ -331,8 +430,8 @@ export default function EmployeeInputBahanBakuPage() {
         }
 
         // 2. Tambahkan ke stok bahan baku base / racikan terkait
-        const targetMat = (materials as any[])?.find(
-          (m: any) => m.id === recipe.bahanBakuId || (!recipe.bahanBakuId && m.nama?.toLowerCase() === recipe.namaPelengkap?.toLowerCase())
+        const targetMat = materials?.find(
+          (m) => m.id === recipe.bahanBakuId || (!recipe.bahanBakuId && m.nama?.toLowerCase() === recipe.namaPelengkap?.toLowerCase())
         );
 
         let yieldSmall = 0;
@@ -374,11 +473,11 @@ export default function EmployeeInputBahanBakuPage() {
         const totalAddSmall = additions[matId] || 0;
         const netDeltaSmall = totalAddSmall - totalDeductSmall;
 
-        let currentActiveTotal =
+        const currentActiveTotal =
           Number(currentData.qtyKontainerBesar || 0) * standardConversion +
           Number(currentData.qtyKontainerKecil || 0);
 
-        let newActiveTotal = Math.max(0, currentActiveTotal + netDeltaSmall);
+        const newActiveTotal = Math.max(0, currentActiveTotal + netDeltaSmall);
         const activeBulk = Math.floor(newActiveTotal / standardConversion);
         const activeQty = Math.round((newActiveTotal - activeBulk * standardConversion) * 100) / 100;
 
@@ -391,7 +490,7 @@ export default function EmployeeInputBahanBakuPage() {
       const logRef = doc(collection(db, "log_produksi_pelengkap"));
       batch.set(logRef, {
         karyawanId: selectedKaryawanId || "",
-        karyawanNama: (listKaryawan as any[])?.find((k: any) => k.id === selectedKaryawanId)?.nama || "Karyawan",
+        karyawanNama: listKaryawan?.find((k) => k.id === selectedKaryawanId)?.nama || "Karyawan",
         shift: Number(shift),
         items: logItems,
         totalResep: logItems.length,
@@ -443,7 +542,7 @@ export default function EmployeeInputBahanBakuPage() {
     setSaving(true);
     try {
       const batch = writeBatch(db);
-      const logItems: any[] = [];
+      const logItems: LogEntryItem[] = [];
 
       for (const item of validBatch) {
         const matSnap = await getDoc(doc(db, "bahan-baku", item.materialId));
@@ -453,11 +552,11 @@ export default function EmployeeInputBahanBakuPage() {
         const deductSmall = Number(item.qty || 0);
         const standardConversion = Number(matData.qtyKecil || 1);
 
-        let currentActiveTotal =
+        const currentActiveTotal =
           Number(matData.qtyKontainerBesar || 0) * standardConversion +
           Number(matData.qtyKontainerKecil || 0);
 
-        let newActiveTotal = Math.max(0, currentActiveTotal - deductSmall);
+        const newActiveTotal = Math.max(0, currentActiveTotal - deductSmall);
         const activeBulk = Math.floor(newActiveTotal / standardConversion);
         const activeQty = Math.round((newActiveTotal - activeBulk * standardConversion) * 100) / 100;
 
@@ -479,7 +578,7 @@ export default function EmployeeInputBahanBakuPage() {
       const logRef = doc(collection(db, "log_pemakaian_luar_resep"));
       batch.set(logRef, {
         karyawanId: selectedKaryawanId,
-        karyawanNama: (listKaryawan as any[])?.find((k: any) => k.id === selectedKaryawanId)?.nama || "-",
+        karyawanNama: listKaryawan?.find((k) => k.id === selectedKaryawanId)?.nama || "-",
         shift: Number(shift),
         tanggal: selectedPemakaianDate,
         items: logItems,
@@ -519,15 +618,6 @@ export default function EmployeeInputBahanBakuPage() {
       return;
     }
 
-    if (!nomorNota) {
-      toast({
-        variant: "destructive",
-        title: "Nomor Nota Wajib Diisi",
-        description: "Silakan masukkan nomor nota/invoice penerimaan barang.",
-      });
-      return;
-    }
-
     const validItems = items.filter(item => item.materialId && item.qty > 0);
     if (validItems.length === 0) {
       toast({
@@ -539,7 +629,7 @@ export default function EmployeeInputBahanBakuPage() {
     }
 
     for (const item of validItems) {
-      const mat = (materials as any[])?.find(m => m.id === item.materialId);
+      const mat = materials?.find(m => m.id === item.materialId);
       if (!item.qtyKecilPerUnit || item.qtyKecilPerUnit <= 0) {
         toast({
           variant: "destructive",
@@ -553,9 +643,19 @@ export default function EmployeeInputBahanBakuPage() {
     setSaving(true);
     try {
       const batch = writeBatch(db);
+
+      const karyawanNama = listKaryawan?.find((k) => k.id === selectedKaryawanId)?.nama || "Karyawan";
       
-      const logItems = validItems.map(item => {
-        const material = (materials as any[])?.find(m => m.id === item.materialId);
+      // Generate nomor nota otomatis jika dikosongkan: Nama | Shift X | DD/MM/YY
+      const now = new Date();
+      const dd = String(now.getDate()).padStart(2, '0');
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const yy = String(now.getFullYear()).slice(-2);
+      const formattedDate = `${dd}/${mm}/${yy}`;
+      const finalNomorNota = nomorNota.trim() ? nomorNota.trim() : `${karyawanNama} | Shift ${shift} | ${formattedDate}`;
+      
+      const logItems: LogEntryItem[] = validItems.map(item => {
+        const material = materials?.find(m => m.id === item.materialId);
         const currentMaterial = material || { qtyBesar: 0, qtyKontainerBesar: 0, qtyKontainerKecil: 0, stockValue: 0 };
         
         const standardConversion = Number(material?.qtyKecil || 1);
@@ -579,7 +679,7 @@ export default function EmployeeInputBahanBakuPage() {
           note: `Beli Sendiri Karyawan (${actualConversion} ${material?.satuanKecil || 'pcs'}/${material?.satuanBesar || 'pack'}) -> Area Kontainer`
         };
 
-        const updatePayload: Record<string, any> = {
+        const updatePayload: Record<string, unknown> = {
           stockValue: updated.stockValue,
           avgPrice: updated.avgPrice,
           currentPrice: item.price,
@@ -619,9 +719,9 @@ export default function EmployeeInputBahanBakuPage() {
 
       const logRef = doc(collection(db, "log_pembelian_bahan"));
       batch.set(logRef, {
-        nomorNota: nomorNota,
+        nomorNota: finalNomorNota,
         karyawanId: selectedKaryawanId,
-        karyawanNama: (listKaryawan as any[])?.find((k: any) => k.id === selectedKaryawanId)?.nama || "-",
+        karyawanNama: karyawanNama,
         shift: Number(shift),
         type: "belanja",
         targetLocation: "kontainer",
@@ -636,7 +736,7 @@ export default function EmployeeInputBahanBakuPage() {
 
       toast({
         title: "Nota Beli Sendiri Disimpan",
-        description: `Nota #${nomorNota} dengan ${logItems.length} bahan telah ditambahkan ke Stok Area Kontainer.`,
+        description: `Nota #${finalNomorNota} dengan ${logItems.length} bahan telah ditambahkan ke Stok Area Kontainer.`,
       });
 
       setItems([{ materialId: "", qty: 0, qtyKecilPerUnit: 1, price: 0 }]);
@@ -655,10 +755,6 @@ export default function EmployeeInputBahanBakuPage() {
     }
   };
 
-  const toggleExpand = (id: string) => {
-    setExpandedLog(expandedLog === id ? null : id);
-  };
-
   const handleDeleteLog = async (logId: string) => {
     if (!confirm("Hapus catatan nota ini dan kembalikan/kurangi stok kontainer?")) return;
     setSaving(true);
@@ -666,11 +762,12 @@ export default function EmployeeInputBahanBakuPage() {
       const logDocRef = doc(db, "log_pembelian_bahan", logId);
       const logSnap = await getDoc(logDocRef);
       if (!logSnap.exists()) return;
-      const logData = logSnap.data();
+      const logData = logSnap.data() as HistoryLog;
 
       const batch = writeBatch(db);
 
-      logData.items?.forEach((item: any) => {
+      logData.items?.forEach((item: LogEntryItem) => {
+        if (!item.materialId) return;
         const materialRef = doc(db, "bahan-baku", item.materialId);
         
         let bulkToDeduct = 0;
@@ -680,15 +777,15 @@ export default function EmployeeInputBahanBakuPage() {
           bulkToDeduct = Number(item.addedBulkQty || 0);
           smallToDeduct = Number(item.addedSmallUnits || 0);
         } else {
-          const matDetail = (materials as any[])?.find(m => m.id === item.materialId);
+          const matDetail = materials?.find(m => m.id === item.materialId);
           const standardConversion = Number(matDetail?.qtyKecil || 1);
-          const totalSmall = Number(item.totalQtyKecil || (item.qty * (item.qtyKecilPerUnit || standardConversion)));
+          const totalSmall = Number(item.totalQtyKecil || (Number(item.qty || 0) * (item.qtyKecilPerUnit || standardConversion)));
           bulkToDeduct = Math.floor(totalSmall / (standardConversion || 1));
           smallToDeduct = Math.round((totalSmall - (bulkToDeduct * standardConversion)) * 100) / 100;
         }
 
-        const updatePayload: Record<string, any> = {};
-        const subtotal = Number(item.subtotal || (item.qty * item.price) || 0);
+        const updatePayload: Record<string, unknown> = {};
+        const subtotal = Number(item.subtotal || (Number(item.qty || 0) * Number(item.price || 0)) || 0);
 
         if (subtotal > 0) {
           updatePayload.stockValue = increment(-subtotal);
@@ -712,7 +809,7 @@ export default function EmployeeInputBahanBakuPage() {
         title: "Nota Dihapus & Stok Dikurangi", 
         description: "Catatan nota berhasil dihapus dan stok kontainer telah ditarik balik." 
       });
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error(e);
       toast({ 
         variant: "destructive", 
@@ -736,13 +833,13 @@ export default function EmployeeInputBahanBakuPage() {
     try {
       const batch = writeBatch(db);
       const logItems = validItems.map(item => {
-        const material = (materials as any[])?.find(m => m.id === item.materialId);
+        const material = materials?.find(m => m.id === item.materialId);
         const materialRef = doc(db, "bahan-baku", item.materialId);
         batch.update(materialRef, {
           qtyKontainerBesar: increment(item.qty),
           qtyBesar: increment(-item.qty)
         });
-        return { materialId: item.materialId, materialName: material.nama, materialCode: material.code, qty: item.qty, unit: material.satuanBesar };
+        return { materialId: item.materialId, materialName: material?.nama || "-", materialCode: material?.code || "-", qty: item.qty, unit: material?.satuanBesar || "-" };
       });
 
       const logRef = doc(collection(db, "log_pembelian_bahan"));
@@ -779,13 +876,13 @@ export default function EmployeeInputBahanBakuPage() {
     try {
       const batch = writeBatch(db);
       const logItems = validItems.map(item => {
-        const material = (materials as any[])?.find(m => m.id === item.materialId);
+        const material = materials?.find(m => m.id === item.materialId);
         const materialRef = doc(db, "bahan-baku", item.materialId);
         batch.update(materialRef, {
           qtyKontainerBesar: increment(-item.qty),
           qtyBesar: increment(item.qty)
         });
-        return { materialId: item.materialId, materialName: material.nama, materialCode: material.code, qty: item.qty, unit: material.satuanBesar };
+        return { materialId: item.materialId, materialName: material?.nama || "-", materialCode: material?.code || "-", qty: item.qty, unit: material?.satuanBesar || "-" };
       });
 
       const logRef = doc(collection(db, "log_pembelian_bahan"));
@@ -824,94 +921,92 @@ export default function EmployeeInputBahanBakuPage() {
 
       <div className="space-y-6 sm:space-y-8">
         <Card className="rounded-[1.5rem] sm:rounded-[2.5rem] border border-slate-100/80 shadow-sm bg-white overflow-hidden p-4 sm:p-8 space-y-6 sm:space-y-8">
-          {/* Top Nav Bars */}
-          <div className="space-y-3">
-            {/* Baris 1: Operasional Toko */}
-            <div className="flex flex-col lg:flex-row lg:items-center gap-3 bg-[#F1F4F8]/80 p-2.5 rounded-2xl">
-              <span className="text-[10px] font-black uppercase tracking-wider text-slate-600 px-2 shrink-0">
-                OPERASIONAL TOKO:
-              </span>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("pembelian")}
-                  className={cn(
-                    "rounded-xl px-5 py-2.5 text-[10px] font-black uppercase tracking-wider transition-all shadow-sm",
-                    activeTab === "pembelian"
-                      ? "bg-[#F59E0B] text-white shadow-amber-200"
-                      : "bg-white text-slate-700 hover:bg-slate-100"
-                  )}
-                >
-                  PEMBELIAN BAHAN BAKU
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("pemakaian_base")}
-                  className={cn(
-                    "rounded-xl px-5 py-2.5 text-[10px] font-black uppercase tracking-wider transition-all shadow-sm",
-                    activeTab === "pemakaian_base"
-                      ? "bg-[#F59E0B] text-white shadow-amber-200"
-                      : "bg-white text-slate-700 hover:bg-slate-100"
-                  )}
-                >
-                  INPUT PEMAKAIAN BASE
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("pemakaian_luar_resep")}
-                  className={cn(
-                    "rounded-xl px-5 py-2.5 text-[10px] font-black uppercase tracking-wider transition-all shadow-sm",
-                    activeTab === "pemakaian_luar_resep"
-                      ? "bg-[#F59E0B] text-white shadow-amber-200"
-                      : "bg-white text-slate-700 hover:bg-slate-100"
-                  )}
-                >
-                  PEMAKAIAN BAHAN DI LUAR RESEP
-                </button>
-              </div>
+          {/* Top Nav Tabs - Clean Responsive Layout (No Horizontal Scroll on Mobile) */}
+          <div className="bg-slate-100/80 p-2 sm:p-2.5 rounded-2xl border border-slate-200/60 space-y-2 sm:space-y-0 sm:flex sm:items-center sm:justify-between sm:gap-2">
+            {/* Primary Action Tabs (Row 1 on mobile, flex on desktop) */}
+            <div className="grid grid-cols-3 sm:flex sm:items-center gap-1.5 sm:gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveTab("pembelian")}
+                className={cn(
+                  "flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-2.5 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all text-center shadow-sm",
+                  activeTab === "pembelian"
+                    ? "bg-[#F59E0B] text-white shadow-amber-200"
+                    : "bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+                )}
+              >
+                <ShoppingCart className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">Beli Sendiri</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab("pemakaian_base")}
+                className={cn(
+                  "flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-2.5 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all text-center shadow-sm",
+                  activeTab === "pemakaian_base"
+                    ? "bg-[#F59E0B] text-white shadow-amber-200"
+                    : "bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+                )}
+              >
+                <ChefHat className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">Base Resep</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab("pemakaian_luar_resep")}
+                className={cn(
+                  "flex items-center justify-center gap-1 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-2.5 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all text-center shadow-sm",
+                  activeTab === "pemakaian_luar_resep"
+                    ? "bg-[#F59E0B] text-white shadow-amber-200"
+                    : "bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+                )}
+              >
+                <Package className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">Luar Resep</span>
+              </button>
             </div>
 
-            {/* Baris 2: Mutasi Gudang Utama */}
-            <div className="flex flex-col lg:flex-row lg:items-center gap-3 bg-[#FDF4F5]/80 p-2.5 rounded-2xl border border-rose-100/70">
-              <span className="text-[10px] font-black uppercase tracking-wider text-slate-600 px-2 shrink-0">
-                MUTASI GUDANG UTAMA:
-              </span>
-              <div className="flex flex-col sm:flex-row items-stretch gap-3 flex-1">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("ambil")}
-                  className={cn(
-                    "flex-1 rounded-xl px-4 py-2.5 text-[10px] font-black uppercase tracking-wider transition-all text-center border shadow-sm",
-                    activeTab === "ambil"
-                      ? "bg-rose-500 text-white border-rose-500 shadow-rose-100"
-                      : "bg-white text-slate-800 border-rose-100 hover:bg-rose-50/50"
-                  )}
-                >
-                  <span className="text-rose-500 mr-1.5">🔺</span> AMBIL STOCK GUDANG (GUDANG → KONTAINER)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("kembali")}
-                  className={cn(
-                    "flex-1 rounded-xl px-4 py-2.5 text-[10px] font-black uppercase tracking-wider transition-all text-center border shadow-sm",
-                    activeTab === "kembali"
-                      ? "bg-rose-500 text-white border-rose-500 shadow-rose-100"
-                      : "bg-white text-slate-800 border-rose-100 hover:bg-rose-50/50"
-                  )}
-                >
-                  <span className="text-rose-500 mr-1.5">🔺</span> PENGEMBALIAN BARANG (KONTAINER → GUDANG)
-                </button>
-              </div>
+            {/* Warehouse Transfer Tabs (Row 2 on mobile, right side on desktop) */}
+            <div className="grid grid-cols-2 sm:flex sm:items-center gap-1.5 sm:gap-2 pt-1.5 sm:pt-0 border-t border-slate-200/80 sm:border-t-0 sm:border-l sm:pl-2">
+              <button
+                type="button"
+                onClick={() => setActiveTab("ambil")}
+                className={cn(
+                  "flex items-center justify-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-2.5 sm:py-2.5 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all text-center shadow-sm border",
+                  activeTab === "ambil"
+                    ? "bg-rose-500 text-white border-rose-500 shadow-rose-100"
+                    : "bg-white text-rose-800 border-rose-100 hover:bg-rose-50/50"
+                )}
+              >
+                <PackagePlus className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">Ambil Gudang</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab("kembali")}
+                className={cn(
+                  "flex items-center justify-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-2.5 sm:py-2.5 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all text-center shadow-sm border",
+                  activeTab === "kembali"
+                    ? "bg-rose-500 text-white border-rose-500 shadow-rose-100"
+                    : "bg-white text-rose-800 border-rose-100 hover:bg-rose-50/50"
+                )}
+              >
+                <Truck className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">Retur Gudang</span>
+              </button>
             </div>
           </div>
 
           {/* TAB 1: PEMBELIAN BAHAN BAKU */}
           {activeTab === "pembelian" && (
             <form onSubmit={handleSave} className="space-y-6 sm:space-y-8">
-              {/* Header Nota Grid: 4 Kolom */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+              {/* Header Nota Grid: 2 Kolom di Mobile, 4 Kolom di Desktop */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
                 {/* 1. Jenis Pembelian & Tujuan Stok */}
-                <div className="space-y-1.5">
+                <div className="col-span-2 lg:col-span-1 space-y-1.5">
                   <Label className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-slate-700">
                     JENIS PEMBELIAN & TUJUAN STOK
                   </Label>
@@ -925,8 +1020,8 @@ export default function EmployeeInputBahanBakuPage() {
                   </div>
                 </div>
 
-                {/* 2. Pilih Shift */}
-                <div className="space-y-1.5">
+                {/* 2. Pilih Shift (Kiri di Mobile) */}
+                <div className="col-span-1 space-y-1.5">
                   <Label className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-slate-700">
                     PILIH SHIFT <span className="text-rose-500">*</span>
                   </Label>
@@ -941,8 +1036,8 @@ export default function EmployeeInputBahanBakuPage() {
                   </Select>
                 </div>
 
-                {/* 3. Nama Karyawan */}
-                <div className="space-y-1.5">
+                {/* 3. Nama Karyawan (Kanan di Mobile) */}
+                <div className="col-span-1 space-y-1.5">
                   <Label className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-slate-700">
                     NAMA KARYAWAN <span className="text-rose-500">*</span>
                   </Label>
@@ -951,7 +1046,7 @@ export default function EmployeeInputBahanBakuPage() {
                       <SelectValue placeholder="Pilih karyawan..." />
                     </SelectTrigger>
                     <SelectContent className="rounded-2xl border-none shadow-2xl max-h-60">
-                      {listKaryawan?.map((k: any) => (
+                      {listKaryawan?.map((k) => (
                         <SelectItem key={k.id} value={k.id} className="rounded-xl font-medium">
                           {k.nama}
                         </SelectItem>
@@ -960,19 +1055,21 @@ export default function EmployeeInputBahanBakuPage() {
                   </Select>
                 </div>
 
-                {/* 4. Nomor Nota / Invoice */}
-                <div className="space-y-1.5">
-                  <Label className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-slate-700">
-                    NOMOR NOTA / INVOICE
-                  </Label>
+                {/* 4. Nomor Nota / Invoice (Opsional) */}
+                <div className="col-span-2 lg:col-span-1 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-slate-700">
+                      NOMOR NOTA / INVOICE
+                    </Label>
+                    <span className="text-[9px] font-bold text-slate-400 uppercase">OPSIONAL</span>
+                  </div>
                   <div className="relative">
                     <Hash className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                     <Input
                       value={nomorNota}
                       onChange={(e) => setNomorNota(e.target.value.toUpperCase())}
                       className="rounded-2xl border-slate-200 h-12 sm:h-14 bg-[#F8FAFC] pl-11 font-black text-xs sm:text-sm text-slate-900 placeholder:text-slate-400 placeholder:font-bold"
-                      placeholder="CONTOH: INV/2024/001"
-                      required
+                      placeholder="Otomatis jika kosong (Nama | Shift | Tgl)"
                     />
                   </div>
                 </div>
@@ -1000,14 +1097,14 @@ export default function EmployeeInputBahanBakuPage() {
                   <button
                     type="button"
                     onClick={handleAddItem}
-                    className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-emerald-600 hover:text-emerald-700 transition-colors"
+                    className="inline-flex items-center gap-1.5 text-[10px] sm:text-xs font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-xl transition-all shadow-sm"
                   >
-                    <PlusCircle className="h-4 w-4 text-emerald-600" /> TAMBAH ITEM
+                    <PlusCircle className="h-3.5 w-3.5 text-emerald-600" /> Tambah Item
                   </button>
                 </div>
 
                 {items.map((item, index) => {
-                  const matDetail = (materials as any[])?.find(m => m.id === item.materialId);
+                  const matDetail = materials?.find(m => m.id === item.materialId);
                   return (
                     <div
                       key={index}
@@ -1027,7 +1124,7 @@ export default function EmployeeInputBahanBakuPage() {
                               <SelectValue placeholder="Pilih bahan baku..." />
                             </SelectTrigger>
                             <SelectContent className="rounded-2xl border-none shadow-2xl max-h-64">
-                              {materials?.map((m: any) => (
+                              {materials?.map((m) => (
                                 <SelectItem key={m.id} value={m.id} className="rounded-xl text-xs font-bold">
                                   {m.code ? `[${m.code}] ` : ""}{m.nama}
                                 </SelectItem>
@@ -1064,11 +1161,13 @@ export default function EmployeeInputBahanBakuPage() {
                           </Label>
                           <Input
                             type="number"
+                            min="0.1"
                             step="any"
                             value={item.qty || ""}
                             onChange={(e) => handleItemChange(index, "qty", Number(e.target.value))}
-                            className="rounded-xl border-slate-200 h-11 bg-white font-black text-center text-xs placeholder:text-slate-300"
-                            placeholder="0"
+                            className="rounded-xl border-slate-200 h-11 bg-white font-black text-center text-xs text-slate-900"
+                            placeholder="1"
+                            required
                           />
                         </div>
 
@@ -1123,30 +1222,30 @@ export default function EmployeeInputBahanBakuPage() {
               </div>
 
               {/* Save Button */}
-              <div className="pt-4">
+              <div className="pt-2">
                 <button
                   type="submit"
                   disabled={saving || items.some(i => !i.materialId)}
-                  className="w-full py-4 px-6 rounded-2xl bg-[#7BA78D] hover:bg-[#6C997F] active:scale-[0.99] text-white font-black uppercase tracking-wider text-xs sm:text-sm shadow-md shadow-emerald-200 flex items-center justify-center gap-2.5 transition-all disabled:opacity-50"
+                  className="w-full py-3.5 sm:py-4 px-6 rounded-2xl bg-[#7BA78D] hover:bg-[#6C997F] active:scale-[0.99] text-white font-black uppercase tracking-wider text-xs sm:text-sm shadow-md shadow-emerald-200 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
                 >
                   {saving ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <FileText className="h-4 w-4" />
                   )}
-                  SIMPAN NOTA BELI SENDIRI & MASUK STOK KONTAINER
+                  <span>Simpan Pembelian (Stok Kontainer)</span>
                 </button>
               </div>
             </form>
           )}
 
-          {/* TAB 2: INPUT PEMAKAIAN BASE */}
+          {/* TAB 2: INPUT PEMAKAIAN RESEP BASE / PELENGKAP */}
           {activeTab === "pemakaian_base" && (
             <form onSubmit={handleSavePemakaian} className="space-y-6 sm:space-y-8">
-              {/* Header Shift & Karyawan Grid: 3 Kolom */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
-                {/* 1. Pilih Shift */}
-                <div className="space-y-1.5">
+              {/* Header Shift & Karyawan Grid: 2 Kolom di Mobile, 3 Kolom di Desktop */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-6">
+                {/* 1. Pilih Shift (Kiri di Mobile) */}
+                <div className="col-span-1 space-y-1.5">
                   <Label className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-slate-700">
                     PILIH SHIFT <span className="text-rose-500">*</span>
                   </Label>
@@ -1161,8 +1260,8 @@ export default function EmployeeInputBahanBakuPage() {
                   </Select>
                 </div>
 
-                {/* 2. Nama Karyawan */}
-                <div className="space-y-1.5">
+                {/* 2. Nama Karyawan (Kanan di Mobile) */}
+                <div className="col-span-1 space-y-1.5">
                   <Label className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-slate-700">
                     NAMA KARYAWAN <span className="text-rose-500">*</span>
                   </Label>
@@ -1171,7 +1270,7 @@ export default function EmployeeInputBahanBakuPage() {
                       <SelectValue placeholder="Pilih karyawan..." />
                     </SelectTrigger>
                     <SelectContent className="rounded-2xl border-none shadow-2xl max-h-60">
-                      {listKaryawan?.map((k: any) => (
+                      {listKaryawan?.map((k) => (
                         <SelectItem key={k.id} value={k.id} className="rounded-xl font-medium">
                           {k.nama}
                         </SelectItem>
@@ -1180,8 +1279,8 @@ export default function EmployeeInputBahanBakuPage() {
                   </Select>
                 </div>
 
-                {/* 3. Tanggal Operasional */}
-                <div className="space-y-1.5">
+                {/* 3. Tanggal Operasional (Bawah di Mobile, Kolom 3 di Desktop) */}
+                <div className="col-span-2 sm:col-span-1 space-y-1.5">
                   <Label className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-slate-700">
                     TANGGAL OPERASIONAL
                   </Label>
@@ -1216,17 +1315,17 @@ export default function EmployeeInputBahanBakuPage() {
                   <button
                     type="button"
                     onClick={handleAddProductionItem}
-                    className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-purple-600 hover:text-purple-700 transition-colors"
+                    className="inline-flex items-center gap-1.5 text-[10px] sm:text-xs font-black uppercase tracking-wider bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 px-3 py-1.5 rounded-xl transition-all shadow-sm"
                   >
-                    <PlusCircle className="h-4 w-4" /> TAMBAH BARIS
+                    <PlusCircle className="h-3.5 w-3.5 text-purple-600" /> Tambah Baris
                   </button>
                 </div>
 
                 <div className="space-y-4">
                   {productionBatch.map((item, index) => {
-                    const recipe = listResep?.find((r: any) => r.id === item.resepId);
-                    const targetMat = (materials as any[])?.find(
-                      (m: any) => m.id === recipe?.bahanBakuId || (!recipe?.bahanBakuId && m.nama?.toLowerCase() === recipe?.namaPelengkap?.toLowerCase())
+                    const recipe = listResep?.find((r) => r.id === item.resepId);
+                    const targetMat = materials?.find(
+                      (m) => m.id === recipe?.bahanBakuId || (!recipe?.bahanBakuId && m.nama?.toLowerCase() === recipe?.namaPelengkap?.toLowerCase())
                     );
                     const qtyKecilPerPack = Number(targetMat?.qtyKecil || 1);
                     const totalYieldSmall = Number(item.qty || 0) * qtyKecilPerPack;
@@ -1250,9 +1349,9 @@ export default function EmployeeInputBahanBakuPage() {
                                 <SelectValue placeholder="Pilih resep pelengkap..." />
                               </SelectTrigger>
                               <SelectContent className="rounded-2xl border-none shadow-2xl max-h-64">
-                                {listResep?.map((r: any) => {
-                                  const mat = (materials as any[])?.find(
-                                    (m: any) => m.id === r.bahanBakuId || (!r.bahanBakuId && m.nama?.toLowerCase() === r.namaPelengkap?.toLowerCase())
+                                {listResep?.map((r) => {
+                                  const mat = materials?.find(
+                                    (m) => m.id === r.bahanBakuId || (!r.bahanBakuId && m.nama?.toLowerCase() === r.namaPelengkap?.toLowerCase())
                                   );
                                   return (
                                     <SelectItem key={r.id} value={r.id} className="rounded-xl text-xs font-bold">
@@ -1348,8 +1447,8 @@ export default function EmployeeInputBahanBakuPage() {
                                 Bahan Baku Penyusun Dipotong:
                               </span>
                               <div className="flex flex-wrap gap-1.5">
-                                {recipe.komposisi?.map((comp: any, cIdx: number) => {
-                                  const ingMat = (materials as any[])?.find((m: any) => m.id === comp.bahanBakuId);
+                                {recipe.komposisi?.map((comp, cIdx) => {
+                                  const ingMat = materials?.find((m) => m.id === comp.bahanBakuId);
                                   const deductQty = Number(comp.jumlah || 0) * (item.qty || 1);
                                   return (
                                     <span 
@@ -1371,18 +1470,18 @@ export default function EmployeeInputBahanBakuPage() {
               </div>
 
               {/* Submit Button */}
-              <div className="pt-4">
+              <div className="pt-2">
                 <button
                   type="submit"
                   disabled={saving || productionBatch.some((i) => !i.resepId)}
-                  className="w-full py-4 px-6 rounded-2xl bg-purple-600 hover:bg-purple-700 active:scale-[0.99] text-white font-black uppercase tracking-wider text-xs sm:text-sm shadow-md shadow-purple-200 flex items-center justify-center gap-2.5 transition-all disabled:opacity-50"
+                  className="w-full py-3.5 sm:py-4 px-6 rounded-2xl bg-purple-600 hover:bg-purple-700 active:scale-[0.99] text-white font-black uppercase tracking-wider text-xs sm:text-sm shadow-md shadow-purple-200 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
                 >
                   {saving ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <Save className="h-4 w-4" />
                   )}
-                  SIMPAN PEMAKAIAN RESEP BASE (POTONG BAHAN & TAMBAH STOK BASE)
+                  <span>Simpan Pemakaian Resep Base</span>
                 </button>
               </div>
             </form>
@@ -1391,8 +1490,10 @@ export default function EmployeeInputBahanBakuPage() {
           {/* TAB 3: PEMAKAIAN BAHAN DI LUAR RESEP */}
           {activeTab === "pemakaian_luar_resep" && (
             <form onSubmit={handleSavePemakaianLuarResep} className="space-y-6 sm:space-y-8">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
-                <div className="space-y-1.5">
+              {/* Header Shift & Karyawan Grid: 2 Kolom di Mobile, 3 Kolom di Desktop */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-6">
+                {/* 1. Pilih Shift (Kiri di Mobile) */}
+                <div className="col-span-1 space-y-1.5">
                   <Label className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-slate-700">
                     PILIH SHIFT <span className="text-rose-500">*</span>
                   </Label>
@@ -1407,7 +1508,8 @@ export default function EmployeeInputBahanBakuPage() {
                   </Select>
                 </div>
 
-                <div className="space-y-1.5">
+                {/* 2. Nama Karyawan (Kanan di Mobile) */}
+                <div className="col-span-1 space-y-1.5">
                   <Label className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-slate-700">
                     NAMA KARYAWAN <span className="text-rose-500">*</span>
                   </Label>
@@ -1416,7 +1518,7 @@ export default function EmployeeInputBahanBakuPage() {
                       <SelectValue placeholder="Pilih karyawan..." />
                     </SelectTrigger>
                     <SelectContent className="rounded-2xl border-none shadow-2xl max-h-60">
-                      {listKaryawan?.map((k: any) => (
+                      {listKaryawan?.map((k) => (
                         <SelectItem key={k.id} value={k.id} className="rounded-xl font-medium">
                           {k.nama}
                         </SelectItem>
@@ -1425,7 +1527,8 @@ export default function EmployeeInputBahanBakuPage() {
                   </Select>
                 </div>
 
-                <div className="space-y-1.5">
+                {/* 3. Tanggal Pemakaian (Bawah di Mobile, Kolom 3 di Desktop) */}
+                <div className="col-span-2 sm:col-span-1 space-y-1.5">
                   <Label className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-slate-700">
                     TANGGAL PEMAKAIAN
                   </Label>
@@ -1458,15 +1561,15 @@ export default function EmployeeInputBahanBakuPage() {
                   <button
                     type="button"
                     onClick={handleAddOperationalItem}
-                    className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-orange-600 hover:text-orange-700 transition-colors"
+                    className="inline-flex items-center gap-1.5 text-[10px] sm:text-xs font-black uppercase tracking-wider bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-200 px-3 py-1.5 rounded-xl transition-all shadow-sm"
                   >
-                    <PlusCircle className="h-4 w-4" /> TAMBAH BARIS
+                    <PlusCircle className="h-3.5 w-3.5 text-orange-600" /> Tambah Baris
                   </button>
                 </div>
 
                 <div className="space-y-3">
                   {operationalBatch.map((item, index) => {
-                    const matDetail = (materials as any[])?.find(m => m.id === item.materialId);
+                    const matDetail = materials?.find(m => m.id === item.materialId);
                     return (
                       <div key={index} className="grid grid-cols-1 sm:grid-cols-12 gap-3 sm:gap-4 items-end bg-[#F8FAFC] p-4 sm:p-5 rounded-2xl border border-slate-200">
                         <div className="sm:col-span-5 space-y-1">
@@ -1479,7 +1582,7 @@ export default function EmployeeInputBahanBakuPage() {
                               <SelectValue placeholder="Pilih..." />
                             </SelectTrigger>
                             <SelectContent className="rounded-2xl border-none shadow-2xl max-h-64">
-                              {materials?.map((m: any) => (
+                              {materials?.map((m) => (
                                 <SelectItem key={m.id} value={m.id} className="rounded-xl text-xs font-bold">
                                   {m.code ? `[${m.code}] ` : ""}{m.nama}
                                 </SelectItem>
@@ -1529,18 +1632,18 @@ export default function EmployeeInputBahanBakuPage() {
                 </div>
               </div>
 
-              <div className="pt-4">
+              <div className="pt-2">
                 <button
                   type="submit"
                   disabled={saving || operationalBatch.some((i) => !i.materialId)}
-                  className="w-full py-4 px-6 rounded-2xl bg-orange-600 hover:bg-orange-700 active:scale-[0.99] text-white font-black uppercase tracking-wider text-xs sm:text-sm shadow-md shadow-orange-200 flex items-center justify-center gap-2.5 transition-all disabled:opacity-50"
+                  className="w-full py-3.5 sm:py-4 px-6 rounded-2xl bg-orange-600 hover:bg-orange-700 active:scale-[0.99] text-white font-black uppercase tracking-wider text-xs sm:text-sm shadow-md shadow-orange-200 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
                 >
                   {saving ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <Save className="h-4 w-4" />
                   )}
-                  SIMPAN PEMAKAIAN BAHAN OPERASIONAL & POTONG STOK KONTAINER
+                  <span>Simpan Pemakaian Luar Resep</span>
                 </button>
               </div>
             </form>
@@ -1575,9 +1678,9 @@ export default function EmployeeInputBahanBakuPage() {
                   <button
                     type="button"
                     onClick={handleAddMovementItem}
-                    className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-rose-600 hover:text-rose-700 transition-colors"
+                    className="inline-flex items-center gap-1.5 text-[10px] sm:text-xs font-black uppercase tracking-wider bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 px-3 py-1.5 rounded-xl transition-all shadow-sm"
                   >
-                    <PlusCircle className="h-4 w-4" /> TAMBAH ITEM
+                    <PlusCircle className="h-3.5 w-3.5 text-rose-600" /> Tambah Item
                   </button>
                 </div>
 
@@ -1591,7 +1694,7 @@ export default function EmployeeInputBahanBakuPage() {
                             <SelectValue placeholder="Pilih..." />
                           </SelectTrigger>
                           <SelectContent className="rounded-2xl border-none shadow-2xl max-h-64">
-                            {materials?.map((m: any) => (
+                            {materials?.map((m) => (
                               <SelectItem key={m.id} value={m.id} className="rounded-xl text-xs font-bold">
                                 {m.code} - {m.nama} (Stok Gudang: {m.qtyBesar || 0} {m.satuanBesar})
                               </SelectItem>
@@ -1621,13 +1724,18 @@ export default function EmployeeInputBahanBakuPage() {
                 </div>
               </div>
 
-              <div className="pt-4">
+              <div className="pt-2">
                 <button
                   type="submit"
                   disabled={saving || movementItems.some((i) => !i.materialId)}
-                  className="w-full py-4 px-6 rounded-2xl bg-rose-600 hover:bg-rose-700 active:scale-[0.99] text-white font-black uppercase tracking-wider text-xs sm:text-sm shadow-md shadow-rose-200 flex items-center justify-center gap-2.5 transition-all disabled:opacity-50"
+                  className="w-full py-3.5 sm:py-4 px-6 rounded-2xl bg-rose-600 hover:bg-rose-700 active:scale-[0.99] text-white font-black uppercase tracking-wider text-xs sm:text-sm shadow-md shadow-rose-200 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
                 >
-                  SIMPAN PENGAMBILAN GUDANG
+                  {saving ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  <span>Simpan Pengambilan Gudang</span>
                 </button>
               </div>
             </form>
@@ -1662,9 +1770,9 @@ export default function EmployeeInputBahanBakuPage() {
                   <button
                     type="button"
                     onClick={handleAddReturnItem}
-                    className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-rose-600 hover:text-rose-700 transition-colors"
+                    className="inline-flex items-center gap-1.5 text-[10px] sm:text-xs font-black uppercase tracking-wider bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 px-3 py-1.5 rounded-xl transition-all shadow-sm"
                   >
-                    <PlusCircle className="h-4 w-4" /> TAMBAH ITEM
+                    <PlusCircle className="h-3.5 w-3.5 text-rose-600" /> Tambah Item
                   </button>
                 </div>
 
@@ -1678,7 +1786,7 @@ export default function EmployeeInputBahanBakuPage() {
                             <SelectValue placeholder="Pilih..." />
                           </SelectTrigger>
                           <SelectContent className="rounded-2xl border-none shadow-2xl max-h-64">
-                            {materials?.map((m: any) => (
+                            {materials?.map((m) => (
                               <SelectItem key={m.id} value={m.id} className="rounded-xl text-xs font-bold">
                                 {m.code} - {m.nama} (Stok Kontainer: {m.qtyKontainerBesar || 0} {m.satuanBesar})
                               </SelectItem>
@@ -1708,13 +1816,18 @@ export default function EmployeeInputBahanBakuPage() {
                 </div>
               </div>
 
-              <div className="pt-4">
+              <div className="pt-2">
                 <button
                   type="submit"
                   disabled={saving || returnItems.some((i) => !i.materialId)}
-                  className="w-full py-4 px-6 rounded-2xl bg-rose-600 hover:bg-rose-700 active:scale-[0.99] text-white font-black uppercase tracking-wider text-xs sm:text-sm shadow-md shadow-rose-200 flex items-center justify-center gap-2.5 transition-all disabled:opacity-50"
+                  className="w-full py-3.5 sm:py-4 px-6 rounded-2xl bg-rose-600 hover:bg-rose-700 active:scale-[0.99] text-white font-black uppercase tracking-wider text-xs sm:text-sm shadow-md shadow-rose-200 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
                 >
-                  SIMPAN PENGEMBALIAN BARANG KE GUDANG
+                  {saving ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  <span>Simpan Pengembalian ke Gudang</span>
                 </button>
               </div>
             </form>
@@ -1737,7 +1850,7 @@ export default function EmployeeInputBahanBakuPage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {activeHistorySection.logs.map((log: any) => (
+                {activeHistorySection.logs.map((log) => (
                   <div key={log.id} className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm space-y-3">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                       <div className="flex items-center gap-2.5">
@@ -1755,7 +1868,7 @@ export default function EmployeeInputBahanBakuPage() {
 
                     {log.items && log.items.length > 0 && (
                       <div className="bg-slate-50 rounded-xl p-3 space-y-2 text-xs font-medium text-slate-700">
-                        {log.items.map((it: any, idx: number) => {
+                        {log.items.map((it, idx) => {
                           const isPemakaianBase = activeTab === "pemakaian_base";
                           return (
                             <div key={idx} className="space-y-1 pb-1.5 last:pb-0 border-b last:border-0 border-slate-200/60">
@@ -1779,7 +1892,7 @@ export default function EmployeeInputBahanBakuPage() {
                               {isPemakaianBase && it.deductedIngredients && it.deductedIngredients.length > 0 && (
                                 <div className="pl-5 text-[10px] text-slate-500 flex flex-wrap gap-1.5 pt-0.5">
                                   <span className="font-bold text-rose-600">Dipotong:</span>
-                                  {it.deductedIngredients.map((d: any, dIdx: number) => (
+                                  {it.deductedIngredients.map((d, dIdx) => (
                                     <span key={dIdx} className="bg-white border border-rose-100 px-1.5 py-0.2 rounded text-slate-700">
                                       {d.namaBahan} (-{d.jumlahDipotong} {d.satuanKecil})
                                     </span>

@@ -1,14 +1,12 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState } from "react";
 import { 
   Truck, 
   ShoppingCart, 
-  Plus, 
   Save, 
   History, 
   Trash2,
-  Package,
   PlusCircle,
   X,
   ChevronDown,
@@ -33,7 +31,7 @@ import {
   SelectValue 
 } from "@/components/ui/select";
 import { useFirestore, useCollection, useMemoFirebase, collection, doc } from "@/firebase";
-import { addDoc, serverTimestamp, query, orderBy, limit, updateDoc, increment, deleteDoc, writeBatch } from "firebase/firestore";
+import { serverTimestamp, query, orderBy, limit, increment, writeBatch } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { applyPurchase } from "@/lib/hpp";
@@ -44,6 +42,55 @@ const formatThousand = (val: number | string) => {
   if (!numStr) return '';
   return Number(numStr).toLocaleString("id-ID");
 };
+
+interface MaterialDoc {
+  id: string;
+  code?: string;
+  nama?: string;
+  satuanBesar?: string;
+  satuanKecil?: string;
+  qtyKecil?: number;
+  metodePembelian?: string;
+  qtyBesar?: number;
+  qtyGudangKecil?: number;
+  qtyKontainerBesar?: number;
+  qtyKontainerKecil?: number;
+  stockValue?: number;
+  priceHistory?: Array<{
+    price: number;
+    priceKecil: number;
+    qtyKecilPerUnit: number;
+    recordedAt: string;
+    note: string;
+  }>;
+}
+
+interface LogItemDoc {
+  materialId?: string;
+  materialCode?: string;
+  materialName?: string;
+  qty?: number;
+  qtyKecilPerUnit?: number;
+  unit?: string;
+  satuanKecil?: string;
+  price?: number;
+  subtotal?: number;
+  addedBulkQty?: number;
+  addedSmallUnits?: number;
+  totalQtyKecil?: number;
+  isBeliSendiri?: boolean;
+}
+
+interface PurchaseLogDoc {
+  id: string;
+  nomorNota?: string;
+  targetLocation?: string;
+  location?: string;
+  type?: string;
+  totalItems?: number;
+  createdAt?: { toDate?: () => Date; seconds?: number; nanoseconds?: number } | null;
+  items?: LogItemDoc[];
+}
 
 interface InputItem {
   materialId: string;
@@ -65,11 +112,13 @@ export default function InputBahanBakuPage() {
 
   // Fetch Master Bahan Baku
   const materialsQuery = useMemoFirebase(() => query(collection(db, "bahan-baku"), orderBy("nama", "asc")), [db]);
-  const { data: materials } = useCollection(materialsQuery);
+  const { data: rawMaterials } = useCollection(materialsQuery);
+  const materials = rawMaterials as MaterialDoc[] | null;
 
   // Fetch Histori Input Bahan
   const historyQuery = useMemoFirebase(() => query(collection(db, "log_pembelian_bahan"), orderBy("createdAt", "desc"), limit(10)), [db]);
-  const { data: history } = useCollection(historyQuery);
+  const { data: rawHistory } = useCollection(historyQuery);
+  const history = rawHistory as PurchaseLogDoc[] | null;
 
   const downloadExcelTemplate = (location: "gudang" | "kontainer", pType: "supplier" | "belanja") => {
     if (!materials || materials.length === 0) {
@@ -81,7 +130,7 @@ export default function InputBahanBakuPage() {
       return;
     }
 
-    const filteredMaterials = (materials as any[]).filter(m => {
+    const filteredMaterials = (materials || []).filter(m => {
       const isBeliSendiri = m.metodePembelian === "Beli Sendiri";
       return pType === "belanja" ? isBeliSendiri : !isBeliSendiri;
     });
@@ -95,7 +144,7 @@ export default function InputBahanBakuPage() {
       return;
     }
 
-    const templateRows = filteredMaterials.map((m: any) => ({
+    const templateRows = filteredMaterials.map((m: MaterialDoc) => ({
       "KODE BAHAN": m.code || "",
       "NAMA BAHAN": m.nama || "",
       "SATUAN BESAR": m.satuanBesar || "",
@@ -124,7 +173,7 @@ export default function InputBahanBakuPage() {
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         
-        const rawRows = XLSX.utils.sheet_to_json<any>(worksheet);
+        const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet);
         if (!rawRows || rawRows.length === 0) {
           toast({
             variant: "destructive",
@@ -144,7 +193,7 @@ export default function InputBahanBakuPage() {
         const detectedPurchaseType = isBeliSendiri ? "belanja" : "supplier";
 
         const parsedItems: InputItem[] = [];
-        rawRows.forEach((row: any) => {
+        rawRows.forEach((row: Record<string, unknown>) => {
           const code = String(row["KODE BAHAN"] || "").trim().toUpperCase();
           const qty = Number(row["JUMLAH (SATUAN BESAR)"] || 0);
           const price = Number(row["HARGA BELI PER SATUAN BESAR"] || 0);
@@ -152,7 +201,7 @@ export default function InputBahanBakuPage() {
 
           if (!code || qty <= 0) return;
 
-          const mat = (materials as any[])?.find(m => String(m.code || "").trim().toUpperCase() === code);
+          const mat = materials?.find(m => String(m.code || "").trim().toUpperCase() === code);
           if (mat) {
             parsedItems.push({
               materialId: mat.id,
@@ -204,13 +253,13 @@ export default function InputBahanBakuPage() {
     setItems(items.filter((_, i) => i !== index));
   };
 
-  const handleItemChange = (index: number, field: keyof InputItem, value: any) => {
+  const handleItemChange = (index: number, field: keyof InputItem, value: string | number) => {
     const newItems = [...items];
     if (field === 'materialId') {
-      const selectedMat = (materials as any[])?.find(m => m.id === value);
+      const selectedMat = materials?.find(m => m.id === value);
       newItems[index] = {
         ...newItems[index],
-        materialId: value,
+        materialId: String(value),
         qtyKecilPerUnit: Number(selectedMat?.qtyKecil || 1),
       };
     } else {
@@ -244,7 +293,7 @@ export default function InputBahanBakuPage() {
 
     // Validasi khusus Beli Sendiri: qtyKecilPerUnit wajib > 0
     for (const item of validItems) {
-      const mat = (materials as any[])?.find(m => m.id === item.materialId);
+      const mat = materials?.find(m => m.id === item.materialId);
       const isBeliSendiri = mat?.metodePembelian === "Beli Sendiri" || purchaseType === "belanja";
       
       if (isBeliSendiri && (!item.qtyKecilPerUnit || item.qtyKecilPerUnit <= 0)) {
@@ -264,7 +313,7 @@ export default function InputBahanBakuPage() {
       
       // Siapkan data detail untuk log & update stok
       const logItems = validItems.map(item => {
-        const material = (materials as any[])?.find(m => m.id === item.materialId);
+        const material = materials?.find(m => m.id === item.materialId);
         const currentMaterial = material || { qtyBesar: 0, qtyGudangKecil: 0, qtyKontainerBesar: 0, qtyKontainerKecil: 0, stockValue: 0 };
         const isBeliSendiri = material?.metodePembelian === "Beli Sendiri" || purchaseType === "belanja";
         
@@ -299,7 +348,7 @@ export default function InputBahanBakuPage() {
             : `Pembelian Supliyer -> ${isTargetGudang ? 'Gudang Utama' : 'Kontainer'}`
         };
 
-        const updatePayload: Record<string, any> = {
+        const updatePayload: Record<string, unknown> = {
           stockValue: updated.stockValue,
           avgPrice: updated.avgPrice,
           currentPrice: item.price,
@@ -384,7 +433,7 @@ export default function InputBahanBakuPage() {
     }
   };
 
-  const handleDeleteLog = async (log: any) => {
+  const handleDeleteLog = async (log: PurchaseLogDoc) => {
     if (!confirm(`Hapus catatan nota #${log.nomorNota}? Stok bahan baku akan otomatis dikurangi sesuai rincian penerimaan nota ini.`)) return;
 
     try {
@@ -405,15 +454,15 @@ export default function InputBahanBakuPage() {
             smallToDeduct = Number(item.addedSmallUnits || 0);
           } else {
             // Fallback untuk catatan nota lama
-            const matDetail = (materials as any[])?.find(m => m.id === item.materialId);
+            const matDetail = materials?.find(m => m.id === item.materialId);
             const standardConversion = Number(matDetail?.qtyKecil || 1);
-            const totalSmall = Number(item.totalQtyKecil || (item.qty * (item.qtyKecilPerUnit || standardConversion)));
+            const totalSmall = Number(item.totalQtyKecil || ((item.qty || 0) * (item.qtyKecilPerUnit || standardConversion)));
             bulkToDeduct = Math.floor(totalSmall / (standardConversion || 1));
             smallToDeduct = Math.round((totalSmall - (bulkToDeduct * standardConversion)) * 100) / 100;
           }
 
-          const subtotal = Number(item.subtotal || (item.qty * item.price) || 0);
-          const updatePayload: Record<string, any> = {};
+          const subtotal = Number(item.subtotal || ((item.qty || 0) * (item.price || 0)) || 0);
+          const updatePayload: Record<string, unknown> = {};
 
           if (subtotal > 0) {
             updatePayload.stockValue = increment(-subtotal);
@@ -467,61 +516,67 @@ export default function InputBahanBakuPage() {
 
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 sm:gap-6">
         <div className="space-y-1">
-          <h1 className="text-4xl font-black tracking-tighter text-slate-900 uppercase italic leading-none">Input Bahan Baku</h1>
+          <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-slate-900 uppercase italic leading-none">Input Bahan Baku</h1>
           <p className="text-[10px] text-slate-600 font-black uppercase tracking-[0.2em] mt-2">
             Penerimaan Barang ke Gudang / Kontainer • Terpisah Stok Kecil Gudang & Kontainer
           </p>
         </div>
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto">
           {/* Download Template Buttons */}
-          <div className="flex bg-slate-50 p-1.5 rounded-xl border border-slate-100 items-center flex-wrap gap-1.5">
-            <span className="text-[8px] font-black uppercase tracking-wider px-2 text-slate-400">Unduh Format:</span>
-            
-            <div className="flex items-center bg-white rounded-lg border border-slate-150 p-0.5 shadow-sm">
-              <span className="text-[7px] font-black text-slate-500 uppercase px-1.5">Supliyer</span>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => downloadExcelTemplate("kontainer", "supplier")}
-                className="h-6 rounded bg-slate-50 hover:bg-slate-100 text-[8px] font-bold uppercase tracking-wider px-2"
-              >
-                Kontainer
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => downloadExcelTemplate("gudang", "supplier")}
-                className="h-6 rounded bg-slate-50 hover:bg-slate-100 text-[8px] font-bold uppercase tracking-wider px-2 ml-0.5"
-              >
-                Gudang
-              </Button>
+          <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-50/90 rounded-2xl border border-slate-200/80 items-center flex-1">
+            <div className="flex items-center justify-between bg-white rounded-xl border border-slate-200/60 p-1 shadow-sm">
+              <span className="text-[7.5px] sm:text-[8px] font-black text-slate-500 uppercase px-1 truncate">Supliyer:</span>
+              <div className="flex items-center gap-0.5 shrink-0">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => downloadExcelTemplate("kontainer", "supplier")}
+                  className="h-6 rounded-lg bg-slate-50 hover:bg-slate-100 text-[7.5px] sm:text-[8px] font-black uppercase px-1.5"
+                  title="Template Supliyer Kontainer"
+                >
+                  Kont.
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => downloadExcelTemplate("gudang", "supplier")}
+                  className="h-6 rounded-lg bg-slate-50 hover:bg-slate-100 text-[7.5px] sm:text-[8px] font-black uppercase px-1.5"
+                  title="Template Supliyer Gudang"
+                >
+                  Gudang
+                </Button>
+              </div>
             </div>
 
-            <div className="flex items-center bg-white rounded-lg border border-slate-150 p-0.5 shadow-sm">
-              <span className="text-[7px] font-black text-amber-600 uppercase px-1.5">Beli Sendiri</span>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => downloadExcelTemplate("kontainer", "belanja")}
-                className="h-6 rounded bg-slate-50 hover:bg-slate-100 text-[8px] font-bold uppercase tracking-wider px-2"
-              >
-                Kontainer
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => downloadExcelTemplate("gudang", "belanja")}
-                className="h-6 rounded bg-slate-50 hover:bg-slate-100 text-[8px] font-bold uppercase tracking-wider px-2 ml-0.5"
-              >
-                Gudang
-              </Button>
+            <div className="flex items-center justify-between bg-white rounded-xl border border-slate-200/60 p-1 shadow-sm">
+              <span className="text-[7.5px] sm:text-[8px] font-black text-amber-600 uppercase px-1 truncate">Beli Sendiri:</span>
+              <div className="flex items-center gap-0.5 shrink-0">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => downloadExcelTemplate("kontainer", "belanja")}
+                  className="h-6 rounded-lg bg-slate-50 hover:bg-slate-100 text-[7.5px] sm:text-[8px] font-black uppercase px-1.5"
+                  title="Template Beli Sendiri Kontainer"
+                >
+                  Kont.
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => downloadExcelTemplate("gudang", "belanja")}
+                  className="h-6 rounded-lg bg-slate-50 hover:bg-slate-100 text-[7.5px] sm:text-[8px] font-black uppercase px-1.5"
+                  title="Template Beli Sendiri Gudang"
+                >
+                  Gudang
+                </Button>
+              </div>
             </div>
           </div>
 
           {/* Import Button */}
-          <div className="relative">
+          <div className="relative w-full sm:w-auto shrink-0">
             <input
               type="file"
               accept=".xlsx, .xls"
@@ -531,9 +586,10 @@ export default function InputBahanBakuPage() {
             <Button
               type="button"
               variant="outline"
-              className="h-10 rounded-xl border-slate-200 bg-white px-4 text-[9px] font-black uppercase tracking-widest gap-2 shadow-sm"
+              className="h-9 sm:h-10 rounded-2xl border-slate-200 bg-white px-3.5 text-[9px] font-black uppercase tracking-wider gap-1.5 shadow-sm w-full flex items-center justify-center text-slate-700 hover:bg-slate-50"
             >
-              <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" /> Impor Excel (Suntik)
+              <FileSpreadsheet className="h-4 w-4 text-emerald-600 shrink-0" />
+              <span>Impor Excel (Suntik)</span>
             </Button>
           </div>
         </div>
@@ -647,7 +703,7 @@ export default function InputBahanBakuPage() {
 
                   <div className="space-y-4">
                     {items.map((item, index) => {
-                      const matDetail = (materials as any[])?.find(m => m.id === item.materialId);
+                      const matDetail = materials?.find(m => m.id === item.materialId);
                       const isBeliSendiri = matDetail?.metodePembelian === "Beli Sendiri" || purchaseType === "belanja";
 
                       return (
@@ -679,7 +735,7 @@ export default function InputBahanBakuPage() {
                                 <SelectValue placeholder="Pilih bahan baku..." />
                               </SelectTrigger>
                               <SelectContent className="rounded-2xl border-none shadow-2xl">
-                                {materials?.map((m: any) => (
+                                {materials?.map((m: MaterialDoc) => (
                                   <SelectItem key={m.id} value={m.id} className="rounded-xl">
                                     {m.code} - {m.nama} {m.metodePembelian === "Beli Sendiri" ? " (Beli Sendiri)" : ""}
                                   </SelectItem>
@@ -803,7 +859,7 @@ export default function InputBahanBakuPage() {
           </div>
 
           <div className="space-y-4">
-            {history && history.length > 0 ? history.map((log: any) => (
+            {history && history.length > 0 ? history.map((log: PurchaseLogDoc) => (
               <Card key={log.id} className="rounded-[2.5rem] bg-white border-none shadow-sm overflow-hidden group">
                 <div 
                   className="p-6 cursor-pointer hover:bg-slate-50 transition-all flex items-center justify-between"
@@ -845,7 +901,7 @@ export default function InputBahanBakuPage() {
                 {expandedLog === log.id && (
                   <div className="px-6 pb-6 pt-2 space-y-3 animate-in slide-in-from-top-4">
                     <div className="h-[1px] bg-slate-100 mb-4" />
-                    {log.items?.map((item: any, i: number) => (
+                    {log.items?.map((item: LogItemDoc, i: number) => (
                       <div key={i} className="flex items-center justify-between text-[10px] bg-slate-50 px-4 py-3 rounded-xl border border-slate-100">
                         <div className="flex flex-col">
                            <div className="flex items-center gap-1.5">
