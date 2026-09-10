@@ -17,8 +17,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import Link from "next/link";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useFirestore, collection, doc } from "@/firebase";
 import { addDoc, updateDoc, query, where, getDocs, serverTimestamp, orderBy, limit, getDoc } from "firebase/firestore";
 import { cn } from "@/lib/utils";
@@ -75,6 +75,7 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
 
 export default function TehWargaAbsensiPage() {
   const db = useFirestore();
+  const router = useRouter();
   const [user, setUser] = useState<KaryawanUser | null>(null);
   const [loading, setLoading] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -227,6 +228,11 @@ export default function TehWargaAbsensiPage() {
     setHistory([]);
     setLoginData({ username: "", password: "" });
     stopCamera();
+  };
+
+  const handleHomeExit = async () => {
+    await handleLogout();
+    router.push("/teh_warga_gdm");
   };
 
   const startCamera = async () => {
@@ -524,13 +530,11 @@ export default function TehWargaAbsensiPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/teh_warga_gdm">
-            <Button variant="ghost" size="sm" className="text-xs text-white/80 hover:text-white hover:bg-white/10 rounded-full">
-              <Home className="h-4 w-4 mr-1.5" /> Portal
-            </Button>
-          </Link>
+          <Button onClick={handleHomeExit} variant="ghost" size="sm" className="text-xs text-white/80 hover:text-white hover:bg-white/10 rounded-full" title="Kembali ke Beranda Teh Warga">
+            <Home className="h-4 w-4 mr-1.5" /> Portal
+          </Button>
           {user && (
-            <Button onClick={handleLogout} variant="ghost" size="sm" className="text-xs text-red-300 hover:bg-red-500/20 rounded-full">
+            <Button onClick={handleLogout} variant="ghost" size="sm" className="text-xs text-red-300 hover:bg-red-500/20 rounded-full" title="Keluar / Logout">
               <LogOut className="h-4 w-4 mr-1.5" /> Keluar
             </Button>
           )}

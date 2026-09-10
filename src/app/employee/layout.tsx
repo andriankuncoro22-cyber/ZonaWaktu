@@ -1,13 +1,55 @@
 'use client';
 
-import { useState } from "react";
-import { Menu, X } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { Menu, X, Loader2 } from "lucide-react";
 import { EmployeeSidebar } from "@/components/layout/employee-sidebar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export default function EmployeeLayout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [authorized, setAuthorized] = useState<boolean | null>(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      try {
+        const role = localStorage.getItem("user_role");
+        const currentBranch = localStorage.getItem("current_branch") || "gdm";
+        
+        // Allow access if employee or admin/owner
+        if (role === "employee" || role === "admin" || role === "owner") {
+          setAuthorized(true);
+        } else {
+          setAuthorized(false);
+          if (currentBranch === "kedungreja") {
+            router.replace("/zona_kedungreja/employee-login");
+          } else if (currentBranch === "tehwarga") {
+            router.replace("/teh_warga_gdm/employee-login");
+          } else {
+            router.replace("/employee-login");
+          }
+        }
+      } catch {
+        setAuthorized(false);
+        router.replace("/employee-login");
+      }
+    });
+  }, [router]);
+
+  if (authorized === null) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f4f5fa] gap-3">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-xs font-black uppercase tracking-widest text-slate-400">Memeriksa Hak Akses...</p>
+      </div>
+    );
+  }
+
+  if (!authorized) {
+    return null;
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#f4f5fa]">

@@ -1,7 +1,8 @@
 "use client";
 
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
@@ -11,9 +12,11 @@ import {
   Layers,
   Wallet,
   Gift,
-  AlertTriangle
+  AlertTriangle,
+  LogOut
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { logoutWithFirebaseAuth } from "@/lib/auth-service";
 
 const menuGroups = [
   {
@@ -42,6 +45,40 @@ const menuGroups = [
 
 export function EmployeeSidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const [employeeName, setEmployeeName] = useState<string>("");
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      try {
+        const savedUser = localStorage.getItem("karyawan_user") || localStorage.getItem("absensi_user");
+        if (savedUser) {
+          const parsed = JSON.parse(savedUser);
+          setEmployeeName(parsed.nama || parsed.username || "");
+        } else {
+          const storedName = localStorage.getItem("employee_name");
+          if (storedName) setEmployeeName(storedName);
+        }
+      } catch {}
+    });
+  }, []);
+
+  const handleLogout = async () => {
+    const branch = localStorage.getItem("current_branch");
+    await logoutWithFirebaseAuth();
+    if (branch === "kedungreja") {
+      router.push("/zona_kedungreja/employee-login");
+    } else if (branch === "tehwarga") {
+      router.push("/teh_warga_gdm/employee-login");
+    } else {
+      router.push("/employee-login");
+    }
+  };
+
+  const handleLandingPage = async () => {
+    await logoutWithFirebaseAuth();
+    router.push("/");
+  };
 
   return (
     <div className="flex h-full flex-col bg-white border-r border-slate-100 shadow-sm py-5 sm:py-8">
@@ -52,6 +89,11 @@ export function EmployeeSidebar() {
         <span className="mt-1 block text-[9px] font-bold uppercase tracking-[0.1em] text-primary">
           Karyawan Zona Waktu
         </span>
+        {employeeName && (
+          <p className="mt-2 text-[10px] font-black uppercase text-slate-500 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100 w-fit truncate max-w-full">
+            👤 {employeeName}
+          </p>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-3 sm:px-6 custom-scrollbar">
@@ -92,16 +134,23 @@ export function EmployeeSidebar() {
         </nav>
       </div>
 
-      <div className="mt-auto px-3 sm:px-6">
-        <Link href="/">
-          <Button 
-            variant="ghost" 
-            className="h-12 w-full justify-start gap-3 rounded-2xl text-[9px] font-black uppercase tracking-widest text-slate-400 transition-all hover:bg-primary/5 hover:text-primary"
-          >
-            <Home className="h-5 w-5" />
-            Landing Page
-          </Button>
-        </Link>
+      <div className="mt-auto px-3 sm:px-6 space-y-1 pt-4 border-t border-slate-100">
+        <Button 
+          variant="ghost" 
+          onClick={handleLandingPage}
+          className="h-11 w-full justify-start gap-3 rounded-2xl text-[9px] font-black uppercase tracking-widest text-slate-500 transition-all hover:bg-slate-50 hover:text-slate-900"
+        >
+          <Home className="h-4 w-4" />
+          Landing Page
+        </Button>
+        <Button 
+          variant="ghost" 
+          onClick={handleLogout}
+          className="h-11 w-full justify-start gap-3 rounded-2xl text-[9px] font-black uppercase tracking-widest text-rose-500 transition-all hover:bg-rose-50 hover:text-rose-600"
+        >
+          <LogOut className="h-4 w-4" />
+          Keluar (Logout)
+        </Button>
       </div>
     </div>
   );

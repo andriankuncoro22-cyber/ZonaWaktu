@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useFirestore, collection, doc } from "@/firebase";
 import { addDoc, updateDoc, query, where, getDocs, serverTimestamp, orderBy, limit, getDoc } from "firebase/firestore";
 import { cn } from "@/lib/utils";
@@ -75,6 +76,7 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
 
 export default function AbsensiKaryawanPage() {
   const db = useFirestore();
+  const router = useRouter();
   const [user, setUser] = useState<KaryawanUser | null>(null);
   const [loading, setLoading] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -209,6 +211,11 @@ export default function AbsensiKaryawanPage() {
     setAttendanceToday(null);
     setHistory([]);
     setLoginData({ username: "", password: "" }); 
+  };
+
+  const handleHomeExit = async () => {
+    await handleLogout();
+    router.push("/zona_gdm");
   };
 
   const stopCamera = () => {
@@ -571,12 +578,10 @@ export default function AbsensiKaryawanPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Link href="/zona_gdm">
-            <Button variant="ghost" size="icon" className="h-12 w-12 rounded-2xl bg-white shadow-sm hover:bg-slate-50 border border-slate-100">
-              <Home className="h-5 w-5 text-slate-400" />
-            </Button>
-          </Link>
-          <Button onClick={handleLogout} variant="ghost" size="icon" className="h-12 w-12 rounded-2xl bg-white shadow-sm hover:bg-slate-50 border border-slate-100">
+          <Button onClick={handleHomeExit} variant="ghost" size="icon" className="h-12 w-12 rounded-2xl bg-white shadow-sm hover:bg-slate-50 border border-slate-100" title="Keluar ke Beranda Toko">
+            <Home className="h-5 w-5 text-slate-400" />
+          </Button>
+          <Button onClick={handleLogout} variant="ghost" size="icon" className="h-12 w-12 rounded-2xl bg-white shadow-sm hover:bg-slate-50 border border-slate-100" title="Keluar / Logout">
             <LogOut className="h-5 w-5 text-slate-400" />
           </Button>
         </div>

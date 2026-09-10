@@ -968,7 +968,7 @@ export async function syncAllAccountsToFirebaseAuth(
 }
 
 /**
- * Logout cleanly from Firebase Auth and clear local sessions.
+ * Logout cleanly from Firebase Auth and clear all session keys.
  */
 export async function logoutWithFirebaseAuth(extraKeys?: string[]) {
   try {
@@ -979,6 +979,7 @@ export async function logoutWithFirebaseAuth(extraKeys?: string[]) {
   try {
     localStorage.removeItem("user_role");
     localStorage.removeItem("current_branch");
+    localStorage.removeItem("employee_name");
     localStorage.removeItem("absensi_user");
     localStorage.removeItem("absensi_user_gdm");
     localStorage.removeItem("absensi_user_kedungreja");
