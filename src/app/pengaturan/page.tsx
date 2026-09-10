@@ -159,8 +159,8 @@ export default function PengaturanPage() {
   const settingsRef = useMemoFirebase(() => doc(db, "settings", configDocId), [db, configDocId]);
   const { data: storeSettings } = useDoc(settingsRef);
 
-  // Branch-isolated Employee & Admin Credentials
-  const [credentialBranch, setCredentialBranch] = useState<BranchId>("gdm");
+  // Branch-isolated Employee & Admin Credentials (mengikuti toko aktif dari Top Header Switcher)
+  const credentialBranch: BranchId = selectedBranch === "all" ? "gdm" : selectedBranch;
   const [credentialsByBranch, setCredentialsByBranch] = useState<Record<BranchId, EmployeeCredential[]>>({
     all: [],
     gdm: [],
@@ -510,14 +510,14 @@ export default function PengaturanPage() {
         await provisionAuthUserWithoutSessionSwitch(
           branchAdmin.username.trim(),
           branchAdmin.password.trim(),
-          { role: "admin", cabang: targetBranch, nama: `Admin ${BRANCH_LIST[targetBranch]?.name}` }
+          { role: "admin", cabang: targetBranch, accountCategory: "admin", nama: `Admin ${BRANCH_LIST[targetBranch]?.name}` }
         );
-        for (const u of combinedUsers) {
+        for (const u of branchUsers) {
           if (u.username && u.password) {
             await provisionAuthUserWithoutSessionSwitch(
               u.username.trim(),
               u.password.trim(),
-              { role: "employee", cabang: targetBranch, nama: u.nama || u.username }
+              { role: "employee", cabang: targetBranch, accountCategory: "system", nama: u.username }
             );
           }
         }
@@ -527,7 +527,7 @@ export default function PengaturanPage() {
 
       toast({ 
         title: "Perubahan Kredensial Tersimpan & Terhubung Auth", 
-        description: `Hak akses untuk ${BRANCH_LIST[targetBranch]?.name} berhasil diperbarui di Firestore & Firebase Authentication.` 
+        description: `Hak akses Sistem Karyawan untuk ${BRANCH_LIST[targetBranch]?.name} berhasil diperbarui di Firestore & Firebase Authentication.` 
       });
     } catch (error) {
       console.error(error);
@@ -607,14 +607,14 @@ export default function PengaturanPage() {
         }, { merge: true });
       }
 
-      // 6. Provision / Sync ke Firebase Authentication
+      // 6. Provision / Sync ke Firebase Authentication dengan accountCategory: 'absensi'
       try {
-        for (const u of combinedUsers) {
+        for (const u of branchAbsensiUsers) {
           if (u.username && u.password) {
             await provisionAuthUserWithoutSessionSwitch(
               u.username.trim(),
               u.password.trim(),
-              { role: "employee", cabang: targetBranch, nama: u.nama || u.username }
+              { role: "employee", cabang: targetBranch, accountCategory: "absensi", karyawanId: u.id, nama: u.nama || u.username }
             );
           }
         }
@@ -664,7 +664,7 @@ export default function PengaturanPage() {
         await provisionAuthUserWithoutSessionSwitch(
           username,
           password,
-          { role: "employee", cabang: credentialBranch, nama }
+          { role: "employee", cabang: credentialBranch, accountCategory: "absensi", nama }
         );
       } catch (authErr) {
         console.warn("Auth provision warning:", authErr);
@@ -900,11 +900,22 @@ export default function PengaturanPage() {
             <Button variant="ghost" size="icon" onClick={() => setActiveSection(null)} className="rounded-2xl">
               <ChevronLeft className="h-6 w-6" />
             </Button>
-            <div>
-              <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-slate-900 uppercase italic">
-                Hak Akses Karyawan & Admin
-              </h1>
-              <p className="text-xs text-slate-600 font-black uppercase tracking-[0.2em] mt-1">
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-slate-900 uppercase italic">
+                  Hak Akses Karyawan & Admin
+                </h1>
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-slate-100 text-slate-900 border border-slate-200 text-[10px] font-black uppercase tracking-wider">
+                  <span className={cn(
+                    "h-2 w-2 rounded-full",
+                    credentialBranch === "kedungreja" ? "bg-cyan-500" :
+                    credentialBranch === "tehwarga" ? "bg-amber-500" :
+                    "bg-emerald-500"
+                  )} />
+                  <span>Toko: {currentBranchInfo.name} ({currentBranchInfo.code})</span>
+                </div>
+              </div>
+              <p className="text-xs text-slate-600 font-black uppercase tracking-[0.2em]">
                 Pemisahan akun login sistem karyawan & akun login absensi per masing-masing toko
               </p>
             </div>
@@ -919,25 +930,6 @@ export default function PengaturanPage() {
               <RefreshCw className={cn("h-4 w-4", syncingAllAuth && "animate-spin")} />
               {syncingAllAuth ? "Menyinkronkan Auth..." : "Sinkronkan Semua Akun ke Firebase Auth (1-Klik)"}
             </Button>
-
-            {/* Branch Switcher Tabs */}
-            <div className="flex flex-wrap items-center gap-2 p-1.5 bg-white border border-slate-200/80 rounded-2xl shadow-sm">
-              {Object.entries(BRANCH_LIST).map(([bId, bInfo]) => (
-                <button
-                  key={bId}
-                  type="button"
-                  onClick={() => setCredentialBranch(bId as BranchId)}
-                  className={cn(
-                    "px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all",
-                    credentialBranch === bId
-                      ? "bg-slate-900 text-white shadow-sm"
-                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
-                  )}
-                >
-                  {bInfo.shortName} ({bInfo.code})
-                </button>
-              ))}
-            </div>
           </div>
         </div>
 
@@ -1355,39 +1347,6 @@ export default function PengaturanPage() {
               <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{currentBranchInfo.code} &bull; Terisolasi</p>
             </div>
           </div>
-        </div>
-
-        {/* Branch Switcher Tabs */}
-        <div className="bg-white p-2 sm:p-2.5 rounded-[2rem] border border-slate-200/80 shadow-sm flex flex-wrap items-center gap-2">
-          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 px-3 py-2">
-            Pilih Toko:
-          </span>
-          {(['gdm', 'kedungreja', 'tehwarga'] as BranchId[]).map((bId) => {
-            const isSelected = selectedBranch === bId;
-            const bInfo = BRANCH_LIST[bId];
-            return (
-              <button
-                key={bId}
-                type="button"
-                onClick={() => setSelectedBranch(bId)}
-                className={`flex items-center gap-2.5 px-5 py-3 rounded-2xl font-black text-xs uppercase tracking-wider transition-all duration-200 ${
-                  isSelected 
-                    ? bId === 'tehwarga' 
-                      ? 'bg-emerald-700 text-white shadow-md shadow-emerald-900/20 scale-[1.02]' 
-                      : bId === 'kedungreja'
-                      ? 'bg-cyan-700 text-white shadow-md shadow-cyan-900/20 scale-[1.02]'
-                      : 'bg-slate-900 text-white shadow-md shadow-slate-900/20 scale-[1.02]'
-                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-100'
-                }`}
-              >
-                <span className={`h-2 w-2 rounded-full ${isSelected ? 'bg-white' : bId === 'tehwarga' ? 'bg-emerald-500' : bId === 'kedungreja' ? 'bg-cyan-500' : 'bg-red-500'}`} />
-                <span>{bInfo.shortName}</span>
-                <span className={`text-[9px] px-1.5 py-0.5 rounded-md ${isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'}`}>
-                  {bInfo.code}
-                </span>
-              </button>
-            );
-          })}
         </div>
 
         <Card className="rounded-[3rem] border-none shadow-sm bg-white p-6 sm:p-10 space-y-8">

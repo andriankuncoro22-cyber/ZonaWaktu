@@ -35,7 +35,8 @@ export default function KedungrejaEmployeeLoginPage() {
         username: inputUsername,
         password: inputPassword,
         expectedRole: "employee",
-        expectedBranch: "kedungreja"
+        expectedBranch: "kedungreja",
+        loginType: "system"
       });
 
       if (result.success && result.profile) {

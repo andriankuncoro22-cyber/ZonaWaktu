@@ -44,6 +44,8 @@ interface AttendanceLog {
   jamMasuk: string;
   jamPulang: string;
   selfieUrl?: string;
+  selfieMasukUrl?: string;
+  selfiePulangUrl?: string;
   cabang?: string;
   [key: string]: unknown;
 }
@@ -80,6 +82,8 @@ export default function TehWargaAbsensiPage() {
   const [attendanceToday, setAttendanceToday] = useState<AttendanceLog | null>(null);
   const [isWithinRadius, setIsWithinRadius] = useState(false);
   const [distance, setDistance] = useState<number | null>(null);
+  const [checkingLocation, setCheckingLocation] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
   const [loginData, setLoginData] = useState({ username: "", password: "" });
   const [history, setHistory] = useState<AttendanceLog[]>([]);
   const [config, setConfig] = useState<AbsensiConfig | null>(null);
@@ -186,6 +190,7 @@ export default function TehWargaAbsensiPage() {
       const res = await loginWithFirebaseAuth(db, inputUsername, inputPassword, {
         expectedRole: "employee",
         expectedBranch: "tehwarga",
+        loginType: "absensi",
         storageKey: "karyawan_user_tehwarga",
         branchStorageKey: "current_branch",
       });
@@ -289,9 +294,11 @@ export default function TehWargaAbsensiPage() {
 
     let currentSelfie = selfiePreview;
     if (!currentSelfie) {
-      currentSelfie = await captureSelfie();
+      if (cameraReady) {
+        currentSelfie = await captureSelfie();
+      }
       if (!currentSelfie) {
-        alert("Foto selfie wajib diambil sebelum absen.");
+        alert("Foto selfie wajib diambil sebelum absen. Silakan klik 'Buka Kamera' lalu 'Ambil Selfie'.");
         return;
       }
     }
@@ -304,13 +311,14 @@ export default function TehWargaAbsensiPage() {
         const docRef = await addDoc(collection(db, "absensi_logs"), {
           karyawanId: user.id,
           nama: user.nama,
-          shift: user.shift || 'default',
+          shift: user.shift || 'shift1',
           cabang: "tehwarga",
           cabangName: "Teh Warga Gandrungmangu",
           tanggal: today,
           jamMasuk: time,
           jamPulang: "-",
           selfieUrl: currentSelfie,
+          selfieMasukUrl: currentSelfie,
           timestamp: serverTimestamp()
         });
         setAttendanceToday({ 
@@ -321,6 +329,7 @@ export default function TehWargaAbsensiPage() {
           jamMasuk: time, 
           jamPulang: "-", 
           selfieUrl: currentSelfie ?? undefined,
+          selfieMasukUrl: currentSelfie ?? undefined,
           cabang: "tehwarga"
         });
         alert(`Absen Masuk Berhasil! Jam: ${time}`);
@@ -347,14 +356,20 @@ export default function TehWargaAbsensiPage() {
             selfiePulangUrl: currentSelfie || null,
             updatedAt: serverTimestamp()
           });
-          setAttendanceToday((prev) => prev ? { ...prev, jamPulang: time } : {
+          setAttendanceToday((prev) => prev ? { 
+            ...prev, 
+            jamPulang: time,
+            selfiePulangUrl: currentSelfie ?? undefined
+          } : {
             id: logDocId!,
             karyawanId: user.id,
             nama: user.nama,
             tanggal: today,
             jamMasuk: attendanceToday?.jamMasuk || "-",
             jamPulang: time,
-            selfieUrl: currentSelfie ?? undefined,
+            selfieUrl: attendanceToday?.selfieUrl || undefined,
+            selfieMasukUrl: attendanceToday?.selfieMasukUrl || attendanceToday?.selfieUrl || undefined,
+            selfiePulangUrl: currentSelfie ?? undefined,
             cabang: "tehwarga"
           });
           alert(`Absen Pulang Berhasil! Jam: ${time}`);
@@ -362,13 +377,14 @@ export default function TehWargaAbsensiPage() {
           const docRef = await addDoc(collection(db, "absensi_logs"), {
             karyawanId: user.id,
             nama: user.nama,
-            shift: user.shift || 'default',
+            shift: user.shift || 'shift1',
             cabang: "tehwarga",
             cabangName: "Teh Warga Gandrungmangu",
             tanggal: today,
             jamMasuk: "-",
             jamPulang: time,
             selfieUrl: currentSelfie,
+            selfiePulangUrl: currentSelfie,
             timestamp: serverTimestamp()
           });
           setAttendanceToday({ 
@@ -379,6 +395,7 @@ export default function TehWargaAbsensiPage() {
             jamMasuk: "-", 
             jamPulang: time, 
             selfieUrl: currentSelfie ?? undefined,
+            selfiePulangUrl: currentSelfie ?? undefined,
             cabang: "tehwarga"
           });
           alert(`Absen Pulang Berhasil! Jam: ${time}`);
@@ -393,39 +410,91 @@ export default function TehWargaAbsensiPage() {
     }
   };
 
-  const validateLocation = useCallback(() => {
+  const validateLocation = useCallback((showUserAlert = false) => {
     const locationConfig = config?.location || config;
-    if (!locationConfig) return;
+    if (!locationConfig || !locationConfig.lat || !locationConfig.lng) return;
 
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition((position) => {
-        const userLat = position.coords.latitude;
-        const userLng = position.coords.longitude;
-        
-        const dist = getDistance(
-          userLat, 
-          userLng, 
-          parseFloat(locationConfig.lat), 
-          parseFloat(locationConfig.lng)
-        );
-
-        setDistance(Math.round(dist));
-        setIsWithinRadius(dist <= parseFloat(locationConfig.radius));
-      }, (err) => {
-        console.error("Geo error", err);
-        setIsWithinRadius(false);
-      }, {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0
-      });
+    if (!navigator.geolocation) {
+      setLocationError("Browser ini tidak mendukung deteksi lokasi (GPS).");
+      setIsWithinRadius(false);
+      if (showUserAlert) alert("Browser ini tidak mendukung deteksi GPS.");
+      return;
     }
+
+    setCheckingLocation(true);
+    setLocationError(null);
+
+    const onPosSuccess = (position: GeolocationPosition) => {
+      const userLat = position.coords.latitude;
+      const userLng = position.coords.longitude;
+      
+      const dist = getDistance(
+        userLat, 
+        userLng, 
+        parseFloat(locationConfig.lat), 
+        parseFloat(locationConfig.lng)
+      );
+
+      const roundedDist = Math.round(dist);
+      const maxRadius = parseFloat(locationConfig.radius || "50");
+      setDistance(roundedDist);
+      setIsWithinRadius(roundedDist <= maxRadius);
+      setCheckingLocation(false);
+      setLocationError(null);
+      if (showUserAlert) {
+        if (roundedDist <= maxRadius) {
+          alert(`Lokasi Terverifikasi! Anda berada ${roundedDist}m dari toko (dalam radius ${maxRadius}m).`);
+        } else {
+          alert(`Anda berada ${roundedDist}m dari toko (di luar batas radius ${maxRadius}m).`);
+        }
+      }
+    };
+
+    const onPosError = (error: GeolocationPositionError) => {
+      console.warn("Geolocation warning:", error.message || error);
+
+      // Fallback tanpa high accuracy jika timeout
+      if (error.code === error.TIMEOUT) {
+        navigator.geolocation.getCurrentPosition(
+          onPosSuccess,
+          (fallbackErr) => {
+            console.warn("Fallback geolocation failed:", fallbackErr.message);
+            setIsWithinRadius(false);
+            setCheckingLocation(false);
+            setLocationError("Waktu permintaan GPS habis. Pastikan GPS aktif.");
+            if (showUserAlert) alert("Waktu permintaan GPS habis. Pastikan izin lokasi aktif.");
+          },
+          { enableHighAccuracy: false, timeout: 15000, maximumAge: 10000 }
+        );
+        return;
+      }
+
+      let errorMsg = "Gagal membaca koordinat GPS.";
+      if (error.code === error.PERMISSION_DENIED) {
+        errorMsg = "Izin akses lokasi (GPS) ditolak. Aktifkan izin lokasi browser/HP.";
+      } else if (error.code === error.POSITION_UNAVAILABLE) {
+        errorMsg = "Informasi GPS tidak tersedia pada perangkat ini.";
+      }
+
+      setLocationError(errorMsg);
+      setIsWithinRadius(false);
+      setCheckingLocation(false);
+      if (showUserAlert) {
+        alert(errorMsg);
+      }
+    };
+
+    navigator.geolocation.getCurrentPosition(onPosSuccess, onPosError, {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 5000
+    });
   }, [config]);
 
   useEffect(() => {
     if (user && config) {
-      const timer = setTimeout(() => validateLocation(), 0);
-      const interval = setInterval(validateLocation, 10000);
+      const timer = setTimeout(() => validateLocation(false), 0);
+      const interval = setInterval(() => validateLocation(false), 15000);
       return () => {
         clearTimeout(timer);
         clearInterval(interval);
@@ -560,12 +629,25 @@ export default function TehWargaAbsensiPage() {
                 <div>
                   <p className="font-bold">{isWithinRadius ? "Dalam Radius Outlet" : "Di Luar Radius Outlet"}</p>
                   <p className="text-[10px] text-white/60">
-                    {distance !== null ? `Jarak: ~${distance} meter dari toko` : "Mengecek titik GPS..."}
+                    {checkingLocation 
+                      ? "Sedang memindai titik GPS..." 
+                      : locationError 
+                      ? locationError 
+                      : distance !== null 
+                      ? `Jarak: ~${distance} meter dari toko` 
+                      : "Mengecek titik GPS..."}
                   </p>
                 </div>
               </div>
-              <Button onClick={validateLocation} variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-white/10 text-white/70">
-                <RefreshCw className="h-4 w-4" />
+              <Button 
+                onClick={() => validateLocation(true)} 
+                disabled={checkingLocation}
+                variant="ghost" 
+                size="icon" 
+                className="h-8 w-8 rounded-lg hover:bg-white/10 text-white/70"
+                title="Perbarui Lokasi GPS"
+              >
+                <RefreshCw className={cn("h-4 w-4", checkingLocation && "animate-spin")} />
               </Button>
             </Card>
 

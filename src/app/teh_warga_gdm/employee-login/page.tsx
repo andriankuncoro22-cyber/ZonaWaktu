@@ -35,7 +35,8 @@ export default function TehWargaEmployeeLoginPage() {
         username: inputUsername,
         password: inputPassword,
         expectedRole: "employee",
-        expectedBranch: "tehwarga"
+        expectedBranch: "tehwarga",
+        loginType: "system"
       });
 
       if (result.success && result.profile) {

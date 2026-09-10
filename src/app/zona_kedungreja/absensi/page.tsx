@@ -44,6 +44,8 @@ interface AttendanceLog {
   jamMasuk: string;
   jamPulang: string;
   selfieUrl?: string;
+  selfieMasukUrl?: string;
+  selfiePulangUrl?: string;
   cabang?: string;
   [key: string]: unknown;
 }
@@ -173,6 +175,7 @@ export default function KedungrejaAbsensiPage() {
       const res = await loginWithFirebaseAuth(db, inputUsername, inputPassword, {
         expectedRole: "employee",
         expectedBranch: "kedungreja",
+        loginType: "absensi",
         storageKey: "absensi_user_kedungreja",
         branchStorageKey: "current_branch",
       });
@@ -282,9 +285,11 @@ export default function KedungrejaAbsensiPage() {
 
     let currentSelfie = selfiePreview;
     if (!currentSelfie) {
-      currentSelfie = await captureSelfie();
+      if (cameraReady) {
+        currentSelfie = await captureSelfie();
+      }
       if (!currentSelfie) {
-        alert("Foto selfie wajib diambil sebelum absen.");
+        alert("Foto selfie wajib diambil sebelum absen. Silakan klik 'Buka Kamera' lalu 'Ambil Selfie'.");
         return;
       }
     }
@@ -297,13 +302,14 @@ export default function KedungrejaAbsensiPage() {
         const docRef = await addDoc(collection(db, "absensi_logs"), {
           karyawanId: user.id,
           nama: user.nama,
-          shift: user.shift || 'default',
+          shift: user.shift || 'shift1',
           cabang: "kedungreja",
           cabangName: "Cabang Kedungreja",
           tanggal: today,
           jamMasuk: time,
           jamPulang: "-",
           selfieUrl: currentSelfie,
+          selfieMasukUrl: currentSelfie,
           timestamp: serverTimestamp()
         });
         setAttendanceToday({ 
@@ -314,6 +320,7 @@ export default function KedungrejaAbsensiPage() {
           jamMasuk: time, 
           jamPulang: "-", 
           selfieUrl: currentSelfie ?? undefined,
+          selfieMasukUrl: currentSelfie ?? undefined,
           cabang: "kedungreja"
         });
         alert(`Absen Masuk Berhasil! Jam: ${time}`);
@@ -340,14 +347,20 @@ export default function KedungrejaAbsensiPage() {
             selfiePulangUrl: currentSelfie || null,
             updatedAt: serverTimestamp()
           });
-          setAttendanceToday((prev) => prev ? { ...prev, jamPulang: time } : {
+          setAttendanceToday((prev) => prev ? { 
+            ...prev, 
+            jamPulang: time,
+            selfiePulangUrl: currentSelfie ?? undefined
+          } : {
             id: logDocId!,
             karyawanId: user.id,
             nama: user.nama,
             tanggal: today,
             jamMasuk: attendanceToday?.jamMasuk || "-",
             jamPulang: time,
-            selfieUrl: currentSelfie ?? undefined,
+            selfieUrl: attendanceToday?.selfieUrl || undefined,
+            selfieMasukUrl: attendanceToday?.selfieMasukUrl || attendanceToday?.selfieUrl || undefined,
+            selfiePulangUrl: currentSelfie ?? undefined,
             cabang: "kedungreja"
           });
           alert(`Absen Pulang Berhasil! Jam: ${time}`);
@@ -355,13 +368,14 @@ export default function KedungrejaAbsensiPage() {
           const docRef = await addDoc(collection(db, "absensi_logs"), {
             karyawanId: user.id,
             nama: user.nama,
-            shift: user.shift || 'default',
+            shift: user.shift || 'shift1',
             cabang: "kedungreja",
             cabangName: "Cabang Kedungreja",
             tanggal: today,
             jamMasuk: "-",
             jamPulang: time,
             selfieUrl: currentSelfie,
+            selfiePulangUrl: currentSelfie,
             timestamp: serverTimestamp()
           });
           setAttendanceToday({ 
@@ -372,6 +386,7 @@ export default function KedungrejaAbsensiPage() {
             jamMasuk: "-", 
             jamPulang: time, 
             selfieUrl: currentSelfie ?? undefined,
+            selfiePulangUrl: currentSelfie ?? undefined,
             cabang: "kedungreja"
           });
           alert(`Absen Pulang Berhasil! Jam: ${time}`);
@@ -733,9 +748,24 @@ export default function KedungrejaAbsensiPage() {
                 </div>
                 <div className="px-4 py-1.5 rounded-xl bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase">Hadir</div>
               </div>
-              {log.selfieUrl ? (
-                <Image src={log.selfieUrl} alt="Selfie absensi" width={600} height={144} className="w-full h-36 object-cover rounded-[1rem] border border-slate-200" unoptimized />
-              ) : null}
+              <div className="grid grid-cols-2 gap-3 mt-1">
+                <div className="space-y-1">
+                  <span className="text-[8px] font-black uppercase text-slate-400">Foto Masuk ({log.jamMasuk || "-"})</span>
+                  {log.selfieMasukUrl || log.selfieUrl ? (
+                    <Image src={(log.selfieMasukUrl || log.selfieUrl) as string} alt="Foto Masuk" width={300} height={120} className="w-full h-28 object-cover rounded-xl border border-slate-200" unoptimized />
+                  ) : (
+                    <div className="w-full h-28 rounded-xl border border-dashed border-slate-200 bg-slate-50 flex items-center justify-center text-[8px] font-black uppercase text-slate-400">Tidak Ada Foto</div>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[8px] font-black uppercase text-slate-400">Foto Pulang ({log.jamPulang || "-"})</span>
+                  {log.selfiePulangUrl ? (
+                    <Image src={log.selfiePulangUrl as string} alt="Foto Pulang" width={300} height={120} className="w-full h-28 object-cover rounded-xl border border-slate-200" unoptimized />
+                  ) : (
+                    <div className="w-full h-28 rounded-xl border border-dashed border-slate-200 bg-slate-50 flex items-center justify-center text-[8px] font-black uppercase text-slate-400">Belum Pulang</div>
+                  )}
+                </div>
+              </div>
             </Card>
           )) : (
             <p className="text-center py-10 text-[10px] font-black text-slate-300 uppercase tracking-widest">Belum ada riwayat</p>

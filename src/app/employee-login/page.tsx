@@ -40,7 +40,8 @@ export default function EmployeeLoginPage() {
         username: inputUsername,
         password: inputPassword,
         expectedRole: "employee",
-        expectedBranch: "gdm"
+        expectedBranch: "gdm",
+        loginType: "system"
       });
 
       if (result.success && result.profile) {

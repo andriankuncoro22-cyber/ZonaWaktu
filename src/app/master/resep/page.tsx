@@ -13,15 +13,12 @@ import {
   Layers,
   Boxes,
   RotateCcw,
-  CheckCircle2,
   FileSpreadsheet,
   FileText,
-  Download,
   FileDown,
   Upload,
   Loader2,
-  ChefHat,
-  Sparkles
+  ChefHat
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -1183,7 +1180,7 @@ export default function ResepProdukPage() {
                     ) : (
                       <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 space-y-2 text-xs">
                         <p className="font-black uppercase text-[10px] tracking-wider text-amber-900 flex items-center gap-1.5">
-                          <ChefHat className="h-4 w-4 text-amber-700" /> Belum ada Bahan Baku "Pembuatan Sendiri"
+                          <ChefHat className="h-4 w-4 text-amber-700" /> Belum ada Bahan Baku &quot;Pembuatan Sendiri&quot;
                         </p>
                         <p className="text-[11px] text-amber-800 leading-relaxed font-medium">
                           Buka menu <Link href="/master/bahan-baku" className="font-bold underline text-amber-900">Master Bahan Baku</Link>, lalu ubah Metode Beli bahan baku racikan Anda (contoh: Base Kopi, Gula Cair, Simple Syrup) menjadi <strong>3. Pembuatan Sendiri</strong>.

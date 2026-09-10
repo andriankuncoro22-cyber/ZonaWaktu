@@ -29,6 +29,7 @@ export interface UserProfile {
   cabang: BranchId;
   status?: "aktif" | "nonaktif";
   karyawanId?: string;
+  accountCategory?: "system" | "absensi" | "both" | "admin" | "owner";
   permissions?: string[];
   updatedAt?: string | number | Date | null;
 }
@@ -42,6 +43,7 @@ export interface LoginParams {
   password: string;
   expectedRole?: "owner" | "admin" | "employee";
   expectedBranch?: BranchId;
+  loginType?: "system" | "absensi" | "admin" | "owner" | "any";
   storageKey?: string;
   branchStorageKey?: string;
 }
@@ -80,6 +82,111 @@ export function normalizePassword(password: string): string {
     return trimmed.padEnd(6, "0");
   }
   return trimmed;
+}
+
+/**
+ * Determine the account category (system employee login vs attendance login)
+ */
+export async function determineAccountType(
+  username: string,
+  expectedBranch?: BranchId
+): Promise<"system" | "absensi" | "both" | "admin" | "owner" | "unknown"> {
+  const inputUser = username.trim().toLowerCase();
+  if (!inputUser) return "unknown";
+
+  // 1. Owner Check
+  const ownerUsernames = ["owner", "ownerzona", "zonagdm", "zonakdrj", "zonakedungreja", "tehgdm", "tehwargagdm"];
+  if (ownerUsernames.includes(inputUser)) {
+    return "owner";
+  }
+
+  // 2. Admin Check
+  const adminUsernames = ["admin", "adminzona", "adminkedungreja", "admintehwarga"];
+  if (adminUsernames.includes(inputUser)) {
+    return "admin";
+  }
+
+  let isSystem = false;
+  let isAbsensi = false;
+
+  // 3. Check System Employee Logins (Kasir & POS)
+  const systemDocNames = [
+    "system_logins_gdm",
+    "system_logins_kedungreja",
+    "system_logins_tehwarga"
+  ];
+  if (expectedBranch) {
+    const targetBranch = normalizeBranchId(expectedBranch);
+    systemDocNames.unshift(`system_logins_${targetBranch}`);
+  }
+
+  for (const docName of Array.from(new Set(systemDocNames))) {
+    try {
+      const snap = await getDoc(doc(db, "employee_credentials", docName));
+      if (snap.exists()) {
+        const rawUsers = (snap.data().users || []) as Array<Record<string, unknown>>;
+        const found = rawUsers.some(u => String(u.username || "").trim().toLowerCase() === inputUser);
+        if (found) {
+          isSystem = true;
+          break;
+        }
+      }
+    } catch {}
+  }
+
+  // 4. Check Absensi Logins (karyawan collection & absensi_logins_<branch>)
+  try {
+    const kSnap = await getDocs(collection(db, "karyawan"));
+    const foundK = kSnap.docs.some(d => {
+      const dData = d.data();
+      return String(dData.username || "").trim().toLowerCase() === inputUser;
+    });
+    if (foundK) {
+      isAbsensi = true;
+    }
+  } catch {}
+
+  if (!isAbsensi) {
+    const absensiDocNames = [
+      "absensi_logins_gdm",
+      "absensi_logins_kedungreja",
+      "absensi_logins_tehwarga"
+    ];
+    for (const docName of absensiDocNames) {
+      try {
+        const snap = await getDoc(doc(db, "employee_credentials", docName));
+        if (snap.exists()) {
+          const rawUsers = (snap.data().users || []) as Array<Record<string, unknown>>;
+          const found = rawUsers.some(u => String(u.username || "").trim().toLowerCase() === inputUser);
+          if (found) {
+            isAbsensi = true;
+            break;
+          }
+        }
+      } catch {}
+    }
+  }
+
+  if (isSystem && isAbsensi) return "both";
+  if (isSystem) return "system";
+  if (isAbsensi) return "absensi";
+
+  // Fallback: check users collection
+  try {
+    const userDocRef = doc(db, "users", formatAuthEmail(username).replace(/[^a-z0-9]/g, "_"));
+    const uSnap = await getDoc(userDocRef);
+    if (uSnap.exists()) {
+      const uData = uSnap.data();
+      if (uData.accountCategory) {
+        return uData.accountCategory as "system" | "absensi" | "both" | "admin" | "owner";
+      }
+      if (uData.role === "admin") return "admin";
+      if (uData.role === "owner") return "owner";
+      if (uData.karyawanId) return "absensi";
+    }
+  } catch {}
+
+  return "unknown";
 }
 
 /**
@@ -131,6 +238,7 @@ export async function provisionAuthUserWithoutSessionSwitch(
       cabang: normalizeBranchId(profile.cabang || "gdm"),
       status: profile.status || "aktif",
       karyawanId: profile.karyawanId || null,
+      accountCategory: profile.accountCategory || (profile.role === "admin" ? "admin" : profile.role === "owner" ? "owner" : profile.karyawanId ? "absensi" : "system"),
       updatedAt: new Date().toISOString()
     }, { merge: true });
 
@@ -188,6 +296,25 @@ export async function loginWithFirebaseAuth(
     return { success: false, error: "Silakan masukkan Username dan Password." };
   }
 
+  // Strict Segregation Check BEFORE Authentication
+  if (params.loginType === "system" || params.loginType === "absensi") {
+    const detectedType = await determineAccountType(inputUser, params.expectedBranch);
+
+    if (params.loginType === "system" && detectedType === "absensi") {
+      return {
+        success: false,
+        error: "Akses Ditolak: Akun ini adalah Akun Absensi dan tidak dapat digunakan untuk login ke Sistem Karyawan (Kasir & POS). Silakan gunakan Akun Sistem Karyawan Anda."
+      };
+    }
+
+    if (params.loginType === "absensi" && detectedType === "system") {
+      return {
+        success: false,
+        error: "Akses Ditolak: Akun ini adalah Akun Sistem Karyawan (Kasir & POS) dan tidak dapat digunakan untuk Portal Absensi. Silakan gunakan Akun Absensi Anda."
+      };
+    }
+  }
+
   const email = formatAuthEmail(inputUser);
   const normalizedPass = normalizePassword(inputPass);
 
@@ -207,8 +334,14 @@ export async function loginWithFirebaseAuth(
         fbErr?.code === "auth/invalid-email";
 
       if (isAuthFail) {
-        // 2. On-the-fly Migration Fallback: Check if credentials exist in Firestore master
-        const migrationResult = await checkAndMigrateFirestoreUserToAuth(inputUser, inputPass, params.expectedRole, params.expectedBranch);
+        // 2. On-the-fly Migration Fallback: Check if credentials exist in Firestore master with strict loginType
+        const migrationResult = await checkAndMigrateFirestoreUserToAuth(
+          inputUser, 
+          inputPass, 
+          params.expectedRole, 
+          params.expectedBranch,
+          params.loginType
+        );
         if (migrationResult.success) {
           // Try sign in again after auto-provision
           const retryCred = await signInWithEmailAndPassword(auth, email, normalizedPass);
@@ -228,13 +361,32 @@ export async function loginWithFirebaseAuth(
     // 3. Resolve & Verify User Profile in Firestore
     const userProfile = await resolveUserProfile(inputUser, params.expectedRole, params.expectedBranch);
 
+    // Double Check Strict Segregation after profile resolved
+    if (params.loginType === "system" && userProfile.role === "employee") {
+      if (userProfile.accountCategory === "absensi") {
+        await signOut(auth).catch(() => {});
+        return {
+          success: false,
+          error: "Akses Ditolak: Akun ini adalah Akun Absensi dan tidak dapat digunakan untuk login ke Sistem Karyawan (Kasir & POS). Silakan gunakan Akun Sistem Karyawan Anda."
+        };
+      }
+    } else if (params.loginType === "absensi" && userProfile.role === "employee") {
+      if (userProfile.accountCategory === "system") {
+        await signOut(auth).catch(() => {});
+        return {
+          success: false,
+          error: "Akses Ditolak: Akun ini adalah Akun Sistem Karyawan (Kasir & POS) dan tidak dapat digunakan untuk Portal Absensi. Silakan gunakan Akun Absensi Anda."
+        };
+      }
+    }
+
     // 4. Branch Restriction Check
     if (params.expectedBranch) {
       const userBranch = normalizeBranchId(userProfile.cabang);
       const targetBranch = normalizeBranchId(params.expectedBranch);
       
       if (userProfile.role === "employee" && userBranch !== targetBranch) {
-        await signOut(auth);
+        await signOut(auth).catch(() => {});
         const branchName = userBranch === "kedungreja" ? "Kedungreja" : userBranch === "tehwarga" ? "Teh Warga" : "Gandrungmangu";
         return {
           success: false,
@@ -259,7 +411,7 @@ export async function loginWithFirebaseAuth(
       if (userProfile.role === "employee") {
         const storageKey = params.storageKey || "absensi_user";
         localStorage.setItem(storageKey, JSON.stringify(sessionUser));
-        if (storageKey !== "absensi_user") {
+        if (storageKey !== "absensi_user" && params.loginType === "absensi") {
           localStorage.setItem("absensi_user", JSON.stringify(sessionUser));
         }
       }
@@ -295,127 +447,175 @@ async function checkAndMigrateFirestoreUserToAuth(
   username: string,
   rawPass: string,
   _expectedRole?: "owner" | "admin" | "employee",
-  expectedBranch?: BranchId
+  expectedBranch?: BranchId,
+  loginType?: "system" | "absensi" | "admin" | "owner" | "any"
 ): Promise<{ success: boolean; error?: string }> {
   const inputUser = username.trim().toLowerCase();
   const inputPass = rawPass.trim();
 
   // A. Check Owner Credentials (Unified & Branch Aliases)
-  const ownerConfigs = [
-    { username: "owner", pass: "ownerzona", role: "owner", cabang: "all", nama: "Owner Zona Waktu Group" },
-    { username: "ownerzona", pass: "ownerzona", role: "owner", cabang: "all", nama: "Owner Zona Waktu Group" },
-    { username: "zonagdm", pass: "ownerzona", role: "owner", cabang: "gdm", nama: "Owner Zona Waktu GDM" },
-    { username: "zonakdrj", pass: "ownerzona", role: "owner", cabang: "kedungreja", nama: "Owner Zona Waktu Kedungreja" },
-    { username: "zonakedungreja", pass: "ownerzona", role: "owner", cabang: "kedungreja", nama: "Owner Zona Waktu Kedungreja" },
-    { username: "tehgdm", pass: "ownerteh", role: "owner", cabang: "tehwarga", nama: "Owner Teh Warga GDM" },
-    { username: "tehwargagdm", pass: "ownerteh", role: "owner", cabang: "tehwarga", nama: "Owner Teh Warga GDM" },
-  ];
+  if (!loginType || loginType === "owner" || loginType === "any") {
+    const ownerConfigs = [
+      { username: "owner", pass: "ownerzona", role: "owner", cabang: "all", nama: "Owner Zona Waktu Group" },
+      { username: "ownerzona", pass: "ownerzona", role: "owner", cabang: "all", nama: "Owner Zona Waktu Group" },
+      { username: "zonagdm", pass: "ownerzona", role: "owner", cabang: "gdm", nama: "Owner Zona Waktu GDM" },
+      { username: "zonakdrj", pass: "ownerzona", role: "owner", cabang: "kedungreja", nama: "Owner Zona Waktu Kedungreja" },
+      { username: "zonakedungreja", pass: "ownerzona", role: "owner", cabang: "kedungreja", nama: "Owner Zona Waktu Kedungreja" },
+      { username: "tehgdm", pass: "ownerteh", role: "owner", cabang: "tehwarga", nama: "Owner Teh Warga GDM" },
+      { username: "tehwargagdm", pass: "ownerteh", role: "owner", cabang: "tehwarga", nama: "Owner Teh Warga GDM" },
+    ];
 
-  const matchedOwner = ownerConfigs.find(o => o.username === inputUser && o.pass === inputPass);
-  if (matchedOwner) {
-    await provisionAuthUserWithoutSessionSwitch(inputUser, inputPass, {
-      nama: matchedOwner.nama,
-      role: "owner",
-      cabang: matchedOwner.cabang as BranchId,
-      status: "aktif"
-    });
-    return { success: true };
+    const matchedOwner = ownerConfigs.find(o => o.username === inputUser && o.pass === inputPass);
+    if (matchedOwner) {
+      await provisionAuthUserWithoutSessionSwitch(inputUser, inputPass, {
+        nama: matchedOwner.nama,
+        role: "owner",
+        cabang: matchedOwner.cabang as BranchId,
+        accountCategory: "owner",
+        status: "aktif"
+      });
+      return { success: true };
+    }
   }
 
   // B. Check Admin Credentials from Firestore (Unified & Branch Aliases)
-  if ((inputUser === "admin" || inputUser === "adminzona") && (inputPass === "admin00" || inputPass === "admin")) {
-    await provisionAuthUserWithoutSessionSwitch(inputUser, inputPass, {
-      nama: "Admin Zona Waktu Group",
-      role: "admin",
-      cabang: "all",
-      status: "aktif"
-    });
-    return { success: true };
+  if (!loginType || loginType === "admin" || loginType === "any") {
+    if ((inputUser === "admin" || inputUser === "adminzona") && (inputPass === "admin00" || inputPass === "admin")) {
+      await provisionAuthUserWithoutSessionSwitch(inputUser, inputPass, {
+        nama: "Admin Zona Waktu Group",
+        role: "admin",
+        cabang: "all",
+        accountCategory: "admin",
+        status: "aktif"
+      });
+      return { success: true };
+    }
+
+    const adminDocNames = [
+      { docId: "admin_gdm", cabang: "gdm", defaultUser: "adminzona", defaultPass: "admin00", nama: "Admin Gandrungmangu" },
+      { docId: "admin_kedungreja", cabang: "kedungreja", defaultUser: "adminkedungreja", defaultPass: "admin00", nama: "Admin Kedungreja" },
+      { docId: "admin_tehwarga", cabang: "tehwarga", defaultUser: "admintehwarga", defaultPass: "admin00", nama: "Admin Teh Warga" },
+      { docId: "admin", cabang: "gdm", defaultUser: "adminzona", defaultPass: "admin00", nama: "Admin Zona Waktu" },
+    ];
+
+    for (const item of adminDocNames) {
+      try {
+        const snap = await getDoc(doc(db, "employee_credentials", item.docId));
+        let targetU = item.defaultUser;
+        let targetP = item.defaultPass;
+        if (snap.exists()) {
+          const d = snap.data();
+          if (d.username) targetU = d.username;
+          if (d.password) targetP = d.password;
+        }
+        if (targetU.toLowerCase() === inputUser && targetP === inputPass) {
+          await provisionAuthUserWithoutSessionSwitch(inputUser, inputPass, {
+            nama: item.nama,
+            role: "admin",
+            cabang: item.cabang as BranchId,
+            accountCategory: "admin",
+            status: "aktif"
+          });
+          return { success: true };
+        }
+      } catch {}
+    }
   }
 
-  const adminDocNames = [
-    { docId: "admin_gdm", cabang: "gdm", defaultUser: "adminzona", defaultPass: "admin00", nama: "Admin Gandrungmangu" },
-    { docId: "admin_kedungreja", cabang: "kedungreja", defaultUser: "adminkedungreja", defaultPass: "admin00", nama: "Admin Kedungreja" },
-    { docId: "admin_tehwarga", cabang: "tehwarga", defaultUser: "admintehwarga", defaultPass: "admin00", nama: "Admin Teh Warga" },
-    { docId: "admin", cabang: "gdm", defaultUser: "adminzona", defaultPass: "admin00", nama: "Admin Zona Waktu" },
-  ];
-
-  for (const item of adminDocNames) {
+  // C. Check Karyawan collection (HANYA jika loginType !== "system")
+  if (loginType !== "system") {
     try {
-      const snap = await getDoc(doc(db, "employee_credentials", item.docId));
-      let targetU = item.defaultUser;
-      let targetP = item.defaultPass;
-      if (snap.exists()) {
-        const d = snap.data();
-        if (d.username) targetU = d.username;
-        if (d.password) targetP = d.password;
-      }
-      if (targetU.toLowerCase() === inputUser && targetP === inputPass) {
+      const kSnap = await getDocs(collection(db, "karyawan"));
+      const foundK = kSnap.docs.find(d => {
+        const dData = d.data();
+        return (
+          String(dData.username || "").trim().toLowerCase() === inputUser &&
+          String(dData.password || "").trim() === inputPass
+        );
+      });
+
+      if (foundK) {
+        const dData = foundK.data();
+        const cabang = normalizeBranchId(dData.cabang || expectedBranch || "gdm");
         await provisionAuthUserWithoutSessionSwitch(inputUser, inputPass, {
-          nama: item.nama,
-          role: "admin",
-          cabang: item.cabang as BranchId,
-          status: "aktif"
+          nama: dData.nama || inputUser,
+          role: "employee",
+          cabang,
+          karyawanId: foundK.id,
+          accountCategory: "absensi",
+          status: dData.status === "nonaktif" ? "nonaktif" : "aktif"
         });
         return { success: true };
       }
     } catch {}
   }
 
-  // C. Check Karyawan collection
-  try {
-    const kSnap = await getDocs(collection(db, "karyawan"));
-    const foundK = kSnap.docs.find(d => {
-      const dData = d.data();
-      return (
-        String(dData.username || "").trim().toLowerCase() === inputUser &&
-        String(dData.password || "").trim() === inputPass
-      );
-    });
+  // D. Check System Employee Logins (Kasir & POS) (HANYA jika loginType !== "absensi")
+  if (loginType !== "absensi") {
+    const sysDocNames = [
+      "system_logins_gdm",
+      "system_logins_kedungreja",
+      "system_logins_tehwarga"
+    ];
 
-    if (foundK) {
-      const dData = foundK.data();
-      const cabang = normalizeBranchId(dData.cabang || expectedBranch || "gdm");
-      await provisionAuthUserWithoutSessionSwitch(inputUser, inputPass, {
-        nama: dData.nama || inputUser,
-        role: "employee",
-        cabang,
-        karyawanId: foundK.id,
-        status: dData.status === "nonaktif" ? "nonaktif" : "aktif"
-      });
-      return { success: true };
-    }
-  } catch {}
-
-  // D. Check employee_credentials documents
-  const credDocNames = [
-    "system_logins_gdm", "logins_gdm", "absensi_logins_gdm", "logins",
-    "system_logins_kedungreja", "logins_kedungreja", "absensi_logins_kedungreja",
-    "system_logins_tehwarga", "logins_tehwarga", "absensi_logins_tehwarga"
-  ];
-
-  for (const docName of credDocNames) {
-    try {
-      const snap = await getDoc(doc(db, "employee_credentials", docName));
-      if (snap.exists()) {
-        const rawUsers = (snap.data().users || []) as Array<Record<string, unknown>>;
-        const found = rawUsers.find((u) => 
-          String(u.username || "").trim().toLowerCase() === inputUser &&
-          String(u.password || "").trim() === inputPass
-        );
-        if (found) {
-          const cabang = normalizeBranchId((found.cabang as string) || (docName.includes("kedungreja") ? "kedungreja" : docName.includes("tehwarga") ? "tehwarga" : "gdm"));
-          await provisionAuthUserWithoutSessionSwitch(inputUser, inputPass, {
-            nama: (found.nama as string) || inputUser,
-            role: "employee",
-            cabang,
-            karyawanId: (found.id as string) || null,
-            status: "aktif"
-          });
-          return { success: true };
+    for (const docName of sysDocNames) {
+      try {
+        const snap = await getDoc(doc(db, "employee_credentials", docName));
+        if (snap.exists()) {
+          const rawUsers = (snap.data().users || []) as Array<Record<string, unknown>>;
+          const found = rawUsers.find((u) => 
+            String(u.username || "").trim().toLowerCase() === inputUser &&
+            String(u.password || "").trim() === inputPass
+          );
+          if (found) {
+            const cabang = normalizeBranchId((found.cabang as string) || (docName.includes("kedungreja") ? "kedungreja" : docName.includes("tehwarga") ? "tehwarga" : "gdm"));
+            await provisionAuthUserWithoutSessionSwitch(inputUser, inputPass, {
+              nama: (found.nama as string) || inputUser,
+              role: "employee",
+              cabang,
+              karyawanId: null,
+              accountCategory: "system",
+              status: "aktif"
+            });
+            return { success: true };
+          }
         }
-      }
-    } catch {}
+      } catch {}
+    }
+  }
+
+  // E. Check Absensi Logins documents (HANYA jika loginType !== "system")
+  if (loginType !== "system") {
+    const absDocNames = [
+      "absensi_logins_gdm",
+      "absensi_logins_kedungreja",
+      "absensi_logins_tehwarga"
+    ];
+
+    for (const docName of absDocNames) {
+      try {
+        const snap = await getDoc(doc(db, "employee_credentials", docName));
+        if (snap.exists()) {
+          const rawUsers = (snap.data().users || []) as Array<Record<string, unknown>>;
+          const found = rawUsers.find((u) => 
+            String(u.username || "").trim().toLowerCase() === inputUser &&
+            String(u.password || "").trim() === inputPass
+          );
+          if (found) {
+            const cabang = normalizeBranchId((found.cabang as string) || (docName.includes("kedungreja") ? "kedungreja" : docName.includes("tehwarga") ? "tehwarga" : "gdm"));
+            await provisionAuthUserWithoutSessionSwitch(inputUser, inputPass, {
+              nama: (found.nama as string) || inputUser,
+              role: "employee",
+              cabang,
+              karyawanId: (found.id as string) || null,
+              accountCategory: "absensi",
+              status: "aktif"
+            });
+            return { success: true };
+          }
+        }
+      } catch {}
+    }
   }
 
   return { success: false };
@@ -436,6 +636,7 @@ async function resolveUserProfile(
     const userDoc = await getDoc(doc(db, "users", docKey));
     if (userDoc.exists()) {
       const data = userDoc.data();
+      const detectedCategory = data.accountCategory || (await determineAccountType(username, fallbackBranch));
       return {
         uid: userDoc.id,
         username: data.username || username,
@@ -444,7 +645,8 @@ async function resolveUserProfile(
         role: data.role || fallbackRole || "employee",
         cabang: normalizeBranchId(data.cabang || fallbackBranch || "gdm"),
         status: data.status || "aktif",
-        karyawanId: data.karyawanId
+        karyawanId: data.karyawanId,
+        accountCategory: detectedCategory === "unknown" ? undefined : detectedCategory
       };
     }
   } catch {}
@@ -458,13 +660,16 @@ async function resolveUserProfile(
     defaultRole = "admin";
   }
 
+  const detectedCategory = await determineAccountType(username, fallbackBranch);
+
   return {
     username,
     nama: username,
     email,
     role: defaultRole,
     cabang: normalizeBranchId(fallbackBranch || "gdm"),
-    status: "aktif"
+    status: "aktif",
+    accountCategory: detectedCategory === "unknown" ? undefined : detectedCategory
   };
 }
 
@@ -724,6 +929,7 @@ export async function syncAllAccountsToFirebaseAuth(
           role: user.role,
           cabang: user.cabang,
           karyawanId: user.karyawanId,
+          accountCategory: user.role === "admin" ? "admin" : user.role === "owner" ? "owner" : user.karyawanId ? "absensi" : "system",
           status: user.status || "aktif"
         });
 
