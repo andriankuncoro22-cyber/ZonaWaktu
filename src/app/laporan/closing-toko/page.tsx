@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import {
   Calendar as CalendarIcon,
   ClipboardList,
@@ -13,17 +13,10 @@ import {
   CheckCircle2,
   FileSpreadsheet,
   FileDown,
-  Layers,
-  FileText,
-  Gift,
   Search,
-  Store,
-  Sparkles,
-  ArrowDownRight,
-  ArrowUpRight,
-  Building2,
   ShoppingBag,
-  DollarSign
+  Layers,
+  Gift
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -122,18 +115,14 @@ export default function LaporanClosingTokoPage() {
   const penjualanQuery = useMemoFirebase(() => collection(db, "penjualan"), [db]);
   const { data: rawPenjualanLogs, loading: loadingPenjualan } = useCollection(penjualanQuery);
 
-  // 3. Fetch all Input Free logs
-  const freeQuery = useMemoFirebase(() => collection(db, "input-free"), [db]);
-  const { data: rawFreeLogs } = useCollection(freeQuery);
-
   const loading = loadingKeuangan || loadingPenjualan;
 
-  const isDateMatch = (docDate: string) => {
+  const isDateMatch = useCallback((docDate: string) => {
     if (!docDate) return false;
     if (appliedMode === "daily") return docDate === appliedDate;
     if (appliedMode === "monthly") return docDate.startsWith(appliedMonth);
     return docDate.startsWith(appliedYear);
-  };
+  }, [appliedMode, appliedDate, appliedMonth, appliedYear]);
 
   // Map of date to penjualan document
   const penjualanByDateMap = useMemo(() => {
@@ -238,7 +227,7 @@ export default function LaporanClosingTokoPage() {
     });
 
     return list;
-  }, [rawKeuanganLogs, rawPenjualanLogs, appliedMode, appliedDate, appliedMonth, appliedYear, appliedShift, penjualanByDateMap]);
+  }, [rawKeuanganLogs, rawPenjualanLogs, isDateMatch, appliedShift, penjualanByDateMap]);
 
   // Totals of all closing components
   const totals = useMemo(() => {
@@ -1007,7 +996,7 @@ export default function LaporanClosingTokoPage() {
                     <div className="p-4 bg-white rounded-2xl shadow-sm border border-slate-100 space-y-1">
                       <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">Catatan dari Karyawan</span>
                       <p className="text-xs text-slate-700 italic font-bold leading-relaxed whitespace-pre-line">
-                        "{singleDailyItem.note}"
+                        &ldquo;{singleDailyItem.note}&rdquo;
                       </p>
                     </div>
                   )}

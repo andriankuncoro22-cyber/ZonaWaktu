@@ -28,13 +28,6 @@ import { useToast } from "@/hooks/use-toast";
 
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 interface SaleItem {
   name: string;
@@ -42,11 +35,6 @@ interface SaleItem {
   total: number;
   pendapatan: number;
   keuntungan: number;
-}
-
-interface ProductionBatchItem {
-  resepId: string;
-  qty: number;
 }
 
 interface TransactionReportForm {
@@ -60,6 +48,41 @@ interface UploadedExcelReport {
   items: SaleItem[];
   totalPendapatan: number;
   fileName: string;
+}
+
+interface HistoryItemDoc {
+  id: string;
+  kind: "closing" | "keuangan";
+  tanggal?: string;
+  shift?: number;
+  items?: unknown[];
+  createdAt?: { seconds?: number };
+  total?: number;
+  keuntunganTotal?: number;
+  expectedCashToSettle?: number;
+  cashOnHand?: number;
+  difference?: number;
+  [k: string]: unknown;
+}
+
+interface GroupedHistory {
+  date: string;
+  maxSeconds: number;
+  items: HistoryItemDoc[];
+}
+
+interface RecipeIngredient {
+  bahanBakuId: string;
+  jumlah: number;
+  [key: string]: unknown;
+}
+
+interface MaterialData {
+  id: string;
+  qtyKontainerBesar?: number;
+  qtyKontainerKecil?: number;
+  qtyKecil?: number;
+  [key: string]: unknown;
 }
 
 export default function EmployeeClosingTokoPage({
@@ -85,16 +108,6 @@ export default function EmployeeClosingTokoPage({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [productionBatch, setProductionBatch] = useState<ProductionBatchItem[]>([
-    { resepId: "", qty: 1 }
-  ]);
-
-  const resepQuery = useMemoFirebase(() => 
-    query(collection(db, "resep"), where("type", "==", "pelengkap")), 
-    [db]
-  );
-  const { data: listResep } = useCollection(resepQuery);
-
   const selectedDateQuery = useMemoFirebase(() => 
     query(collection(db, "penjualan"), where("tanggal", "==", selectedDate)), 
     [db, selectedDate]
@@ -113,10 +126,9 @@ export default function EmployeeClosingTokoPage({
   );
   const { data: keuanganHistoryList } = useCollection(keuanganHistoryQuery);
 
-  const ownerHistoryList = useMemo(() => {
-    interface FirestoreDoc { createdAt?: { seconds?: number }; [k: string]: unknown; }
-    const closingEntries = (historyList || []).map((item) => ({ ...(item as FirestoreDoc), kind: "closing" }));
-    const keuanganEntries = (keuanganHistoryList || []).map((item) => ({ ...(item as FirestoreDoc), kind: "keuangan" }));
+  const ownerHistoryList = useMemo<HistoryItemDoc[]>(() => {
+    const closingEntries: HistoryItemDoc[] = (historyList || []).map((item) => ({ ...(item as Record<string, unknown>), id: item.id, kind: "closing" }));
+    const keuanganEntries: HistoryItemDoc[] = (keuanganHistoryList || []).map((item) => ({ ...(item as Record<string, unknown>), id: item.id, kind: "keuangan" }));
     return [...closingEntries, ...keuanganEntries].sort((a, b) => {
       const timeA = a.createdAt?.seconds || 0;
       const timeB = b.createdAt?.seconds || 0;
@@ -124,9 +136,9 @@ export default function EmployeeClosingTokoPage({
     });
   }, [historyList, keuanganHistoryList]);
 
-  const groupedHistoryList = useMemo(() => {
-    const groups: { [date: string]: any[] } = {};
-    (ownerHistoryList || []).forEach((hist: any) => {
+  const groupedHistoryList = useMemo<GroupedHistory[]>(() => {
+    const groups: Record<string, HistoryItemDoc[]> = {};
+    (ownerHistoryList || []).forEach((hist: HistoryItemDoc) => {
       const date = hist.tanggal || "Tanpa Tanggal";
       if (!groups[date]) {
         groups[date] = [];
@@ -135,7 +147,7 @@ export default function EmployeeClosingTokoPage({
     });
 
     return Object.entries(groups).map(([date, items]) => {
-      const maxSeconds = Math.max(...items.map((it: any) => it.createdAt?.seconds || 0));
+      const maxSeconds = Math.max(...items.map((it: HistoryItemDoc) => (it.createdAt as { seconds?: number } | undefined)?.seconds || 0));
       return {
         date,
         maxSeconds,
@@ -165,8 +177,8 @@ export default function EmployeeClosingTokoPage({
   }, [transactionReportTotal, uploadedExcelReport]);
 
   const isTransactionReportValid = useMemo(() => {
-    return !!uploadedExcelReport && Math.abs((reportMatchDifference ?? 0)) < 0.01;
-  }, [reportMatchDifference, uploadedExcelReport]);
+    return reportMatchDifference !== null && Math.abs(reportMatchDifference) < 0.01;
+  }, [reportMatchDifference]);
 
   const steps = [
     { id: 1, title: "Pilih Tanggal", description: "Atur tanggal closing" },
@@ -174,7 +186,7 @@ export default function EmployeeClosingTokoPage({
     { id: 3, title: "Input Laporan Transaksi", description: "Isi rincian pembayaran" },
   ];
 
-  const parseNumber = (val: any) => {
+  const parseNumber = (val: unknown): number => {
     if (val === null || val === undefined || val === '') return 0;
     if (typeof val === 'number') return val;
     if (typeof val === 'string') {
@@ -192,7 +204,7 @@ export default function EmployeeClosingTokoPage({
     return Number(numStr).toLocaleString('id-ID');
   };
 
-  const normalizeExcelHeader = (value: any) => {
+  const normalizeExcelHeader = (value: unknown) => {
     if (value === null || value === undefined) return "";
     return String(value)
       .trim()
@@ -202,11 +214,11 @@ export default function EmployeeClosingTokoPage({
       .replace(/[^a-z0-9]+/g, "");
   };
 
-  const getExcelCellValue = (row: Record<string, any>, aliases: string[]) => {
+  const getExcelCellValue = (row: Record<string, unknown>, aliases: string[]) => {
     const normalizedRow = Object.entries(row).reduce((acc, [key, value]) => {
       acc[normalizeExcelHeader(key)] = value;
       return acc;
-    }, {} as Record<string, any>);
+    }, {} as Record<string, unknown>);
 
     for (const alias of aliases) {
       const normalizedAlias = normalizeExcelHeader(alias);
@@ -218,127 +230,10 @@ export default function EmployeeClosingTokoPage({
     return undefined;
   };
 
-  const handleAddProductionItem = () => {
-    setProductionBatch([...productionBatch, { resepId: "", qty: 1 }]);
-  };
-
-  const handleRemoveProductionItem = (index: number) => {
-    if (productionBatch.length === 1) return;
-    setProductionBatch(productionBatch.filter((_, i) => i !== index));
-  };
-
-  const handleProductionItemChange = (index: number, field: keyof ProductionBatchItem, value: any) => {
-    const newBatch = [...productionBatch];
-    newBatch[index] = { ...newBatch[index], [field]: value } as ProductionBatchItem;
-    setProductionBatch(newBatch);
-  };
-
   const resetWorkflow = () => {
     setActiveStep(1);
     setUploadedExcelReport(null);
     setTransactionReport({ cashTotal: 0, qrisTotal: 0, goFoodTotal: 0, otherTotal: 0 });
-    setProductionBatch([{ resepId: "", qty: 1 }]);
-  };
-
-  const handleSaveProduksi = async () => {
-    const validBatch = productionBatch.filter(item => item.resepId && item.qty > 0);
-    if (validBatch.length === 0) return;
-    
-    setSaving(true);
-    try {
-      const batch = writeBatch(db);
-      
-      const materialsSnap = await getDocs(collection(db, "bahan-baku"));
-      const materialMap: { [key: string]: any } = {};
-      materialsSnap.forEach(d => {
-        materialMap[d.id] = { id: d.id, ...d.data() };
-      });
-
-      const totalDeductions: { [key: string]: number } = {};
-      const totalAdditions: { [key: string]: number } = {};
-
-      for (const item of validBatch) {
-        const resep = listResep?.find(r => r.id === item.resepId);
-        if (!resep) continue;
-
-        // Deduct raw material ingredients
-        resep.komposisi.forEach((ing: any) => {
-          const deduction = ing.jumlah * item.qty;
-          totalDeductions[ing.bahanBakuId] = (totalDeductions[ing.bahanBakuId] || 0) + deduction;
-        });
-
-        // Add produced mixtures/pelengkap to the container stock
-        const targetMat = Object.values(materialMap).find(
-          (m: any) => m.id === resep.bahanBakuId || (!resep.bahanBakuId && m.nama?.trim().toLowerCase() === resep.namaPelengkap?.trim().toLowerCase())
-        ) as any;
-
-        if (targetMat) {
-          totalAdditions[targetMat.id] = (totalAdditions[targetMat.id] || 0) + item.qty;
-        }
-      }
-
-      const modifiedIds = new Set<string>([
-        ...Object.keys(totalDeductions),
-        ...Object.keys(totalAdditions)
-      ]);
-
-      modifiedIds.forEach((matId) => {
-        const material = materialMap[matId];
-        if (!material) return;
-
-        let bulkQty = Number(material.qtyKontainerBesar || 0);
-        let activeQty = Number(material.qtyKontainerKecil || 0);
-        const conversionRate = Number(material.qtyKecil || 1);
-
-        // Add produced amount to bulk kontainer
-        const addition = totalAdditions[matId] || 0;
-        bulkQty += addition;
-
-        // Deduct consumed ingredients from active kontainer
-        const deduction = totalDeductions[matId] || 0;
-        activeQty -= deduction;
-
-        // Convert/borrow from bulk if active quantity goes negative
-        while (activeQty < 0 && bulkQty > 0) {
-          bulkQty -= 1;
-          activeQty += conversionRate;
-        }
-
-        const materialRef = doc(db, "bahan-baku", matId);
-        batch.update(materialRef, {
-          qtyKontainerBesar: bulkQty,
-          qtyKontainerKecil: activeQty
-        });
-      });
-
-      const logRef = doc(collection(db, "log_produksi_pelengkap"));
-      batch.set(logRef, {
-        items: validBatch.map(item => ({
-          resepId: item.resepId,
-          namaResep: listResep?.find(r => r.id === item.resepId)?.namaPelengkap,
-          jumlah: item.qty
-        })),
-        tanggal: selectedDate,
-        createdAt: serverTimestamp()
-      });
-
-      await batch.commit();
-      
-      toast({
-        title: "Pemakaian Dicatat",
-        description: `${validBatch.length} jenis bahan telah dicatat & stok terpotong.`,
-      });
-      setProductionBatch([{ resepId: "", qty: 1 }]);
-    } catch (e: any) {
-      console.error(e);
-      toast({
-        variant: "destructive",
-        title: "Gagal Mencatat Pemakaian",
-        description: e.message || "Terjadi kesalahan sistem.",
-      });
-    } finally {
-      setSaving(false);
-    }
   };
 
   const saveToFirestore = async (
@@ -366,15 +261,17 @@ export default function EmployeeClosingTokoPage({
         if (p.name) productNameMap[String(p.name).trim().toLowerCase()] = d.id;
       });
 
-      const recipeMap: { [key: string]: any } = {};
+      const recipeMap: Record<string, RecipeIngredient[]> = {};
       recipesSnap.forEach(d => {
         const r = d.data();
-        if (r.produkId) recipeMap[r.produkId] = r.komposisi;
+        if (r.produkId && Array.isArray(r.komposisi)) {
+          recipeMap[r.produkId] = r.komposisi as RecipeIngredient[];
+        }
       });
 
-      const materialMap: { [key: string]: any } = {};
+      const materialMap: Record<string, MaterialData> = {};
       materialsSnap.forEach(d => {
-        materialMap[d.id] = { id: d.id, ...d.data() };
+        materialMap[d.id] = { id: d.id, ...d.data() } as MaterialData;
       });
 
       const totalPendapatan = items.reduce((sum, item) => sum + item.pendapatan, 0);
@@ -412,7 +309,7 @@ export default function EmployeeClosingTokoPage({
         const nameKey = item.name ? String(item.name).trim().toLowerCase() : "";
         const productId = (codeKey && productCodeMap[codeKey]) || (nameKey && productNameMap[nameKey]);
         if (productId && recipeMap[productId]) {
-          recipeMap[productId].forEach((ing: any) => {
+          recipeMap[productId].forEach((ing: RecipeIngredient) => {
             const deduction = ing.jumlah * item.total;
             totalDeductions[ing.bahanBakuId] = (totalDeductions[ing.bahanBakuId] || 0) + deduction;
           });
@@ -448,12 +345,13 @@ export default function EmployeeClosingTokoPage({
         description: `Laporan ${date} tersimpan & stok kontainer otomatis terpotong.`,
       });
       
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const err = e as { message?: string };
       console.error("Error saving closing report:", e);
       toast({
         variant: "destructive",
         title: "Gagal Menyimpan",
-        description: e.message || "Terjadi kesalahan saat memproses data.",
+        description: err?.message || "Terjadi kesalahan saat memproses data.",
       });
     } finally {
       setSaving(false);
@@ -491,15 +389,17 @@ export default function EmployeeClosingTokoPage({
           if (p.code) productCodeMap[p.code] = d.id;
         });
 
-        const recipeMap: { [key: string]: any } = {};
+        const recipeMap: Record<string, RecipeIngredient[]> = {};
         recipesSnap.forEach(d => {
           const r = d.data();
-          if (r.produkId) recipeMap[r.produkId] = r.komposisi;
+          if (r.produkId && Array.isArray(r.komposisi)) {
+            recipeMap[r.produkId] = r.komposisi as RecipeIngredient[];
+          }
         });
 
-        const materialMap: { [key: string]: any } = {};
+        const materialMap: Record<string, MaterialData> = {};
         materialsSnap.forEach(d => {
-          materialMap[d.id] = { id: d.id, ...d.data() };
+          materialMap[d.id] = { id: d.id, ...d.data() } as MaterialData;
         });
 
         const totalAdditions: { [key: string]: number } = {};
@@ -507,7 +407,7 @@ export default function EmployeeClosingTokoPage({
         items.forEach((item) => {
           const productId = productCodeMap[item.code];
           if (productId && recipeMap[productId]) {
-            recipeMap[productId].forEach((ing: any) => {
+            recipeMap[productId].forEach((ing: RecipeIngredient) => {
               const addition = ing.jumlah * item.total;
               totalAdditions[ing.bahanBakuId] = (totalAdditions[ing.bahanBakuId] || 0) + addition;
             });
@@ -564,14 +464,14 @@ export default function EmployeeClosingTokoPage({
         );
         logsSnap.forEach((logDoc) => {
           const logData = logDoc.data();
-          if (logData.items) {
-            logData.items.forEach((item: any) => {
+          if (Array.isArray(logData.items)) {
+            logData.items.forEach((item: Record<string, unknown>) => {
               if (item.materialId) {
-                const materialRef = doc(db, "bahan-baku", item.materialId);
+                const materialRef = doc(db, "bahan-baku", String(item.materialId));
                 const bulkToRevert = Number(item.addedBulkQty || item.qty || 0);
                 const smallToRevert = Number(item.addedSmallUnits || 0);
 
-                const updateObj: any = {};
+                const updateObj: Record<string, unknown> = {};
                 if (bulkToRevert > 0) {
                   updateObj.qtyKontainerBesar = increment(-bulkToRevert);
                 }
@@ -611,12 +511,13 @@ export default function EmployeeClosingTokoPage({
         title: "Histori Closing & Relasi Dihapus",
         description: `Closing, ${shiftReportCount} shift report, ${operasionalCount} operasional, dan ${belanjaCount} rekap belanja berhasil dihapus. Stok bahan baku telah disesuaikan.`
       });
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const err = e as { message?: string };
       console.error(e);
       toast({
         variant: "destructive",
         title: "Gagal Menghapus Laporan",
-        description: e.message || "Terjadi kesalahan sistem.",
+        description: err?.message || "Terjadi kesalahan sistem.",
       });
     } finally {
       setSaving(false);
@@ -673,14 +574,14 @@ export default function EmployeeClosingTokoPage({
       logsSnap.forEach((logDoc) => {
         const logData = logDoc.data();
         if (Number(logData.shift ?? 2) === targetShift) {
-          if (logData.items) {
-            logData.items.forEach((item: any) => {
+          if (Array.isArray(logData.items)) {
+            logData.items.forEach((item: Record<string, unknown>) => {
               if (item.materialId) {
-                const materialRef = doc(db, "bahan-baku", item.materialId);
+                const materialRef = doc(db, "bahan-baku", String(item.materialId));
                 const bulkToRevert = Number(item.addedBulkQty || item.qty || 0);
                 const smallToRevert = Number(item.addedSmallUnits || 0);
 
-                const updateObj: any = {};
+                const updateObj: Record<string, unknown> = {};
                 if (bulkToRevert > 0) {
                   updateObj.qtyKontainerBesar = increment(-bulkToRevert);
                 }
@@ -708,12 +609,13 @@ export default function EmployeeClosingTokoPage({
         title: "Histori & Relasi Dihapus", 
         description: `Laporan Keuangan, ${deletedOpsCount} operasional, dan ${deletedLogsCount} rekap belanja berhasil dihapus. Stok bahan baku telah dikembalikan.` 
       });
-    } catch (e: any) { 
+    } catch (e: unknown) { 
+      const err = e as { message?: string };
       console.error(e);
       toast({ 
         variant: "destructive", 
         title: "Gagal Menghapus", 
-        description: e.message || "Terjadi kesalahan sistem saat menghapus data." 
+        description: err?.message || "Terjadi kesalahan sistem saat menghapus data." 
       });
     }
   };
@@ -729,10 +631,10 @@ export default function EmployeeClosingTokoPage({
         const wb = XLSX.read(bstr, { type: "binary" });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws, { defval: "" });
+        const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" });
 
-        const items: SaleItem[] = data.map((row: any) => {
-          const itemRow = row as Record<string, any>;
+        const items: SaleItem[] = data.map((row: Record<string, unknown>) => {
+          const itemRow = row;
           return {
             name: String(getExcelCellValue(itemRow, ["nama", "name"]) ?? "").trim(),
             code: String(getExcelCellValue(itemRow, ["code", "kode"]) ?? "").trim(),
@@ -774,7 +676,7 @@ export default function EmployeeClosingTokoPage({
             description: "Format file tidak sesuai atau tidak ada data produk.",
           });
         }
-      } catch (err) {
+      } catch {
         toast({
           variant: "destructive",
           title: "Gagal Impor",
@@ -1016,7 +918,7 @@ export default function EmployeeClosingTokoPage({
               <h3 className="text-[11px] md:text-sm font-black uppercase tracking-widest text-slate-900">Histori Closing & Keuangan Kontainer</h3>
             </div>
             <div className="grid gap-4 md:gap-6">
-              {groupedHistoryList?.map((group: any) => (
+              {groupedHistoryList?.map((group: GroupedHistory) => (
                 <Card key={group.date} className="rounded-[1.5rem] border-none bg-white p-4 shadow-sm md:p-6 space-y-4">
                   <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
                     <CalendarIcon className="h-4.5 w-4.5 text-primary shrink-0" />
@@ -1025,7 +927,7 @@ export default function EmployeeClosingTokoPage({
                     </h4>
                   </div>
                   <div className="divide-y divide-slate-100">
-                    {group.items.map((hist: any) => (
+                    {group.items.map((hist: HistoryItemDoc) => (
                       <div key={hist.id} className="flex items-center justify-between py-4 first:pt-0 last:pb-0">
                         <div className="flex items-start gap-4">
                           <CheckCircle2 className="h-5 w-5 text-slate-400 mt-0.5 shrink-0" />
@@ -1053,7 +955,7 @@ export default function EmployeeClosingTokoPage({
                               </>
                             ) : (
                               <>
-                                <p className="text-xs md:text-sm font-black tabular-nums text-primary">Rp {hist.total?.toLocaleString("id-ID")}</p>
+                                <p className="text-xs md:text-sm font-black tabular-nums text-primary">Rp {Number(hist.total || 0).toLocaleString("id-ID")}</p>
                                 <span className="text-[7px] md:text-[8px] font-black uppercase text-slate-300">Total</span>
                                 {isOwnerView && hist.keuntunganTotal != null && (
                                   <p className="mt-1 text-[9px] md:text-[10px] font-black text-emerald-600 tabular-nums">Untung Rp {Number(hist.keuntunganTotal).toLocaleString("id-ID")}</p>

@@ -548,16 +548,20 @@ export default function StokBahanBakuPage() {
   };
 
   return (
-    <div className="space-y-6 md:space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 md:gap-6">
+    <div className="space-y-4 md:space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
+      {/* Header & Compact Action Buttons */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-3xl md:text-4xl font-black tracking-tighter text-slate-900 uppercase italic leading-none">Monitoring Stok</h1>
-          <p className="text-[10px] md:text-xs text-slate-600 font-black uppercase tracking-[0.2em] mt-1">
-            Gudang Utama & Area Kontainer (Satuan Besar & Satuan Kecil)
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tighter text-slate-900 uppercase italic leading-none">
+            Monitoring Stok
+          </h1>
+          <p className="text-[10px] md:text-xs text-slate-600 font-black uppercase tracking-[0.2em]">
+            Gudang Utama & Area Kontainer
           </p>
         </div>
         
-        <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-2 md:pb-0 scrollbar-hide">
+        {/* Compact, responsive action buttons (no horizontal scrollbar) */}
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           <input
             type="file"
             ref={fileInputRef}
@@ -567,41 +571,47 @@ export default function StokBahanBakuPage() {
           />
           <Button 
             variant="outline" 
+            size="sm"
             onClick={() => fileInputRef.current?.click()}
             disabled={importing}
-            className="rounded-xl border-slate-200 px-4 h-12 font-black uppercase tracking-widest text-[9px] gap-2 bg-white hover:text-indigo-600 hover:bg-slate-50"
+            className="rounded-xl border-slate-200 px-3 h-9 font-black uppercase tracking-wider text-[9px] sm:text-[10px] gap-1.5 bg-white hover:text-indigo-600 hover:bg-slate-50 shadow-sm"
           >
-            {importing ? <Loader2 className="h-4 w-4 animate-spin text-indigo-600" /> : <Upload className="h-4 w-4 text-indigo-600" />}
-            <span>Impor Excel</span>
+            {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-600" /> : <Upload className="h-3.5 w-3.5 text-indigo-600" />}
+            <span>Impor</span>
           </Button>
           <Button 
             variant="outline" 
+            size="sm"
             onClick={handleExportExcel}
-            className="rounded-xl border-slate-200 px-4 h-12 font-black uppercase tracking-widest text-[9px] gap-2 bg-white"
+            className="rounded-xl border-slate-200 px-3 h-9 font-black uppercase tracking-wider text-[9px] sm:text-[10px] gap-1.5 bg-white shadow-sm"
           >
-            <FileSpreadsheet className="h-4 w-4 text-emerald-600" /> Excel
+            <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" /> 
+            <span>Excel</span>
           </Button>
           <Button 
             variant="outline" 
+            size="sm"
             onClick={handleExportPDF}
-            className="rounded-xl border-slate-200 px-4 h-12 font-black uppercase tracking-widest text-[9px] gap-2 bg-white"
+            className="rounded-xl border-slate-200 px-3 h-9 font-black uppercase tracking-wider text-[9px] sm:text-[10px] gap-1.5 bg-white shadow-sm"
           >
-            <FileDown className="h-4 w-4 text-primary" /> PDF
+            <FileDown className="h-3.5 w-3.5 text-primary" /> 
+            <span>PDF</span>
           </Button>
           <Button
             variant="outline"
+            size="sm"
             onClick={handleResetAllStock}
             disabled={resetting}
-            className="rounded-xl border-rose-200 bg-rose-50 px-4 h-12 font-black uppercase tracking-widest text-[9px] gap-2 text-rose-600 hover:bg-rose-100"
+            className="rounded-xl border-rose-200 bg-rose-50 px-3 h-9 font-black uppercase tracking-wider text-[9px] sm:text-[10px] gap-1.5 text-rose-600 hover:bg-rose-100 shadow-sm"
           >
-            {resetting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-            Hapus Semua Stok
+            {resetting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+            <span>Hapus Stok</span>
           </Button>
           <Dialog open={isTransferOpen} onOpenChange={setIsTransferOpen}>
             <DialogTrigger asChild>
-              <Button className="flex-1 md:flex-initial rounded-xl md:rounded-2xl bg-slate-900 hover:bg-slate-800 text-white px-8 h-12 font-black uppercase tracking-widest text-[10px] gap-2 shadow-xl shrink-0">
-                <ArrowRightLeft className="h-4 w-4 shrink-0" />
-                <span>Pindahkan ke Kontainer</span>
+              <Button size="sm" className="rounded-xl bg-slate-900 hover:bg-slate-800 text-white px-3.5 h-9 font-black uppercase tracking-wider text-[9px] sm:text-[10px] gap-1.5 shadow-md">
+                <ArrowRightLeft className="h-3.5 w-3.5" />
+                <span>Pindah ke Kontainer</span>
               </Button>
             </DialogTrigger>
             <DialogContent className="rounded-3xl md:rounded-[2.5rem] border-none shadow-2xl p-6 md:p-10 max-w-md mx-auto">
@@ -660,29 +670,30 @@ export default function StokBahanBakuPage() {
       </div>
 
       <Tabs defaultValue="kontainer" className="w-full">
-        <TabsList className="bg-white p-1.5 md:p-2 rounded-2xl md:rounded-[2rem] shadow-sm border border-slate-100 h-14 md:h-16 w-full max-w-md grid grid-cols-2 gap-2 mb-6 md:mb-8 mx-auto md:mx-0">
-          <TabsTrigger value="kontainer" className="rounded-xl md:rounded-2xl font-black uppercase text-[9px] md:text-[10px] tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all">
-            Area Kontainer
-          </TabsTrigger>
-          <TabsTrigger value="gudang" className="rounded-xl md:rounded-2xl font-black uppercase text-[9px] md:text-[10px] tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all">
-            Gudang Utama
-          </TabsTrigger>
-        </TabsList>
+        {/* Navigation & Search Row */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 md:mb-6">
+          <TabsList className="bg-white p-1 rounded-2xl shadow-sm border border-slate-100 h-11 w-full sm:w-80 grid grid-cols-2 gap-1.5">
+            <TabsTrigger value="kontainer" className="rounded-xl font-black uppercase text-[9px] sm:text-[10px] tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all">
+              Area Kontainer
+            </TabsTrigger>
+            <TabsTrigger value="gudang" className="rounded-xl font-black uppercase text-[9px] sm:text-[10px] tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white transition-all">
+              Gudang Utama
+            </TabsTrigger>
+          </TabsList>
 
-        <Card className="border-none shadow-sm rounded-3xl md:rounded-[3rem] bg-white overflow-hidden">
-          <div className="p-4 md:p-8 border-b border-slate-50">
-            <div className="relative w-full md:w-96">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-              <input 
-                type="text" 
-                placeholder="Cari bahan..." 
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 bg-slate-50 border-none rounded-2xl text-[11px] md:text-xs font-bold outline-none"
-              />
-            </div>
+          <div className="relative w-full sm:w-72 md:w-80">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+            <input 
+              type="text" 
+              placeholder="Cari nama atau kode bahan..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200/80 rounded-xl text-[11px] sm:text-xs font-bold outline-none shadow-sm focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all"
+            />
           </div>
+        </div>
 
+        <Card className="border-none shadow-sm rounded-2xl sm:rounded-3xl bg-white overflow-hidden">
           <div className="overflow-x-auto custom-scrollbar">
             {/* TAB GUDANG UTAMA */}
             <TabsContent value="gudang" className="m-0 min-w-0 lg:min-w-[850px] md:min-w-full">
@@ -755,10 +766,10 @@ export default function StokBahanBakuPage() {
               </table>
 
               {/* Mobile Cards View */}
-              <div className="lg:hidden p-3 grid grid-cols-2 gap-2 sm:gap-3 bg-slate-50/20">
+              <div className="lg:hidden p-3 sm:p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 bg-slate-50/40">
                 {loading ? (
-                  <div className="col-span-2 py-20 text-center">
-                    <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+                  <div className="col-span-full py-16 text-center">
+                    <Loader2 className="h-7 w-7 animate-spin mx-auto text-primary" />
                   </div>
                 ) : filteredMaterials?.map((item) => {
                   const minStock = getMinStockGudang(item);
@@ -771,47 +782,67 @@ export default function StokBahanBakuPage() {
                   );
 
                   return (
-                    <Card key={item.id} className="relative rounded-2xl bg-white border border-slate-100 p-3 sm:p-4 flex flex-col justify-between space-y-3 shadow-sm overflow-hidden min-h-[145px]">
-                      {/* Edit Button absolute top-2 right-2 */}
-                      <button 
-                        type="button"
-                        onClick={() => { setEditingItem(item); setIsEditOpen(true); }} 
-                        className="absolute top-2 right-2 h-7 w-7 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-900 transition-colors flex items-center justify-center bg-slate-50 border border-slate-100"
-                      >
-                        <Edit2 className="h-3 w-3" />
-                      </button>
+                    <Card key={item.id} className="relative rounded-2xl bg-white border border-slate-100 p-3.5 sm:p-4 flex flex-col justify-between space-y-3 shadow-sm hover:shadow-md transition-all overflow-hidden">
+                      {/* Top row: Code + Name + Edit Action */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="space-y-0.5 flex-1 min-w-0">
+                          <span className="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-[8px] font-black uppercase text-slate-500 tracking-wider">
+                            {item.code || "-"}
+                          </span>
+                          <h4 className="text-xs sm:text-sm font-black text-slate-900 uppercase italic line-clamp-1 leading-snug">
+                            {item.nama}
+                          </h4>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={() => { setEditingItem(item); setIsEditOpen(true); }} 
+                            className="h-7 w-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                          >
+                            <Edit2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
 
-                      <div className="space-y-1">
-                        <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider block">
-                          {item.code || "-"}
+                      {/* Stock tiles */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="p-2.5 rounded-xl bg-primary/5 border border-primary/10">
+                          <span className="text-[8px] font-bold text-primary/70 uppercase tracking-wider block">
+                            Stok Besar
+                          </span>
+                          <div className="flex items-baseline gap-1 mt-0.5">
+                            <span className="text-lg font-black text-primary italic leading-none tabular-nums">
+                              {adjustedGudang.bulk}
+                            </span>
+                            <span className="text-[8px] font-black uppercase text-primary tracking-wider">
+                              {item.satuanBesar}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="p-2.5 rounded-xl bg-amber-50/60 border border-amber-100">
+                          <span className="text-[8px] font-bold text-amber-700 uppercase tracking-wider block">
+                            Stok Kecil
+                          </span>
+                          <div className="flex items-baseline gap-1 mt-0.5">
+                            <span className="text-lg font-black text-amber-600 italic leading-none tabular-nums">
+                              {adjustedGudang.kecil.toLocaleString('id-ID')}
+                            </span>
+                            <span className="text-[8px] font-black uppercase text-amber-700 tracking-wider">
+                              {item.satuanKecil}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Status row */}
+                      <div className="pt-1 border-t border-slate-100 flex items-center justify-between">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                          Min: {minStock} {item.satuanBesar}
                         </span>
-                        <h4 className="text-[10px] sm:text-[11px] font-black text-slate-900 uppercase italic line-clamp-2 leading-tight pr-6">
-                          {item.nama}
-                        </h4>
-                      </div>
-
-                      <div className="space-y-1 pt-1.5 border-t border-slate-100/60">
-                        {/* Stok Besar */}
-                        <div className="flex items-center justify-between text-[9px] sm:text-[10px] leading-none">
-                          <span className="text-slate-400 font-bold">Besar</span>
-                          <span className="font-black text-primary italic">
-                            {adjustedGudang.bulk} <span className="text-[7px] sm:text-[8px] font-bold text-slate-400 uppercase tracking-widest">{item.satuanBesar}</span>
-                          </span>
-                        </div>
-
-                        {/* Stok Kecil */}
-                        <div className="flex items-center justify-between text-[9px] sm:text-[10px] leading-none">
-                          <span className="text-slate-400 font-bold">Kecil</span>
-                          <span className="font-black text-amber-600 italic">
-                            {adjustedGudang.kecil.toLocaleString('id-ID')} <span className="text-[7px] sm:text-[8px] font-bold text-amber-500 uppercase tracking-widest">{item.satuanKecil}</span>
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Status Badge */}
-                      <div className="pt-0.5 flex">
-                        <span className={`inline-flex items-center justify-center rounded-md border px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider ${status.color} w-full text-center`}>
-                          {status.label} ({minStock})
+                        <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[8px] font-black uppercase tracking-wider ${status.color}`}>
+                          {status.label}
                         </span>
                       </div>
                     </Card>
@@ -877,10 +908,10 @@ export default function StokBahanBakuPage() {
               </table>
 
               {/* Mobile Cards View */}
-              <div className="lg:hidden p-3 grid grid-cols-2 gap-2 sm:gap-3 bg-slate-50/20">
+              <div className="lg:hidden p-3 sm:p-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 bg-slate-50/40">
                 {loading ? (
-                  <div className="col-span-2 py-20 text-center">
-                    <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+                  <div className="col-span-full py-16 text-center">
+                    <Loader2 className="h-7 w-7 animate-spin mx-auto text-primary" />
                   </div>
                 ) : filteredMaterials?.map((item) => {
                   const minStock = getMinStockKontainer(item);
@@ -893,47 +924,67 @@ export default function StokBahanBakuPage() {
                   );
 
                   return (
-                    <Card key={item.id} className="relative rounded-2xl bg-white border border-slate-100 p-3 sm:p-4 flex flex-col justify-between space-y-3 shadow-sm overflow-hidden min-h-[145px]">
-                      {/* Edit Button absolute top-2 right-2 */}
-                      <button 
-                        type="button"
-                        onClick={() => { setEditingItem(item); setIsEditOpen(true); }} 
-                        className="absolute top-2 right-2 h-7 w-7 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-900 transition-colors flex items-center justify-center bg-slate-50 border border-slate-100"
-                      >
-                        <Edit2 className="h-3 w-3" />
-                      </button>
+                    <Card key={item.id} className="relative rounded-2xl bg-white border border-slate-100 p-3.5 sm:p-4 flex flex-col justify-between space-y-3 shadow-sm hover:shadow-md transition-all overflow-hidden">
+                      {/* Top row: Code + Name + Edit Action */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="space-y-0.5 flex-1 min-w-0">
+                          <span className="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-[8px] font-black uppercase text-slate-500 tracking-wider">
+                            {item.code || "-"}
+                          </span>
+                          <h4 className="text-xs sm:text-sm font-black text-slate-900 uppercase italic line-clamp-1 leading-snug">
+                            {item.nama}
+                          </h4>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={() => { setEditingItem(item); setIsEditOpen(true); }} 
+                            className="h-7 w-7 rounded-lg bg-slate-50 border border-slate-100 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                          >
+                            <Edit2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
 
-                      <div className="space-y-1">
-                        <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider block">
-                          {item.code || "-"}
+                      {/* Stock tiles */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="p-2.5 rounded-xl bg-indigo-50/60 border border-indigo-100">
+                          <span className="text-[8px] font-bold text-indigo-700 uppercase tracking-wider block">
+                            Qty Bulk
+                          </span>
+                          <div className="flex items-baseline gap-1 mt-0.5">
+                            <span className="text-lg font-black text-indigo-600 italic leading-none tabular-nums">
+                              {adjustedKontainer.bulk}
+                            </span>
+                            <span className="text-[8px] font-black uppercase text-indigo-500 tracking-wider">
+                              {item.satuanBesar}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="p-2.5 rounded-xl bg-emerald-50/60 border border-emerald-100">
+                          <span className="text-[8px] font-bold text-emerald-700 uppercase tracking-wider block">
+                            Qty Aktif
+                          </span>
+                          <div className="flex items-baseline gap-1 mt-0.5">
+                            <span className="text-lg font-black text-emerald-600 italic leading-none tabular-nums">
+                              {adjustedKontainer.kecil.toLocaleString('id-ID')}
+                            </span>
+                            <span className="text-[8px] font-black uppercase text-emerald-600 tracking-wider">
+                              {item.satuanKecil}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Status row */}
+                      <div className="pt-1 border-t border-slate-100 flex items-center justify-between">
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                          Min: {minStock} {item.satuanBesar}
                         </span>
-                        <h4 className="text-[10px] sm:text-[11px] font-black text-slate-900 uppercase italic line-clamp-2 leading-tight pr-6">
-                          {item.nama}
-                        </h4>
-                      </div>
-
-                      <div className="space-y-1 pt-1.5 border-t border-slate-100/60">
-                        {/* Qty Bulk */}
-                        <div className="flex items-center justify-between text-[9px] sm:text-[10px] leading-none">
-                          <span className="text-slate-400 font-bold">Bulk</span>
-                          <span className="font-black text-indigo-600 italic">
-                            {adjustedKontainer.bulk} <span className="text-[7px] sm:text-[8px] font-bold text-indigo-400 uppercase tracking-widest">{item.satuanBesar}</span>
-                          </span>
-                        </div>
-
-                        {/* Qty Aktif */}
-                        <div className="flex items-center justify-between text-[9px] sm:text-[10px] leading-none">
-                          <span className="text-slate-400 font-bold">Aktif</span>
-                          <span className="font-black text-emerald-600 italic">
-                            {adjustedKontainer.kecil.toLocaleString('id-ID')} <span className="text-[7px] sm:text-[8px] font-bold text-emerald-500 uppercase tracking-widest">{item.satuanKecil}</span>
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Status Badge */}
-                      <div className="pt-0.5 flex">
-                        <span className={`inline-flex items-center justify-center rounded-md border px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wider ${status.color} w-full text-center`}>
-                          {status.label} ({minStock})
+                        <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[8px] font-black uppercase tracking-wider ${status.color}`}>
+                          {status.label}
                         </span>
                       </div>
                     </Card>

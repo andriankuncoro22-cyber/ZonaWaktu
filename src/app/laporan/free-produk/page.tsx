@@ -12,14 +12,9 @@ import {
   FileDown,
   User,
   Users,
-  Clock,
   Layers,
   CheckCircle2,
-  Package,
-  ShoppingBag,
-  DollarSign,
-  Tag,
-  Sparkles
+  Package
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -35,7 +30,7 @@ import autoTable from "jspdf-autotable";
 const formatCurrency = (value: number) =>
   `Rp ${Number(value || 0).toLocaleString("id-ID")}`;
 
-const getDocDateStr = (docData: any): string => {
+const getDocDateStr = (docData: Record<string, unknown> | null | undefined): string => {
   if (!docData) return "";
   const rawDate = docData.tanggal || docData.date || docData.tgl;
   if (rawDate && typeof rawDate === "string") {
@@ -54,7 +49,7 @@ const getDocDateStr = (docData: any): string => {
     }
     return raw;
   }
-  const timestampField = docData.createdAt || docData.timestamp || docData.updatedAt;
+  const timestampField = (docData.createdAt || docData.timestamp || docData.updatedAt) as { toDate?: () => Date; seconds?: number } | undefined;
   if (timestampField?.toDate) {
     const d = timestampField.toDate();
     const year = d.getFullYear();
@@ -91,8 +86,8 @@ interface FreeProductRow {
   harga: number;
   subtotal: number;
   notes: string;
-  createdAt?: any;
-  rawLog: any;
+  createdAt?: { seconds?: number; toDate?: () => Date } | null;
+  rawLog: Record<string, unknown>;
 }
 
 export default function LaporanFreeProdukPage() {
@@ -128,38 +123,37 @@ export default function LaporanFreeProdukPage() {
   const availableKaryawanOptions = useMemo(() => {
     const set = new Set<string>();
 
-    (rawKaryawanList || []).forEach((k: any) => {
-      const name = (k.nama || k.name || "").trim();
+    (rawKaryawanList || []).forEach((k: Record<string, unknown>) => {
+      const name = String(k.nama || k.name || "").trim();
       if (name) set.add(name);
     });
 
-    (rawLogs || []).forEach((log: any) => {
-      const name = (log.karyawanNama || log.karyawan || "").trim();
+    (rawLogs || []).forEach((log: Record<string, unknown>) => {
+      const name = String(log.karyawanNama || log.karyawan || "").trim();
       if (name && name !== "-") set.add(name);
     });
 
     return Array.from(set).sort((a, b) => a.localeCompare(b, "id"));
   }, [rawKaryawanList, rawLogs]);
 
-  // Date match helper
-  const isDateMatch = (docDate: string) => {
-    if (!docDate) return false;
-    if (reportType === "daily") return docDate === selectedDate;
-    if (reportType === "monthly") return docDate.startsWith(selectedMonth);
-    return docDate.startsWith(selectedYear);
-  };
-
   // Flatten and filter logs by date/month/year, selected karyawan, and search term
   const filteredRows = useMemo(() => {
     if (!rawLogs) return [];
 
+    const isDateMatch = (docDate: string) => {
+      if (!docDate) return false;
+      if (reportType === "daily") return docDate === selectedDate;
+      if (reportType === "monthly") return docDate.startsWith(selectedMonth);
+      return docDate.startsWith(selectedYear);
+    };
+
     const rows: FreeProductRow[] = [];
 
-    rawLogs.forEach((log: any) => {
+    (rawLogs as Record<string, unknown>[]).forEach((log: Record<string, unknown>) => {
       const logDate = getDocDateStr(log);
       if (!isDateMatch(logDate)) return;
 
-      const logKaryawan = (log.karyawanNama || log.karyawan || "-").trim();
+      const logKaryawan = String(log.karyawanNama || log.karyawan || "-").trim();
 
       // Karyawan Filter
       if (selectedKaryawan !== "all") {
@@ -168,10 +162,11 @@ export default function LaporanFreeProdukPage() {
         }
       }
 
-      const items = Array.isArray(log.items) && log.items.length > 0 
-        ? log.items 
+      const rawItems = log.items;
+      const items = Array.isArray(rawItems) && rawItems.length > 0 
+        ? (rawItems as Record<string, unknown>[])
         : [{
-            productName: log.productName || "Free Produk",
+            productName: String(log.productName || "Free Produk"),
             productCode: "-",
             kategori: "-",
             harga: Number(log.harga || log.totalNominal || 0),
@@ -179,21 +174,21 @@ export default function LaporanFreeProdukPage() {
             subtotal: Number(log.totalNominal || 0)
           }];
 
-      items.forEach((item: any) => {
+      items.forEach((item: Record<string, unknown>) => {
         const row: FreeProductRow = {
-          docId: log.id,
-          operasionalDocId: log.operasionalDocId,
+          docId: String(log.id || ""),
+          operasionalDocId: log.operasionalDocId ? String(log.operasionalDocId) : undefined,
           tanggal: logDate || "-",
           shift: Number(log.shift || 1),
           karyawanNama: logKaryawan,
-          productName: item.productName || item.name || "Produk",
-          productCode: item.productCode || item.code || "-",
-          kategori: item.kategori || "-",
+          productName: String(item.productName || item.name || "Produk"),
+          productCode: String(item.productCode || item.code || "-"),
+          kategori: String(item.kategori || "-"),
           volume: Number(item.qty || item.volume || 1),
           harga: Number(item.harga || 0),
           subtotal: Number(item.subtotal || (Number(item.harga || 0) * Number(item.qty || 1))),
-          notes: log.notes || log.note || "-",
-          createdAt: log.createdAt,
+          notes: String(log.notes || log.note || "-"),
+          createdAt: (log.createdAt as { seconds?: number; toDate?: () => Date } | null | undefined) ?? null,
           rawLog: log,
         };
 

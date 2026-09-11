@@ -15,10 +15,8 @@ import {
   RefreshCw, 
   ShoppingBag, 
   Truck, 
-  ChefHat, 
   FileSpreadsheet, 
   Upload, 
-  Download, 
   FileDown,
   Loader2 
 } from "lucide-react";
@@ -26,7 +24,31 @@ import { applyPriceUpdate } from "@/lib/hpp";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
 
-function parseExcelPrice(val: any): number | null {
+export interface PriceHistoryEntry {
+  recordedAt?: string;
+  price?: number;
+  priceKecil?: number;
+}
+
+export interface MaterialItem {
+  id: string;
+  nama?: string;
+  code?: string;
+  metodePembelian?: string;
+  satuanBesar?: string;
+  satuanKecil?: string;
+  qtyBesar?: number;
+  qtyKecil?: number;
+  currentPrice?: number;
+  avgPrice?: number;
+  avgPriceKecil?: number;
+  hargaBeliSatuanBesar?: number;
+  hargaSatuanKecil?: number;
+  priceHistory?: PriceHistoryEntry[];
+  [key: string]: unknown;
+}
+
+function parseExcelPrice(val: unknown): number | null {
   if (val === undefined || val === null || val === "") return null;
   if (typeof val === "number") return isNaN(val) ? null : val;
   const cleaned = String(val).replace(/[^0-9.,-]/g, "").replace(",", ".");
@@ -47,10 +69,11 @@ export default function HargaBahanBakuPage() {
   const [isImporting, setIsImporting] = useState(false);
 
   const materialsQuery = useMemoFirebase(() => query(collection(db, "bahan-baku"), orderBy("nama", "asc")), [db]);
-  const { data: materials } = useCollection(materialsQuery);
+  const { data: rawMaterials } = useCollection(materialsQuery);
+  const materials = rawMaterials as unknown as MaterialItem[];
 
   const filteredMaterials = useMemo(() => {
-    return (materials as any[])?.filter((item: any) => {
+    return (materials as MaterialItem[])?.filter((item: MaterialItem) => {
       // Abaikan bahan yang dibuat sendiri (3. Pembuatan Sendiri)
       const isSelfMade = item.metodePembelian === "Pembuatan Sendiri" || 
                          item.metodePembelian?.toLowerCase().includes("pembuatan sendiri") ||
@@ -63,7 +86,7 @@ export default function HargaBahanBakuPage() {
   }, [materials, searchTerm]);
 
   const selectedMaterial = useMemo(() => {
-    return filteredMaterials.find((item: any) => item.id === selectedId) || filteredMaterials[0] || null;
+    return filteredMaterials.find((item: MaterialItem) => item.id === selectedId) || filteredMaterials[0] || null;
   }, [filteredMaterials, selectedId]);
 
   // Sync inputs whenever selected material changes
@@ -78,9 +101,9 @@ export default function HargaBahanBakuPage() {
         setPriceKecilInput(priceKecil ? String(Math.round(priceKecil * 100) / 100) : "0");
       });
     }
-  }, [selectedMaterial?.id]);
+  }, [selectedMaterial]);
 
-  const handleSelect = (material: any) => {
+  const handleSelect = (material: MaterialItem) => {
     setSelectedId(material.id);
   };
 
@@ -143,7 +166,7 @@ export default function HargaBahanBakuPage() {
 
   // Export Excel (Hanya bahan baku supliyer & beli sendiri)
   const handleExportExcel = () => {
-    const validMaterials = (materials as any[])?.filter((mat: any) => {
+    const validMaterials = (materials as MaterialItem[])?.filter((mat: MaterialItem) => {
       const isSelfMade = mat.metodePembelian === "Pembuatan Sendiri" || 
                          mat.metodePembelian?.toLowerCase().includes("pembuatan sendiri") ||
                          mat.metodePembelian?.toLowerCase().includes("3.");
@@ -244,7 +267,7 @@ export default function HargaBahanBakuPage() {
         const wb = XLSX.read(bstr, { type: "binary" });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
-        const rows: any[] = XLSX.utils.sheet_to_json(ws);
+        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws);
 
         if (!rows || rows.length === 0) {
           toast({
@@ -256,18 +279,18 @@ export default function HargaBahanBakuPage() {
           return;
         }
 
-        const currentMaterials = (materials as any[]) || [];
+        const currentMaterials = (materials as MaterialItem[]) || [];
         const batch = writeBatch(db);
         let updatedCount = 0;
 
-        rows.forEach((row: any) => {
+        rows.forEach((row: Record<string, unknown>) => {
           const rawCode = String(row["Code"] || row["code"] || row["Kode"] || row["KODE"] || "").trim();
           const rawName = String(row["Nama Bahan"] || row["Nama barang"] || row["Nama Barang"] || row["nama"] || row["Nama"] || "").trim();
 
           if (!rawCode && !rawName) return;
 
           // Match material by code or name
-          const targetMat = currentMaterials.find((m: any) => {
+          const targetMat = currentMaterials.find((m: MaterialItem) => {
             const mCode = String(m.code || "").trim().toUpperCase();
             const mName = String(m.nama || "").trim().toLowerCase();
             const cleanMCode = mCode.replace(/[\s-_]/g, '');
@@ -449,7 +472,7 @@ export default function HargaBahanBakuPage() {
             />
           </div>
           <div className="space-y-2 max-h-[140px] md:max-h-[600px] overflow-y-auto pr-1">
-            {filteredMaterials.map((material: any) => {
+            {filteredMaterials.map((material: MaterialItem) => {
               const conversion = Number(material.qtyKecil || 1);
               const pBesar = Number(material.currentPrice ?? material.avgPrice ?? 0);
               const pKecil = material.hargaSatuanKecil ?? (conversion > 0 ? pBesar / conversion : 0);
@@ -618,7 +641,7 @@ export default function HargaBahanBakuPage() {
                 <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4 text-xs text-slate-600">
                   {Array.isArray(selectedMaterial.priceHistory) && selectedMaterial.priceHistory.length > 0 ? (
                     <div className="divide-y divide-slate-100">
-                      {selectedMaterial.priceHistory.slice(-4).reverse().map((entry: any, idx: number) => (
+                      {selectedMaterial.priceHistory.slice(-4).reverse().map((entry: PriceHistoryEntry, idx: number) => (
                         <div key={idx} className="flex justify-between items-center py-2 text-[11px]">
                           <span className="font-semibold text-slate-500">
                             {entry.recordedAt ? new Date(entry.recordedAt).toLocaleDateString("id-ID", { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : "-"}

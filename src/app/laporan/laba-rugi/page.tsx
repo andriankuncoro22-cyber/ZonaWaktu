@@ -26,6 +26,51 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useToast } from "@/hooks/use-toast";
 
+interface ProductItem {
+  id: string;
+  nama?: string;
+  code?: string;
+  kategori?: string;
+  [key: string]: unknown;
+}
+
+interface SaleDocItem {
+  code?: string;
+  kode?: string;
+  name?: string;
+  nama?: string;
+  produkId?: string;
+  id?: string;
+  kategori?: string;
+  total?: number;
+  qty?: number;
+  pendapatan?: number;
+  totalHarga?: number;
+  keuntungan?: number;
+  [key: string]: unknown;
+}
+
+interface PenjualanDoc {
+  id: string;
+  tanggal: string;
+  total?: number;
+  hpp?: number;
+  keuntunganTotal?: number;
+  totalQty?: number;
+  items?: SaleDocItem[];
+  [key: string]: unknown;
+}
+
+export interface ProductSummaryItem {
+  code: string;
+  name: string;
+  kategori: string;
+  total: number;
+  pendapatan: number;
+  keuntungan: number;
+  margin: number;
+}
+
 export default function LabaRugiPage() {
   const db = useFirestore();
   const { toast } = useToast();
@@ -61,13 +106,15 @@ export default function LabaRugiPage() {
     }
   }, [db, appliedType, appliedDate]);
 
-  const { data: rawData, loading } = useCollection(penjualanQuery);
+  const { data: rawSales, loading } = useCollection(penjualanQuery);
+  const rawData = rawSales as unknown as PenjualanDoc[];
 
   const productsQuery = useMemoFirebase(() => collection(db, "produk"), [db]);
-  const { data: products } = useCollection(productsQuery);
+  const { data: rawProducts } = useCollection(productsQuery);
+  const products = rawProducts as unknown as ProductItem[];
 
   const filteredData = useMemo(() => {
-    if (appliedType === 'daily') return rawData;
+    if (appliedType === 'daily') return rawData || [];
     return rawData?.filter(d => d.tanggal.startsWith(appliedMonth)) || [];
   }, [rawData, appliedType, appliedMonth]);
 
@@ -81,9 +128,9 @@ export default function LabaRugiPage() {
   }, [filteredData]);
 
   const productSummary = useMemo(() => {
-    const summary: { [key: string]: any } = {};
+    const summary: Record<string, ProductSummaryItem> = {};
 
-    const findProduct = (itemCode?: string, itemName?: string, itemId?: string) => {
+    const findProduct = (itemCode?: string, itemName?: string, itemId?: string): ProductItem | null => {
       if (!products || !products.length) return null;
       const rawCode = itemCode?.trim().toUpperCase();
       const cleanCode = rawCode?.replace(/[\s-_]/g, '');
@@ -91,12 +138,12 @@ export default function LabaRugiPage() {
 
       // 1. Match by product ID
       if (itemId) {
-        const byId = products.find((p: any) => p.id === itemId);
+        const byId = products.find((p: ProductItem) => p.id === itemId);
         if (byId) return byId;
       }
       // 2. Match by exact code or normalized code
       if (rawCode) {
-        const byCode = products.find((p: any) => {
+        const byCode = products.find((p: ProductItem) => {
           const pCode = p.code?.trim().toUpperCase();
           if (!pCode) return false;
           const pClean = pCode.replace(/[\s-_]/g, '');
@@ -106,14 +153,14 @@ export default function LabaRugiPage() {
       }
       // 3. Match by Name
       if (rawName) {
-        const byName = products.find((p: any) => p.nama?.trim().toLowerCase() === rawName);
+        const byName = products.find((p: ProductItem) => p.nama?.trim().toLowerCase() === rawName);
         if (byName) return byName;
       }
       return null;
     };
 
-    filteredData.forEach(closing => {
-      closing.items?.forEach((item: any) => {
+    filteredData.forEach((closing: PenjualanDoc) => {
+      closing.items?.forEach((item: SaleDocItem) => {
         const matchedProduct = findProduct(item.code || item.kode, item.name || item.nama, item.produkId || item.id);
         
         const finalCode = matchedProduct?.code || item.code || item.kode || "-";
@@ -138,10 +185,10 @@ export default function LabaRugiPage() {
       });
     });
 
-    return Object.values(summary).map((item: any) => ({
+    return Object.values(summary).map((item: ProductSummaryItem) => ({
       ...item,
       margin: item.pendapatan > 0 ? (item.keuntungan / item.pendapatan) * 100 : 0
-    })).sort((a: any, b: any) => 
+    })).sort((a: ProductSummaryItem, b: ProductSummaryItem) => 
       (a.code || "").localeCompare(b.code || "", undefined, { numeric: true, sensitivity: 'base' })
     );
   }, [filteredData, products]);
@@ -152,7 +199,7 @@ export default function LabaRugiPage() {
 
     try {
       const batch = writeBatch(db);
-      filteredData.forEach((docItem: any) => {
+      filteredData.forEach((docItem: PenjualanDoc) => {
         batch.delete(doc(db, "penjualan", docItem.id));
       });
       await batch.commit();
@@ -447,7 +494,7 @@ export default function LabaRugiPage() {
                   </td>
                 </tr>
               ) : productSummary.length > 0 ? (
-                productSummary.map((item: any) => (
+                productSummary.map((item: ProductSummaryItem) => (
                   <tr key={item.code} className="hover:bg-slate-50/50 transition-colors group">
                     <td className="px-10 py-5">
                       <div className="inline-flex px-3 py-1 rounded-lg bg-primary/5 border border-primary/10 text-[10px] font-bold text-primary">
@@ -492,7 +539,7 @@ export default function LabaRugiPage() {
             </div>
           ) : productSummary.length > 0 ? (
             <div className="p-4 space-y-4 bg-slate-50/30">
-              {productSummary.map((item: any) => (
+              {productSummary.map((item: ProductSummaryItem) => (
                 <Card key={item.code} className="rounded-[1.5rem] bg-white border border-slate-100 p-4 shadow-sm hover:shadow-md transition-shadow relative">
                   <div className="flex justify-between items-start gap-2 mb-3">
                     <div className="space-y-1">

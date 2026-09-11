@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { FirebaseClientProvider, getActiveBranch } from "@/firebase";
-import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/toaster";
 
 export function AppShell({ children }: { children: ReactNode }) {
