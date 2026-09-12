@@ -141,8 +141,7 @@ export default function PengaturanPage() {
     nama: "",
     username: "",
     password: "",
-    gender: "Laki-laki",
-    team: "tim1"
+    gender: "Laki-laki"
   });
   
   // Branch-isolated Store Settings
@@ -470,7 +469,6 @@ export default function PengaturanPage() {
               role: "employee",
               cabang: targetBranch,
               gender: dData.gender || "Laki-laki",
-              team: dData.team || "tim1",
               status: dData.status || "aktif"
             });
           }
@@ -563,7 +561,6 @@ export default function PengaturanPage() {
             role: "employee",
             cabang: targetBranch,
             gender: data.gender || "Laki-laki",
-            team: data.team || "tim1",
             status: data.status || "aktif"
           });
         }
@@ -592,7 +589,7 @@ export default function PengaturanPage() {
       });
       const combinedUsers = Array.from(mergedMap.values());
 
-      // 5. Update logins_<targetBranch> HANYA untuk targetBranch!
+      // 5. Simpan logins_<targetBranch> yang berisi gabungan kasir + absensi
       await setDoc(doc(db, "employee_credentials", `logins_${targetBranch}`), {
         users: combinedUsers,
         totalUsers: combinedUsers.length,
@@ -606,6 +603,11 @@ export default function PengaturanPage() {
           updatedAt: serverTimestamp()
         }, { merge: true });
       }
+
+      await setDoc(doc(db, "settings", "absensi_config"), {
+        lastSynced: serverTimestamp(),
+        totalActiveKaryawan: branchAbsensiUsers.length
+      }, { merge: true });
 
       // 6. Provision / Sync ke Firebase Authentication dengan accountCategory: 'absensi'
       try {
@@ -651,7 +653,6 @@ export default function PengaturanPage() {
         username,
         password,
         gender: newAbsensiForm.gender,
-        team: newAbsensiForm.team,
         cabang: credentialBranch,
         status: "aktif",
         createdAt: serverTimestamp(),
@@ -679,8 +680,7 @@ export default function PengaturanPage() {
         nama: "",
         username: "",
         password: "",
-        gender: "Laki-laki",
-        team: "tim1"
+        gender: "Laki-laki"
       });
     } catch (error) {
       console.error(error);
@@ -1222,30 +1222,16 @@ export default function PengaturanPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Jenis Kelamin</Label>
-                      <select 
-                        value={newAbsensiForm.gender} 
-                        onChange={(e) => setNewAbsensiForm({ ...newAbsensiForm, gender: e.target.value })} 
-                        className="flex h-12 w-full rounded-2xl border-none bg-slate-50 px-3 py-2 text-xs font-bold focus-visible:outline-none"
-                      >
-                        <option value="Laki-laki">Laki-laki</option>
-                        <option value="Perempuan">Perempuan</option>
-                      </select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Tim Shift</Label>
-                      <select 
-                        value={newAbsensiForm.team} 
-                        onChange={(e) => setNewAbsensiForm({ ...newAbsensiForm, team: e.target.value })} 
-                        className="flex h-12 w-full rounded-2xl border-none bg-slate-50 px-3 py-2 text-xs font-bold focus-visible:outline-none"
-                      >
-                        <option value="tim1">Tim 1</option>
-                        <option value="tim2">Tim 2</option>
-                      </select>
-                    </div>
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Jenis Kelamin</Label>
+                    <select 
+                      value={newAbsensiForm.gender} 
+                      onChange={(e) => setNewAbsensiForm({ ...newAbsensiForm, gender: e.target.value })} 
+                      className="flex h-12 w-full rounded-2xl border-none bg-slate-50 px-3 py-2 text-xs font-bold focus-visible:outline-none"
+                    >
+                      <option value="Laki-laki">Laki-laki</option>
+                      <option value="Perempuan">Perempuan</option>
+                    </select>
                   </div>
 
                   <Button 
@@ -1294,9 +1280,6 @@ export default function PengaturanPage() {
                           <div>
                             <div className="flex items-center gap-2">
                               <p className="font-black text-sm text-slate-900">{karyawan.nama}</p>
-                              <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                {karyawan.team === "tim2" ? "Tim 2" : "Tim 1"}
-                              </span>
                             </div>
                             <p className="text-[10px] font-bold text-slate-400 mt-0.5">
                               User: <span className="font-mono text-slate-600">{karyawan.username}</span> &bull; Pass: ••••••••

@@ -24,6 +24,7 @@ import {
   SelectValue 
 } from "@/components/ui/select";
 import { useFirestore, useCollection, useMemoFirebase, collection, doc } from "@/firebase";
+import { useActiveBranch, filterContainerMaterials } from "@/lib/branch-helper";
 import { addDoc, serverTimestamp, query, orderBy, deleteDoc, updateDoc, increment, where } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -44,6 +45,7 @@ interface Karyawan {
 export default function EmployeeInputBahanRusakPage() {
   const db = useFirestore();
   const { toast } = useToast();
+  const activeBranch = useActiveBranch();
 
   const [shift, setShift] = useState<1 | 2>(1);
   const [selectedKaryawanId, setSelectedKaryawanId] = useState<string>("");
@@ -56,6 +58,9 @@ export default function EmployeeInputBahanRusakPage() {
   // Fetch Bahan Baku
   const materialsQuery = useMemoFirebase(() => query(collection(db, "bahan-baku"), orderBy("nama", "asc")), [db]);
   const { data: rawMaterials, loading: loadingMaterials } = useCollection(materialsQuery);
+  const materials = useMemo(() => {
+    return filterContainerMaterials(rawMaterials as BahanBaku[], activeBranch);
+  }, [rawMaterials, activeBranch]);
 
   // Fetch Karyawan
   const karyawanQuery = useMemoFirebase(() => query(collection(db, "karyawan"), orderBy("nama", "asc")), [db]);

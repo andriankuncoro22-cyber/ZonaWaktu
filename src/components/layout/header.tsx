@@ -1,7 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Bell, Coffee, ChevronDown, Menu, CupSoda, LogOut, Store } from "lucide-react";
+import { useRouter, usePathname } from "next/navigation";
+import { Bell, Coffee, ChevronDown, Menu, CupSoda, LogOut, Store, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useFirestore, useDoc, useMemoFirebase, doc } from "@/firebase";
@@ -22,9 +22,12 @@ import { Sidebar } from "./sidebar";
 
 export function Header() {
   const router = useRouter();
+  const pathname = usePathname();
   const db = useFirestore();
   const activeBranch = useActiveBranch();
   const defaultIdentity = getDefaultStoreIdentity(activeBranch);
+
+  const isReportPage = pathname.startsWith('/laporan') || pathname.startsWith('/operasional');
 
   const settingsRef = useMemoFirebase(
     () => doc(db, "settings", getStoreConfigDocId(activeBranch)), 
@@ -41,11 +44,12 @@ export function Header() {
 
   const branchInfo = BRANCH_LIST[activeBranch] || BRANCH_LIST.gdm;
 
-  React.useEffect(() => {
-    if (activeBranch === 'all') {
+  useEffect(() => {
+    // Jika berada di luar halaman laporan dan activeBranch adalah 'all', kembalikan ke default 'gdm'
+    if (!isReportPage && activeBranch === 'all') {
       setActiveBranch('gdm');
     }
-  }, [activeBranch]);
+  }, [isReportPage, activeBranch]);
 
   const handleBranchSelect = (branchId: BranchId) => {
     setActiveBranch(branchId);
@@ -167,6 +171,24 @@ export function Header() {
               <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
               <span>TEH WARGA GDM</span>
             </button>
+
+            {/* SEMUA TOKO (KONSOLIDASI) - KHUSUS HALAMAN LAPORAN */}
+            {isReportPage && (
+              <button
+                type="button"
+                onClick={() => handleBranchSelect('all')}
+                className={cn(
+                  "flex items-center gap-2 px-4 sm:px-5 py-2 rounded-full font-black text-xs uppercase tracking-wider transition-all duration-200 animate-in fade-in zoom-in-95",
+                  activeBranch === 'all'
+                    ? "bg-indigo-700 text-white shadow-md shadow-indigo-300 scale-[1.02]"
+                    : "text-indigo-700 hover:text-indigo-950 hover:bg-indigo-50/80 font-black"
+                )}
+                title="Konsolidasi Semua Outlet & Gudang"
+              >
+                <Layers className="h-3.5 w-3.5 text-indigo-300 shrink-0" />
+                <span>SEMUA TOKO</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -231,9 +253,9 @@ export function Header() {
       </div>
     </div>
 
-      {/* MOBILE STORE SWITCHER (ALL 3 STORES VISIBLE, COMPACT GRID, NO SCROLL) */}
+      {/* MOBILE STORE SWITCHER */}
       <div className="md:hidden w-full px-0.5 pb-0.5">
-        <div className="grid grid-cols-3 gap-1.5 p-1 bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-2xl shadow-xs w-full">
+        <div className={cn("grid gap-1.5 p-1 bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-2xl shadow-xs w-full", isReportPage ? "grid-cols-4" : "grid-cols-3")}>
           {/* ZONA WAKTU GDM */}
           <button
             type="button"
@@ -278,6 +300,24 @@ export function Header() {
             <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
             <span className="truncate font-black">TEH WARGA</span>
           </button>
+
+          {/* SEMUA TOKO (KONSOLIDASI) - KHUSUS HALAMAN LAPORAN */}
+          {isReportPage && (
+            <button
+              type="button"
+              onClick={() => handleBranchSelect('all')}
+              className={cn(
+                "flex items-center justify-center gap-1 py-1.5 px-1 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-tight transition-all min-h-[30px]",
+                activeBranch === 'all'
+                  ? "bg-indigo-700 text-white shadow-xs scale-[1.01]"
+                  : "text-indigo-700 hover:text-indigo-950 hover:bg-indigo-50/80"
+              )}
+              title="Konsolidasi Semua Outlet"
+            >
+              <Layers className="h-2.5 w-2.5 text-indigo-300 shrink-0" />
+              <span className="truncate font-black">SEMUA</span>
+            </button>
+          )}
         </div>
       </div>
     </header>

@@ -7,7 +7,6 @@ import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
   Truck,
-  Home,
   ClipboardList,
   Layers,
   Wallet,
@@ -75,11 +74,6 @@ export function EmployeeSidebar() {
     }
   };
 
-  const handleLandingPage = async () => {
-    await logoutWithFirebaseAuth();
-    router.push("/");
-  };
-
   return (
     <div className="flex h-full flex-col bg-white border-r border-slate-100 shadow-sm py-5 sm:py-8">
       <div className="mb-6 px-5 sm:px-8">
@@ -134,19 +128,11 @@ export function EmployeeSidebar() {
         </nav>
       </div>
 
-      <div className="mt-auto px-3 sm:px-6 space-y-1 pt-4 border-t border-slate-100">
-        <Button 
-          variant="ghost" 
-          onClick={handleLandingPage}
-          className="h-11 w-full justify-start gap-3 rounded-2xl text-[9px] font-black uppercase tracking-widest text-slate-500 transition-all hover:bg-slate-50 hover:text-slate-900"
-        >
-          <Home className="h-4 w-4" />
-          Landing Page
-        </Button>
+      <div className="mt-auto px-3 sm:px-6 pt-4 border-t border-slate-100">
         <Button 
           variant="ghost" 
           onClick={handleLogout}
-          className="h-11 w-full justify-start gap-3 rounded-2xl text-[9px] font-black uppercase tracking-widest text-rose-500 transition-all hover:bg-rose-50 hover:text-rose-600"
+          className="h-11 w-full justify-start gap-3 rounded-2xl text-[10px] font-black uppercase tracking-widest text-rose-600 bg-rose-50/50 hover:bg-rose-100 hover:text-rose-700 transition-all border border-rose-100/50"
         >
           <LogOut className="h-4 w-4" />
           Keluar (Logout)

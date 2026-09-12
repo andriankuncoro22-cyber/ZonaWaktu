@@ -20,12 +20,14 @@ import {
   Cell,
 } from "recharts";
 import { useFirestore, useCollection, useMemoFirebase, collection } from "@/firebase";
+import { useActiveBranch, filterContainerMaterials } from "@/lib/branch-helper";
 import { query, orderBy, limit, where } from "firebase/firestore";
 import Link from "next/link";
 
 export default function DashboardPage() {
   const mounted = true; // client component — always mounted
   const db = useFirestore();
+  const activeBranch = useActiveBranch();
 
   const penjualanQuery = useMemoFirebase(() => 
     query(collection(db, "penjualan"), orderBy("tanggal", "desc"), limit(100)), 
@@ -37,7 +39,10 @@ export default function DashboardPage() {
     query(collection(db, "bahan-baku"), orderBy("nama", "asc")), 
     [db]
   );
-  const { data: bahanBakuData } = useCollection(bahanBakuQuery);
+  const { data: rawBahanBakuData } = useCollection(bahanBakuQuery);
+  const bahanBakuData = useMemo(() => {
+    return filterContainerMaterials(rawBahanBakuData as any[], activeBranch);
+  }, [rawBahanBakuData, activeBranch]);
 
   const stats = useMemo(() => {
     const today = new Date().toISOString().split('T')[0];

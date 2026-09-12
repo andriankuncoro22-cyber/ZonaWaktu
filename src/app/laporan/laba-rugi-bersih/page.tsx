@@ -3,7 +3,7 @@
 import React, { useMemo, useState, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useFirestore, useCollection, useMemoFirebase, collection } from "@/firebase";
+import { useFirestore, useConsolidatedCollection } from "@/firebase";
 import { 
   Calendar, 
   Search, 
@@ -37,6 +37,8 @@ interface PenjualanDoc {
   grandTotal?: number | string;
   totalBayar?: number | string;
   tanggal?: string;
+  _branchId?: string;
+  _branchName?: string;
   [key: string]: unknown;
 }
 
@@ -49,6 +51,8 @@ interface OperasionalKontainerDoc {
   jumlah?: number | string;
   biaya?: number | string;
   tanggal?: string;
+  _branchId?: string;
+  _branchName?: string;
   [key: string]: unknown;
 }
 
@@ -62,6 +66,8 @@ interface OperasionalTokoDoc {
   jumlah?: number | string;
   biaya?: number | string;
   tanggal?: string;
+  _branchId?: string;
+  _branchName?: string;
   [key: string]: unknown;
 }
 
@@ -72,6 +78,7 @@ interface OperasionalRowItem {
   nominal: number;
   sumber: "Karyawan" | "Owner";
   sourceCol: "operasional-kontainer" | "operasional-toko";
+  branchName?: string;
 }
 
 interface PembelianItem {
@@ -101,6 +108,8 @@ interface PembelianLogDoc {
   nominal?: number | string;
   items?: PembelianItem[];
   tanggal?: string;
+  _branchId?: string;
+  _branchName?: string;
   [key: string]: unknown;
 }
 
@@ -170,20 +179,16 @@ export default function LabaRugiBersihPage() {
   };
 
   // 1. Fetch Penjualan Data
-  const penjualanQuery = useMemoFirebase(() => collection(db, "penjualan"), [db]);
-  const { data: rawPenjualan, loading: loadingPenjualan } = useCollection(penjualanQuery);
+  const { data: rawPenjualan, loading: loadingPenjualan } = useConsolidatedCollection<PenjualanDoc>(db, "penjualan");
 
   // 2. Fetch Operasional Toko (Owner)
-  const operasionalTokoQuery = useMemoFirebase(() => collection(db, "operasional-toko"), [db]);
-  const { data: rawOperasionalToko, loading: loadingOpToko } = useCollection(operasionalTokoQuery);
+  const { data: rawOperasionalToko, loading: loadingOpToko } = useConsolidatedCollection<OperasionalTokoDoc>(db, "operasional-toko");
 
   // 3. Fetch Operasional Kontainer (Karyawan)
-  const operasionalKontainerQuery = useMemoFirebase(() => collection(db, "operasional-kontainer"), [db]);
-  const { data: rawOperasionalKontainer, loading: loadingOpKontainer } = useCollection(operasionalKontainerQuery);
+  const { data: rawOperasionalKontainer, loading: loadingOpKontainer } = useConsolidatedCollection<OperasionalKontainerDoc>(db, "operasional-kontainer");
 
   // 4. Fetch Pembelian / Belanja Bahan Baku (log_pembelian_bahan)
-  const pembelianQuery = useMemoFirebase(() => collection(db, "log_pembelian_bahan"), [db]);
-  const { data: rawPembelian, loading: loadingPembelian } = useCollection(pembelianQuery);
+  const { data: rawPembelian, loading: loadingPembelian } = useConsolidatedCollection<PembelianLogDoc>(db, "log_pembelian_bahan");
 
   const isDateMatch = useCallback((docDate: string) => {
     if (!docDate) return false;

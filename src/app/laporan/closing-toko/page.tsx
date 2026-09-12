@@ -20,7 +20,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { useFirestore, useCollection, useMemoFirebase, collection } from "@/firebase";
+import { useFirestore, useConsolidatedCollection } from "@/firebase";
+import { useActiveBranch, BRANCH_LIST } from "@/lib/branch-helper";
 import { cn } from "@/lib/utils";
 import {
   Dialog,
@@ -81,6 +82,7 @@ const getDocDateStr = (docData: any): string => {
 
 export default function LaporanClosingTokoPage() {
   const db = useFirestore();
+  const activeBranch = useActiveBranch();
 
   // Filter state
   const [filterMode, setFilterMode] = useState<"daily" | "monthly" | "yearly">("daily");
@@ -107,13 +109,11 @@ export default function LaporanClosingTokoPage() {
     setAppliedShift(selectedShift);
   };
 
-  // 1. Fetch all Keuangan Kontainer (Closing records)
-  const keuanganQuery = useMemoFirebase(() => collection(db, "keuangan-kontainer"), [db]);
-  const { data: rawKeuanganLogs, loading: loadingKeuangan } = useCollection(keuanganQuery);
+  // 1. Fetch all Keuangan Kontainer (Closing records) across active branch or all stores
+  const { data: rawKeuanganLogs, loading: loadingKeuangan } = useConsolidatedCollection(db, "keuangan-kontainer");
 
-  // 2. Fetch all Penjualan (Sales POS records)
-  const penjualanQuery = useMemoFirebase(() => collection(db, "penjualan"), [db]);
-  const { data: rawPenjualanLogs, loading: loadingPenjualan } = useCollection(penjualanQuery);
+  // 2. Fetch all Penjualan (Sales POS records) across active branch or all stores
+  const { data: rawPenjualanLogs, loading: loadingPenjualan } = useConsolidatedCollection(db, "penjualan");
 
   const loading = loadingKeuangan || loadingPenjualan;
 
@@ -130,7 +130,9 @@ export default function LaporanClosingTokoPage() {
     (rawPenjualanLogs || []).forEach((doc: any) => {
       const dStr = getDocDateStr(doc);
       if (dStr) {
-        map.set(dStr, doc);
+        const key = `${dStr}_${doc._branchId || 'gdm'}`;
+        map.set(key, doc);
+        if (!map.has(dStr)) map.set(dStr, doc);
       }
     });
     return map;
@@ -149,7 +151,7 @@ export default function LaporanClosingTokoPage() {
       const logShift = Number(log.shift ?? 2);
       if (appliedShift !== "all" && logShift !== appliedShift) return;
 
-      const matchingPenjualan = penjualanByDateMap.get(dStr);
+      const matchingPenjualan = penjualanByDateMap.get(`${dStr}_${log._branchId || 'gdm'}`) || penjualanByDateMap.get(dStr);
 
       const isShift1 = logShift === 1;
 
@@ -195,6 +197,8 @@ export default function LaporanClosingTokoPage() {
         tanggal: dStr,
         shift: logShift,
         karyawanNama: log.karyawanNama || "Karyawan",
+        _branchId: log._branchId || 'gdm',
+        _branchName: log._branchName || (log._branchId ? BRANCH_LIST[log._branchId as keyof typeof BRANCH_LIST]?.shortName : 'Zona GDM'),
         totalPenjualan,
         totalQris,
         totalCash,
@@ -846,8 +850,16 @@ export default function LaporanClosingTokoPage() {
                 <div className="flex items-center gap-3">
                   <ClipboardList className="h-5 w-5 text-primary" />
                   <div>
-                    <h3 className="text-md font-black uppercase italic text-slate-900">
-                      Rincian Closing Toko • {singleDailyItem.tanggal} (Shift {singleDailyItem.shift})
+                    <h3 className="text-md font-black uppercase italic text-slate-900 flex items-center gap-2 flex-wrap">
+                      <span>Rincian Closing Toko • {singleDailyItem.tanggal} (Shift {singleDailyItem.shift})</span>
+                      {activeBranch === 'all' && (
+                        <span className={cn(
+                          "px-2 py-0.5 text-[8px] font-black uppercase tracking-wider rounded-full border",
+                          BRANCH_LIST[singleDailyItem._branchId as keyof typeof BRANCH_LIST]?.badgeColor || "bg-slate-100 text-slate-700"
+                        )}>
+                          {singleDailyItem._branchName}
+                        </span>
+                      )}
                     </h3>
                     <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
                       Karyawan Input: {singleDailyItem.karyawanNama}
@@ -1050,7 +1062,19 @@ export default function LaporanClosingTokoPage() {
                   {filteredClosingList.map((item, idx) => (
                     <tr key={idx} className="hover:bg-slate-50/70 transition-colors">
                       <td className="px-4 py-3 text-center font-bold text-slate-400">{idx + 1}</td>
-                      <td className="px-4 py-3 font-black text-slate-800 whitespace-nowrap">{item.tanggal}</td>
+                      <td className="px-4 py-3 font-black text-slate-800 whitespace-nowrap">
+                        <div className="flex flex-col gap-0.5">
+                          <span>{item.tanggal}</span>
+                          {activeBranch === 'all' && (
+                            <span className={cn(
+                              "inline-block px-1.5 py-0.5 text-[7.5px] font-black uppercase tracking-wider rounded border w-fit",
+                              BRANCH_LIST[item._branchId as keyof typeof BRANCH_LIST]?.badgeColor || "bg-slate-100 text-slate-700"
+                            )}>
+                              {item._branchName}
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-3 py-3 text-center">
                         <span className={cn(
                           "px-2 py-0.5 rounded text-[8px] font-black uppercase",

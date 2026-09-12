@@ -4,16 +4,36 @@ import React, { useState, useEffect, useMemo } from "react";
 import { 
   Search, 
   RefreshCcw,
-  AlertCircle,
   Archive,
   Layers,
+  Building2,
+  Store,
+  Save,
+  CheckCircle2,
+  Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { useFirestore, useCollection, useMemoFirebase, collection, doc } from "@/firebase";
+import { 
+  useFirestore, 
+  useCollection, 
+  useMemoFirebase, 
+  useActiveBranch,
+  WarehouseId,
+  BranchId,
+  WAREHOUSE_LIST,
+  BRANCH_LIST,
+  getWarehouseForBranch,
+  warehouseCollection,
+  warehouseDoc,
+  branchDoc,
+  branchCollection
+} from "@/firebase";
 import { query, orderBy, writeBatch, addDoc, serverTimestamp } from "firebase/firestore";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
 // --- Types ---
 interface BahanBaku {
@@ -23,11 +43,14 @@ interface BahanBaku {
   satuanBesar?: string;
   satuanKecil?: string;
   qtyBesar?: number | string;
+  qtyGudangKecil?: number | string;
   qtyKontainerBesar?: number | string;
   qtyKontainerKecil?: number | string;
   qtyKecil?: number | string;
   gramPerBesar?: number | string;
   beratBungkusProduk?: number | string;
+  satuanKalibrasi?: string;
+  metodePembelian?: string;
   [key: string]: unknown;
 }
 
@@ -36,51 +59,70 @@ interface HistoryItem {
   nama?: string;
   code?: string;
   unitBesar?: string;
+  unitKecil?: string;
   beforeQtyBesar?: number;
   afterQtyBesar?: number;
   diffQtyBesar?: number;
+  beforeQtyGudangKecil?: number;
+  afterQtyGudangKecil?: number;
+  diffQtyGudangKecil?: number;
   before?: { qtyKontainerBesar?: number; qtyKontainerKecil?: number };
   after?: { qtyKontainerBesar?: number; qtyKontainerKecil?: number };
-}
-
-interface HistoryLog {
-  id: string;
-  date?: { toDate?: () => Date };
-  note?: string;
-  items?: HistoryItem[];
+  diffBulk?: number;
+  diffAktif?: number;
 }
 
 export default function AdminStockOpnamePage() {
   const db = useFirestore();
+  const { toast } = useToast();
+  const activeBranch = useActiveBranch();
+
+  const [activeTab, setActiveTab] = useState<"kontainer" | "gudang">("kontainer");
+  const [selectedWarehouse, setSelectedWarehouse] = useState<WarehouseId>(() => getWarehouseForBranch(activeBranch));
+  const [selectedBranch, setSelectedBranch] = useState<BranchId>(activeBranch);
+
   const [searchTerm, setSearchTerm] = useState("");
   const [processing, setProcessing] = useState(false);
 
   // State for warehouse inputs
-  const [warehouseInputs, setWarehouseInputs] = useState<Record<string, number>>({});
+  const [warehouseInputs, setWarehouseInputs] = useState<Record<string, { besar: number | string; kecil: number | string }>>({});
 
   // State for container inputs
-  const [kontainerInputs, setKontainerInputs] = useState<Record<string, { aktif: number; grams: number }>>({});
-  const [bulkInputs, setBulkInputs] = useState<Record<string, number>>({});
+  const [kontainerInputs, setKontainerInputs] = useState<Record<string, { aktif: number | string; grams: number | string }>>({});
+  const [bulkInputs, setBulkInputs] = useState<Record<string, number | string>>({});
 
-  // Fetch ingredients
-  const materialsQuery = useMemoFirebase(() => 
-    query(collection(db, "bahan-baku"), orderBy("code", "asc")), 
-    [db]
-  );
-  const { data: materials, loading } = useCollection(materialsQuery);
+  // Sync default when activeBranch changes
+  useEffect(() => {
+    queueMicrotask(() => {
+      setSelectedWarehouse(getWarehouseForBranch(activeBranch));
+      setSelectedBranch(activeBranch);
+    });
+  }, [activeBranch]);
 
-  // Fetch histories
-  const warehouseHistoryQuery = useMemoFirebase(() => 
-    query(collection(db, "opnam_gudang"), orderBy("date", "desc")), 
-    [db]
+  // Fetch ingredients dynamically based on active tab and location
+  // 1. Gudang Materials
+  const warehouseMaterialsQuery = useMemoFirebase(
+    () => query(warehouseCollection(db, "bahan-baku", selectedWarehouse), orderBy("code", "asc")),
+    [db, selectedWarehouse]
   );
-  const { data: historiesGudang } = useCollection(warehouseHistoryQuery);
+  const { data: rawWarehouseMats, loading: loadingWarehouse } = useCollection(warehouseMaterialsQuery);
 
-  const containerHistoryQuery = useMemoFirebase(() => 
-    query(collection(db, "opnam_harian"), orderBy("date", "desc")), 
-    [db]
+  // 2. Kontainer Materials
+  const containerMaterialsQuery = useMemoFirebase(
+    () => query(branchCollection(db, "bahan-baku", selectedBranch), orderBy("code", "asc")),
+    [db, selectedBranch]
   );
-  const { data: historiesKontainer } = useCollection(containerHistoryQuery);
+  const { data: rawContainerMats, loading: loadingContainer } = useCollection(containerMaterialsQuery);
+
+  const materials = useMemo(() => {
+    if (activeTab === "gudang") {
+      const list = (rawWarehouseMats as BahanBaku[]) || [];
+      return list.filter(m => m.metodePembelian !== "Pembuatan Sendiri");
+    }
+    return (rawContainerMats as BahanBaku[]) || [];
+  }, [activeTab, rawWarehouseMats, rawContainerMats]);
+
+  const loading = activeTab === "gudang" ? loadingWarehouse : loadingContainer;
 
   // Helpers for grams conversion
   const getUnitWeight = (item: BahanBaku) => {
@@ -89,43 +131,40 @@ export default function AdminStockOpnamePage() {
     return konversi > 0 ? gramPerBesar / konversi : 0;
   };
 
-  const getTotalWeightFromAktif = (item: BahanBaku, aktifQty: number) => {
-    const beratBungkus = Number(item.beratBungkusProduk || 0);
-    return Number(aktifQty || 0) * getUnitWeight(item) + beratBungkus;
-  };
-
-  const getAktifFromGrams = (item: BahanBaku, gramsValue: number) => {
+  const getAktifFromGrams = (item: BahanBaku, gramsValue: unknown) => {
     const beratBungkus = Number(item.beratBungkusProduk || 0);
     const netGrams = Math.max(0, Number(gramsValue || 0) - beratBungkus);
     const unitWeight = getUnitWeight(item);
     return unitWeight > 0 ? netGrams / unitWeight : 0;
   };
 
+  const cleanNumber = (val: unknown): number => {
+    if (val === undefined || val === null) return 0;
+    if (typeof val === "number") return isNaN(val) ? 0 : val;
+    const str = String(val).replace(/[^0-9.-]/g, "");
+    const num = parseFloat(str);
+    return isNaN(num) ? 0 : num;
+  };
+
   // Filter ingredients
   const filteredMaterials = useMemo(() => {
-    if (!materials) return [];
-    return (materials as BahanBaku[]).filter(item => 
+    return materials.filter(item => 
       item.nama?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.code?.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [materials, searchTerm]);
 
-  // Initialize inputs when materials load — setState is called inside effect body (valid data-sync pattern here).
+  // Initialize inputs when active list loads
   useEffect(() => {
-    if (!materials) return;
-    const initialWarehouse: Record<string, number> = {};
-    const initialKontainer: Record<string, { aktif: number; grams: number }> = {};
-    const initialBulk: Record<string, number> = {};
+    if (!materials || materials.length === 0) return;
+    const initialWarehouse: Record<string, { besar: number | string; kecil: number | string }> = {};
+    const initialKontainer: Record<string, { aktif: number | string; grams: number | string }> = {};
+    const initialBulk: Record<string, number | string> = {};
 
-    (materials as BahanBaku[]).forEach(it => {
-      // Warehouse
-      initialWarehouse[it.id] = Number(it.qtyBesar || 0);
-
-      // Container
-      const aktif = Number(it.qtyKontainerKecil || 0);
-      const grams = getTotalWeightFromAktif(it, aktif);
-      initialKontainer[it.id] = { aktif, grams };
-      initialBulk[it.id] = Number(it.qtyKontainerBesar || 0);
+    materials.forEach(it => {
+      initialWarehouse[it.id] = { besar: it.qtyBesar ?? 0, kecil: it.qtyGudangKecil ?? 0 };
+      initialKontainer[it.id] = { aktif: it.qtyKontainerKecil ?? 0, grams: "" };
+      initialBulk[it.id] = it.qtyKontainerBesar ?? 0;
     });
 
     queueMicrotask(() => {
@@ -133,12 +172,13 @@ export default function AdminStockOpnamePage() {
       setKontainerInputs(initialKontainer);
       setBulkInputs(initialBulk);
     });
-  }, [materials, getTotalWeightFromAktif]);
+  }, [materials, activeTab, selectedWarehouse, selectedBranch]);
 
   // Handle finalization for warehouse
   const handleFinalizeGudang = async () => {
     if (processing) return;
-    const confirm = window.confirm("Apakah Anda yakin ingin memperbarui stok gudang utama dengan data fisik?");
+    const locName = WAREHOUSE_LIST[selectedWarehouse].name;
+    const confirm = window.confirm(`Apakah Anda yakin ingin memperbarui stok ${locName} dengan data fisik?`);
     if (!confirm) return;
 
     setProcessing(true);
@@ -146,36 +186,57 @@ export default function AdminStockOpnamePage() {
       const batch = writeBatch(db);
       const historyItems: HistoryItem[] = [];
 
-      (materials as BahanBaku[] || []).forEach((it) => {
-        const beforeQty = Number(it.qtyBesar || 0);
-        const afterQty = warehouseInputs[it.id] !== undefined ? Number(warehouseInputs[it.id]) : beforeQty;
+      filteredMaterials.forEach((it) => {
+        const beforeBesar = Number(it.qtyBesar || 0);
+        const beforeKecil = Number(it.qtyGudangKecil || 0);
+        const inputBesar = warehouseInputs[it.id]?.besar;
+        const inputKecil = warehouseInputs[it.id]?.kecil;
 
-        const ref = doc(db, "bahan-baku", it.id);
-        batch.update(ref, { qtyBesar: afterQty });
+        const afterBesar = Math.max(0, cleanNumber(inputBesar === "" || inputBesar === undefined ? beforeBesar : inputBesar));
+        const afterKecil = Math.max(0, cleanNumber(inputKecil === "" || inputKecil === undefined ? beforeKecil : inputKecil));
+
+        const ref = warehouseDoc(db, "bahan-baku", it.id, selectedWarehouse);
+        batch.update(ref, { 
+          qtyBesar: afterBesar,
+          qtyGudangKecil: afterKecil
+        });
 
         historyItems.push({
           id: it.id,
           code: it.code || "-",
           nama: it.nama || "-",
-          beforeQtyBesar: beforeQty,
-          afterQtyBesar: afterQty,
-          diffQtyBesar: afterQty - beforeQty,
-          unitBesar: it.satuanBesar || "-"
+          unitBesar: it.satuanBesar || "-",
+          unitKecil: it.satuanKecil || "-",
+          beforeQtyBesar: beforeBesar,
+          afterQtyBesar: afterBesar,
+          diffQtyBesar: afterBesar - beforeBesar,
+          beforeQtyGudangKecil: beforeKecil,
+          afterQtyGudangKecil: afterKecil,
+          diffQtyGudangKecil: afterKecil - beforeKecil
         });
       });
 
       await batch.commit();
 
-      await addDoc(collection(db, "opnam_gudang"), {
+      await addDoc(warehouseCollection(db, "opnam_gudang", selectedWarehouse), {
         date: serverTimestamp(),
-        note: "Stock Opname Gudang Utama (Admin)",
+        warehouse: selectedWarehouse,
+        warehouseName: locName,
+        note: `Stock Opname Gudang Utama (Admin - ${locName})`,
         items: historyItems
       });
 
-      window.alert("Stok gudang utama berhasil disinkronisasi!");
+      toast({
+        title: "Stok Gudang Disinkronisasi",
+        description: `Stok fisik ${locName} berhasil diperbarui.`
+      });
     } catch (err) {
       console.error(err);
-      window.alert("Gagal melakukan finalisasi stock opname gudang.");
+      toast({
+        variant: "destructive",
+        title: "Gagal Finalisasi",
+        description: "Terjadi kesalahan sistem saat memperbarui stok gudang."
+      });
     } finally {
       setProcessing(false);
     }
@@ -184,7 +245,8 @@ export default function AdminStockOpnamePage() {
   // Handle finalization for container
   const handleFinalizeKontainer = async () => {
     if (processing) return;
-    const confirm = window.confirm("Apakah Anda yakin ingin memperbarui stok kontainer dengan data fisik?");
+    const locName = BRANCH_LIST[selectedBranch].name;
+    const confirm = window.confirm(`Apakah Anda yakin ingin memperbarui stok kontainer ${locName} dengan data fisik?`);
     if (!confirm) return;
 
     setProcessing(true);
@@ -192,161 +254,251 @@ export default function AdminStockOpnamePage() {
       const batch = writeBatch(db);
       const historyItems: HistoryItem[] = [];
 
-      (materials as BahanBaku[] || []).forEach((it) => {
+      filteredMaterials.forEach((it) => {
         const beforeBulk = Number(it.qtyKontainerBesar || 0);
         const beforeAktif = Number(it.qtyKontainerKecil || 0);
-        const afterBulk = bulkInputs[it.id] !== undefined ? Number(bulkInputs[it.id]) : beforeBulk;
-        const afterAktif = kontainerInputs[it.id]?.aktif !== undefined ? Number(kontainerInputs[it.id].aktif) : beforeAktif;
+        const inputBulk = bulkInputs[it.id];
+        const inputAktif = kontainerInputs[it.id]?.aktif;
 
-        const ref = doc(db, "bahan-baku", it.id);
-        batch.update(ref, { qtyKontainerBesar: afterBulk, qtyKontainerKecil: afterAktif });
+        const afterBulk = Math.max(0, cleanNumber(inputBulk === "" || inputBulk === undefined ? beforeBulk : inputBulk));
+        const afterAktif = Math.max(0, cleanNumber(inputAktif === "" || inputAktif === undefined ? beforeAktif : inputAktif));
+
+        const ref = branchDoc(db, "bahan-baku", it.id, selectedBranch);
+        batch.update(ref, { 
+          qtyKontainerBesar: afterBulk, 
+          qtyKontainerKecil: afterAktif 
+        });
 
         historyItems.push({
           id: it.id,
           code: it.code || "-",
           nama: it.nama || "-",
+          unitBesar: it.satuanBesar || "-",
+          unitKecil: it.satuanKecil || "-",
           before: { qtyKontainerBesar: beforeBulk, qtyKontainerKecil: beforeAktif },
-          after: { qtyKontainerBesar: afterBulk, qtyKontainerKecil: afterAktif }
+          after: { qtyKontainerBesar: afterBulk, qtyKontainerKecil: afterAktif },
+          diffBulk: afterBulk - beforeBulk,
+          diffAktif: afterAktif - beforeAktif
         });
       });
 
       await batch.commit();
 
-      await addDoc(collection(db, "opnam_harian"), {
+      await addDoc(branchCollection(db, "opnam_harian", selectedBranch), {
         date: serverTimestamp(),
-        note: "Stock Opname Kontainer (Admin)",
+        branch: selectedBranch,
+        branchName: locName,
+        note: `Stock Opname Kontainer (Admin - ${locName})`,
         items: historyItems
       });
 
-      window.alert("Stok kontainer berhasil disinkronisasi!");
+      toast({
+        title: "Stok Kontainer Disinkronisasi",
+        description: `Stok fisik kontainer ${locName} berhasil diperbarui.`
+      });
     } catch (err) {
       console.error(err);
-      window.alert("Gagal melakukan finalisasi stock opname kontainer.");
+      toast({
+        variant: "destructive",
+        title: "Gagal Finalisasi",
+        description: "Terjadi kesalahan sistem saat memperbarui stok kontainer."
+      });
     } finally {
       setProcessing(false);
     }
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
+    <div className="space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-4xl font-black tracking-tighter text-slate-900 uppercase italic leading-none">
-            Stock Opname
+          <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-slate-900 uppercase italic leading-none">
+            Stock Opname (Admin)
           </h1>
-          <p className="text-[10px] text-slate-600 font-black uppercase tracking-[0.2em] mt-2">
-            Pencocokan Stok Fisik vs Sistem — Kontainer &amp; Gudang Utama
+          <p className="text-[10px] sm:text-xs text-slate-600 font-black uppercase tracking-[0.2em] mt-1">
+            Pencocokan Stok Fisik vs Sistem — Multi-Gudang &amp; Kontainer
           </p>
         </div>
       </div>
 
-      <Tabs defaultValue="kontainer" className="w-full">
-        {/* Tab Triggers */}
-        <TabsList className="mb-6 grid h-14 w-full max-w-2xl grid-cols-2 rounded-[2rem] border border-slate-100 bg-white p-2 shadow-sm">
-          <TabsTrigger value="kontainer" className="rounded-[1.25rem] text-[10px] font-black uppercase tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white">
-            <Layers className="mr-2 h-4 w-4" /> Tab 1: Opname Kontainer
-          </TabsTrigger>
-          <TabsTrigger value="gudang" className="rounded-[1.25rem] text-[10px] font-black uppercase tracking-widest data-[state=active]:bg-primary data-[state=active]:text-white">
-            <Archive className="mr-2 h-4 w-4" /> Tab 2: Opname Gudang
-          </TabsTrigger>
-        </TabsList>
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "kontainer" | "gudang")} className="w-full">
+        {/* Tab Triggers & Location Switcher */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-slate-100/80 p-1.5 rounded-2xl mb-4">
+          <TabsList className="bg-transparent h-10 p-0 gap-1">
+            <TabsTrigger 
+              value="kontainer" 
+              className="rounded-xl px-4 font-black uppercase tracking-wider text-[10px] sm:text-xs h-9 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-xs"
+            >
+              <Layers className="mr-1.5 h-3.5 w-3.5 text-indigo-600" /> 
+              <span>Opname Kontainer</span>
+            </TabsTrigger>
+            <TabsTrigger 
+              value="gudang" 
+              className="rounded-xl px-4 font-black uppercase tracking-wider text-[10px] sm:text-xs h-9 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-xs"
+            >
+              <Archive className="mr-1.5 h-3.5 w-3.5 text-amber-600" /> 
+              <span>Opname Gudang</span>
+            </TabsTrigger>
+          </TabsList>
 
-        {/* Search Input Box */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-8 bg-white border border-slate-100 rounded-t-[2.5rem] border-b-none">
-          <div className="flex items-center gap-3">
-            <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-              Cari Bahan Baku
-            </span>
-          </div>
-          <div className="relative w-full md:w-80">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          {/* Sub Location Switcher */}
+          {activeTab === "gudang" ? (
+            <div className="flex items-center gap-1 bg-white p-1 rounded-xl shadow-xs border border-slate-200/60">
+              <button
+                type="button"
+                onClick={() => setSelectedWarehouse("gdm")}
+                className={cn(
+                  "px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
+                  selectedWarehouse === "gdm" ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+                )}
+              >
+                Gudang GDM (Terpadu)
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedWarehouse("kedungreja")}
+                className={cn(
+                  "px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
+                  selectedWarehouse === "kedungreja" ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+                )}
+              >
+                Gudang Kedungreja
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1 bg-white p-1 rounded-xl shadow-xs border border-slate-200/60">
+              <button
+                type="button"
+                onClick={() => setSelectedBranch("gdm")}
+                className={cn(
+                  "px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
+                  selectedBranch === "gdm" ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+                )}
+              >
+                ZW GDM
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedBranch("tehwarga")}
+                className={cn(
+                  "px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
+                  selectedBranch === "tehwarga" ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+                )}
+              >
+                Teh Warga GDM
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedBranch("kedungreja")}
+                className={cn(
+                  "px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
+                  selectedBranch === "kedungreja" ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+                )}
+              >
+                ZW Kedungreja
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Search Bar */}
+        <div className="my-4 flex items-center justify-between gap-3">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <Input 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Cari bahan..."
-              className="rounded-2xl border-none bg-slate-50 pl-12 h-12 font-bold"
+              placeholder="Cari bahan baku..."
+              className="pl-10 h-10 rounded-2xl bg-white border-slate-200 text-xs font-bold"
             />
+          </div>
+          <div className="text-[11px] font-black text-slate-500 uppercase tracking-wider">
+            {activeTab === "gudang" ? WAREHOUSE_LIST[selectedWarehouse].name : BRANCH_LIST[selectedBranch].name} • {filteredMaterials.length} Bahan
           </div>
         </div>
 
-        {/* ── TAB 1: OPNAME KONTAINER ── */}
-        <TabsContent value="kontainer" className="mt-0">
-          <Card className="rounded-b-[2.5rem] rounded-t-none border-t-none border-slate-100 shadow-sm bg-white overflow-hidden">
-            <div className="overflow-x-auto">
-              {loading ? (
-                <div className="flex flex-col items-center justify-center p-20">
-                  <RefreshCcw className="h-8 w-8 animate-spin text-primary" />
-                  <p className="text-xs font-black uppercase tracking-widest text-slate-400 mt-4">Memuat data...</p>
-                </div>
-              ) : filteredMaterials.length === 0 ? (
-                <div className="py-20 text-center text-slate-400 font-black uppercase tracking-widest text-xs">
-                  Bahan baku tidak ditemukan.
-                </div>
-              ) : (
-                <table className="w-full text-left min-w-[1000px]">
-                  <thead>
-                    <tr className="bg-slate-50/50">
-                      <th className="px-10 py-6 text-[10px] font-black uppercase text-slate-500 tracking-widest">Bahan Baku</th>
-                      <th className="px-6 py-6 text-[10px] font-black uppercase text-slate-500 tracking-widest text-right">Bulk (Sistem)</th>
-                      <th className="px-6 py-6 text-[10px] font-black uppercase text-slate-500 tracking-widest text-right">Aktif (Sistem)</th>
-                      <th className="px-8 py-6 text-[10px] font-black uppercase text-slate-500 tracking-widest">Input Fisik (Bulk)</th>
-                      <th className="px-8 py-6 text-[10px] font-black uppercase text-slate-500 tracking-widest">Input Fisik (Aktif)</th>
-                      <th className="px-10 py-6 text-[10px] font-black uppercase text-slate-500 tracking-widest text-center">Satuan</th>
+        {/* Content Card */}
+        <Card className="rounded-3xl border-slate-200/80 shadow-sm bg-white overflow-hidden">
+          <div className="overflow-x-auto">
+            {/* ── TAB 1: OPNAME KONTAINER ── */}
+            <TabsContent value="kontainer" className="mt-0">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-wider">
+                    <th className="py-3 px-4">Bahan Baku</th>
+                    <th className="py-3 px-4 text-right">Bulk (Sistem)</th>
+                    <th className="py-3 px-4 text-right">Aktif (Sistem)</th>
+                    <th className="py-3 px-4 text-center">Input Fisik (Bulk)</th>
+                    <th className="py-3 px-4 text-center">Input Fisik (Aktif / Gramasi)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={5} className="py-12 text-center text-slate-400">
+                        <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-indigo-600" />
+                        <span>Memuat data stok...</span>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {filteredMaterials.map((item) => (
-                      <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-10 py-6">
-                          <p className="text-[10px] font-bold text-primary mb-1">{item.code}</p>
-                          <p className="text-sm font-black text-slate-900 uppercase italic">{item.nama}</p>
+                  ) : filteredMaterials.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-12 text-center text-slate-400 font-bold">
+                        Bahan baku tidak ditemukan.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredMaterials.map((item) => (
+                      <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-3 px-4">
+                          <span className="text-[10px] font-black text-indigo-950 font-mono block">{item.code}</span>
+                          <span className="font-black text-slate-900 uppercase italic">{item.nama}</span>
                         </td>
-                        <td className="px-6 py-6 text-right font-black text-indigo-600 text-lg tabular-nums">
-                          {Number(item.qtyKontainerBesar || 0).toLocaleString("id-ID")}
+                        <td className="py-3 px-4 text-right font-black text-indigo-600 text-sm">
+                          {item.qtyKontainerBesar || 0} <span className="text-[10px] text-slate-400 font-normal">{item.satuanBesar}</span>
                         </td>
-                        <td className="px-6 py-6 text-right font-black text-emerald-600 text-lg tabular-nums">
-                          {Number(item.qtyKontainerKecil || 0).toLocaleString("id-ID")}
+                        <td className="py-3 px-4 text-right font-black text-emerald-600 text-sm">
+                          {Math.round(Number(item.qtyKontainerKecil || 0))} <span className="text-[10px] text-slate-400 font-normal">{item.satuanKecil}</span>
                         </td>
-                        <td className="px-8 py-6">
-                          <div className="relative w-36">
+                        <td className="py-3 px-4">
+                          <div className="relative w-32 mx-auto">
                             <Input 
                               type="number"
                               value={bulkInputs[item.id] ?? ""}
-                              onChange={(e) => setBulkInputs(prev => ({ ...prev, [item.id]: Number(e.target.value) }))}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setBulkInputs(prev => ({ ...prev, [item.id]: val === "" ? "" : Number(val) }));
+                              }}
                               placeholder="0"
-                              className="rounded-xl h-12 bg-slate-50 border-none font-black text-center text-lg pr-12"
+                              className="h-9 rounded-xl text-xs font-black text-center pr-8"
                             />
-                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black text-indigo-300 uppercase">{item.satuanBesar}</span>
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-indigo-400 uppercase">{item.satuanBesar}</span>
                           </div>
                         </td>
-                        <td className="px-8 py-6">
-                          <div className="flex items-center gap-2">
-                            <div className="relative w-32">
+                        <td className="py-3 px-4">
+                          <div className="flex items-center justify-center gap-2">
+                            <div className="relative w-28">
                               <Input 
                                 type="number"
                                 value={kontainerInputs[item.id]?.aktif ?? ""}
                                 onChange={(e) => {
-                                  const val = Number(e.target.value);
+                                  const val = Number(e.target.value || 0);
                                   setKontainerInputs(prev => ({
                                     ...prev,
-                                    [item.id]: {
-                                      aktif: val,
-                                      grams: getTotalWeightFromAktif(item, val)
-                                    }
+                                    [item.id]: { aktif: val, grams: val }
                                   }));
                                 }}
                                 placeholder="0"
-                                className="rounded-xl h-12 bg-slate-50 border-none font-black text-center text-lg pr-12"
+                                className="h-9 rounded-xl text-xs font-black text-center pr-8"
                               />
-                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black text-emerald-300 uppercase">{item.satuanKecil}</span>
+                              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-emerald-400 uppercase">{item.satuanKecil}</span>
                             </div>
-                            <div className="relative w-32">
+                            <div className="relative w-28">
                               <Input 
                                 type="number"
                                 value={kontainerInputs[item.id]?.grams ?? ""}
                                 onChange={(e) => {
-                                  const gramsVal = Number(e.target.value);
+                                  const gramsVal = Number(e.target.value || 0);
                                   setKontainerInputs(prev => ({
                                     ...prev,
                                     [item.id]: {
@@ -356,252 +508,151 @@ export default function AdminStockOpnamePage() {
                                   }));
                                 }}
                                 placeholder={item.satuanKalibrasi === "Pcs" ? "0 pcs" : "0 g"}
-                                className="rounded-xl h-12 bg-slate-50 border-none font-black text-center text-lg pr-12"
+                                className="h-9 rounded-xl text-xs font-black text-center pr-8"
                               />
-                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black text-slate-400 uppercase">
+                              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-slate-400 uppercase">
                                 {item.satuanKalibrasi === "Pcs" ? "pcs" : "g"}
                               </span>
                             </div>
                           </div>
                         </td>
-                        <td className="px-10 py-6 text-center text-[10px] font-black uppercase text-slate-500">
-                          {item.satuanBesar} / {item.satuanKecil}
-                        </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
+                    ))
+                  )}
+                </tbody>
+              </table>
 
-            {/* Footer Opname Kontainer */}
-            <div className="p-10 bg-slate-900 text-white flex flex-col md:flex-row items-center justify-between gap-6">
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-2xl bg-white/10 flex items-center justify-center text-indigo-400">
-                  <Layers className="h-6 w-6" />
-                </div>
+              {/* Action Bar */}
+              <div className="p-6 bg-slate-900 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-widest">Finalisasi Update Stok Kontainer</p>
-                  <p className="text-[10px] font-medium text-slate-400 mt-1 max-w-md leading-relaxed">
-                    Tindakan ini akan langsung memperbarui stok bulk dan aktif kontainer dalam sistem.
+                  <p className="text-xs font-black uppercase tracking-wider">
+                    Finalisasi Opname Kontainer: {BRANCH_LIST[selectedBranch].name}
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    Menyelaraskan stok fisik bulk & aktif kontainer ke sistem.
                   </p>
                 </div>
+                <Button 
+                  onClick={handleFinalizeKontainer}
+                  disabled={processing}
+                  className="rounded-xl h-10 px-6 font-black uppercase text-xs tracking-wider bg-indigo-600 hover:bg-indigo-700 text-white shadow-md gap-2"
+                >
+                  {processing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  <span>Simpan Stok Kontainer</span>
+                </Button>
               </div>
-              <Button 
-                onClick={handleFinalizeKontainer}
-                disabled={processing || loading}
-                className="w-full md:w-auto rounded-2xl bg-primary hover:bg-primary/90 text-white px-10 h-14 font-black uppercase tracking-widest text-[11px] shadow-xl shadow-primary/20"
-              >
-                {processing ? "Memproses..." : "Finalisasi & Update Stok Kontainer"}
-              </Button>
-            </div>
+            </TabsContent>
 
-            {/* History Container */}
-            <div className="p-10 bg-white border-t border-slate-50">
-              <h3 className="text-sm font-black uppercase tracking-wider text-slate-700 mb-6">
-                Histori Opname Kontainer Terakhir
-              </h3>
-              <div className="space-y-4">
-                {!historiesKontainer || historiesKontainer.length === 0 ? (
-                  <div className="text-center py-10 text-slate-400 text-xs font-black uppercase">
-                    Belum ada histori opname kontainer.
-                  </div>
-                ) : (
-                  (historiesKontainer as HistoryLog[]).slice(0, 5).map((h) => (
-                    <div key={h.id} className="rounded-2xl border border-slate-100 bg-slate-50/40 p-6 space-y-4">
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                            Tanggal Opname Kontainer
-                          </p>
-                          <p className="text-sm font-black text-slate-800">
-                            {h.date?.toDate ? h.date.toDate().toLocaleString("id-ID") : "-"}
-                          </p>
-                        </div>
-                        <span className="bg-indigo-50 text-indigo-600 border border-indigo-100 rounded-full px-4 py-1 text-[9px] font-black uppercase">
-                          {h.note || "Opname Kontainer"}
-                        </span>
-                      </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs bg-white rounded-xl border border-slate-50">
-                          <thead className="bg-slate-50">
-                            <tr>
-                              <th className="px-4 py-2 font-black uppercase text-slate-500">Nama Bahan</th>
-                              <th className="px-4 py-2 font-black uppercase text-slate-500 text-right">Sebelum (Bulk/Aktif)</th>
-                              <th className="px-4 py-2 font-black uppercase text-slate-500 text-right">Sesudah (Bulk/Aktif)</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-50">
-                            {(h.items || []).map((it, idx) => (
-                              <tr key={idx}>
-                                <td className="px-4 py-3 font-bold text-slate-900 uppercase italic">
-                                  {it.nama}
-                                </td>
-                                <td className="px-4 py-3 text-right font-semibold text-slate-600">
-                                  {it.before?.qtyKontainerBesar || 0} / {it.before?.qtyKontainerKecil || 0}
-                                </td>
-                                <td className="px-4 py-3 text-right font-semibold text-slate-600">
-                                  {it.after?.qtyKontainerBesar || 0} / {it.after?.qtyKontainerKecil || 0}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </Card>
-        </TabsContent>
-
-        {/* ── TAB 2: OPNAME GUDANG ── */}
-        <TabsContent value="gudang" className="mt-0">
-          <Card className="rounded-b-[2.5rem] rounded-t-none border-t-none border-slate-100 shadow-sm bg-white overflow-hidden">
-            <div className="overflow-x-auto">
-              {loading ? (
-                <div className="flex flex-col items-center justify-center p-20">
-                  <RefreshCcw className="h-8 w-8 animate-spin text-primary" />
-                  <p className="text-xs font-black uppercase tracking-widest text-slate-400 mt-4">Memuat data...</p>
-                </div>
-              ) : filteredMaterials.length === 0 ? (
-                <div className="py-20 text-center text-slate-400 font-black uppercase tracking-widest text-xs">
-                  Bahan baku tidak ditemukan.
-                </div>
-              ) : (
-                <table className="w-full text-left min-w-[800px]">
-                  <thead>
-                    <tr className="bg-slate-50/50">
-                      <th className="px-10 py-6 text-[10px] font-black uppercase text-slate-500 tracking-widest">Bahan Baku</th>
-                      <th className="px-6 py-6 text-[10px] font-black uppercase text-slate-500 tracking-widest text-right">Stok Sistem</th>
-                      <th className="px-8 py-6 text-[10px] font-black uppercase text-slate-500 tracking-widest">Stok Fisik Gudang</th>
-                      <th className="px-10 py-6 text-[10px] font-black uppercase text-slate-500 tracking-widest text-center">Satuan</th>
+            {/* ── TAB 2: OPNAME GUDANG ── */}
+            <TabsContent value="gudang" className="mt-0">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-900 text-white text-[10px] font-black uppercase tracking-wider">
+                    <th className="py-3 px-4">Bahan Baku</th>
+                    <th className="py-3 px-4 text-right">Stok Besar (Sistem)</th>
+                    <th className="py-3 px-4 text-right">Sisa Kecil (Sistem)</th>
+                    <th className="py-3 px-4 text-center">Fisik Gudang (Besar)</th>
+                    <th className="py-3 px-4 text-center">Fisik Sisa (Kecil)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs font-bold text-slate-800">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={5} className="py-12 text-center text-slate-400">
+                        <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2 text-indigo-600" />
+                        <span>Memuat data stok gudang...</span>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {filteredMaterials.map((item) => (
-                      <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-10 py-6">
-                          <p className="text-[10px] font-bold text-primary mb-1">{item.code}</p>
-                          <p className="text-sm font-black text-slate-900 uppercase italic">{item.nama}</p>
+                  ) : filteredMaterials.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-12 text-center text-slate-400 font-bold">
+                        Bahan baku tidak ditemukan.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredMaterials.map((item) => (
+                      <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-3 px-4">
+                          <span className="text-[10px] font-black text-indigo-950 font-mono block">{item.code}</span>
+                          <span className="font-black text-slate-900 uppercase italic">{item.nama}</span>
+                          <span className="text-[10px] text-slate-500 block">1 {item.satuanBesar} = {item.qtyKecil} {item.satuanKecil}</span>
                         </td>
-                        <td className="px-6 py-6 text-right font-black text-slate-900 text-xl tabular-nums">
-                          {Number(item.qtyBesar || 0).toLocaleString("id-ID")}
+                        <td className="py-3 px-4 text-right font-black text-slate-900 text-sm">
+                          {item.qtyBesar || 0} <span className="text-[10px] text-slate-500 font-normal">{item.satuanBesar}</span>
                         </td>
-                        <td className="px-8 py-6">
-                          <div className="relative w-36">
+                        <td className="py-3 px-4 text-right font-black text-slate-700">
+                          {item.qtyGudangKecil || 0} <span className="text-[10px] text-slate-500 font-normal">{item.satuanKecil}</span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="relative w-32 mx-auto">
                             <Input 
                               type="number"
-                              value={warehouseInputs[item.id] ?? ""}
-                              onChange={(e) => setWarehouseInputs(prev => ({ ...prev, [item.id]: Number(e.target.value) }))}
+                              value={warehouseInputs[item.id]?.besar ?? ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setWarehouseInputs(prev => ({
+                                  ...prev,
+                                  [item.id]: {
+                                    besar: val === "" ? "" : Number(val),
+                                    kecil: prev[item.id]?.kecil ?? 0
+                                  }
+                                }));
+                              }}
                               placeholder="0"
-                              className="rounded-xl h-12 bg-slate-50 border-none font-black text-center text-lg"
+                              className="h-9 rounded-xl text-xs font-black text-center pr-8"
                             />
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-slate-400 uppercase">{item.satuanBesar}</span>
                           </div>
                         </td>
-                        <td className="px-10 py-6 text-center text-[10px] font-black uppercase tracking-widest text-slate-500">
-                          {item.satuanBesar || "-"}
+                        <td className="py-3 px-4">
+                          <div className="relative w-32 mx-auto">
+                            <Input 
+                              type="number"
+                              value={warehouseInputs[item.id]?.kecil ?? ""}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setWarehouseInputs(prev => ({
+                                  ...prev,
+                                  [item.id]: {
+                                    besar: prev[item.id]?.besar ?? 0,
+                                    kecil: val === "" ? "" : Number(val)
+                                  }
+                                }));
+                              }}
+                              placeholder="0"
+                              className="h-9 rounded-xl text-xs font-black text-center pr-8"
+                            />
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[8px] font-black text-slate-400 uppercase">{item.satuanKecil}</span>
+                          </div>
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
+                    ))
+                  )}
+                </tbody>
+              </table>
 
-            {/* Footer Opname Gudang */}
-            <div className="p-10 bg-slate-900 text-white flex flex-col md:flex-row items-center justify-between gap-6">
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-2xl bg-white/10 flex items-center justify-center text-amber-400">
-                  <AlertCircle className="h-6 w-6" />
-                </div>
+              {/* Action Bar */}
+              <div className="p-6 bg-slate-900 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-widest">Finalisasi Update Stok Gudang</p>
-                  <p className="text-[10px] font-medium text-slate-400 mt-1 max-w-md leading-relaxed">
-                    Tindakan ini akan langsung memperbarui stok fisik gudang utama dalam sistem. Pastikan hitungan fisik sudah benar.
+                  <p className="text-xs font-black uppercase tracking-wider">
+                    Finalisasi Opname Gudang: {WAREHOUSE_LIST[selectedWarehouse].name}
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    Menyelaraskan stok fisik gudang utama ke sistem.
                   </p>
                 </div>
+                <Button 
+                  onClick={handleFinalizeGudang}
+                  disabled={processing}
+                  className="rounded-xl h-10 px-6 font-black uppercase text-xs tracking-wider bg-indigo-600 hover:bg-indigo-700 text-white shadow-md gap-2"
+                >
+                  {processing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  <span>Simpan Stok Gudang</span>
+                </Button>
               </div>
-              <Button 
-                onClick={handleFinalizeGudang}
-                disabled={processing || loading}
-                className="w-full md:w-auto rounded-2xl bg-primary hover:bg-primary/90 text-white px-10 h-14 font-black uppercase tracking-widest text-[11px] shadow-xl shadow-primary/20"
-              >
-                {processing ? "Memproses..." : "Finalisasi & Update Stok Gudang"}
-              </Button>
-            </div>
-
-            {/* History Warehouse */}
-            <div className="p-10 bg-white border-t border-slate-50">
-              <h3 className="text-sm font-black uppercase tracking-wider text-slate-700 mb-6">
-                Histori Opname Gudang Terakhir
-              </h3>
-              <div className="space-y-4">
-                {!historiesGudang || historiesGudang.length === 0 ? (
-                  <div className="text-center py-10 text-slate-400 text-xs font-black uppercase">
-                    Belum ada histori opname gudang.
-                  </div>
-                ) : (
-                  (historiesGudang as HistoryLog[]).slice(0, 5).map((h) => (
-                    <div key={h.id} className="rounded-2xl border border-slate-100 bg-slate-50/40 p-6 space-y-4">
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                            Tanggal Opname Gudang
-                          </p>
-                          <p className="text-sm font-black text-slate-800">
-                            {h.date?.toDate ? h.date.toDate().toLocaleString("id-ID") : "-"}
-                          </p>
-                        </div>
-                        <span className="bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full px-4 py-1 text-[9px] font-black uppercase">
-                          {h.note || "Opname Gudang"}
-                        </span>
-                      </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs bg-white rounded-xl border border-slate-50">
-                          <thead className="bg-slate-50">
-                            <tr>
-                              <th className="px-4 py-2 font-black uppercase text-slate-500">Nama Bahan</th>
-                              <th className="px-4 py-2 font-black uppercase text-slate-500 text-right">Sebelum</th>
-                              <th className="px-4 py-2 font-black uppercase text-slate-500 text-right">Sesudah</th>
-                              <th className="px-4 py-2 font-black uppercase text-slate-500 text-right">Selisih</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-50">
-                            {(h.items || []).filter((it) => it.diffQtyBesar !== 0).map((it, idx) => (
-                              <tr key={idx}>
-                                <td className="px-4 py-3 font-bold text-slate-900 uppercase italic">
-                                  {it.nama}
-                                </td>
-                                <td className="px-4 py-3 text-right font-semibold text-slate-600">
-                                  {it.beforeQtyBesar} {it.unitBesar}
-                                </td>
-                                <td className="px-4 py-3 text-right font-semibold text-slate-600">
-                                  {it.afterQtyBesar} {it.unitBesar}
-                                </td>
-                                <td className={`px-4 py-3 text-right font-black ${it.diffQtyBesar > 0 ? "text-emerald-600" : "text-rose-600"}`}>
-                                  {it.diffQtyBesar > 0 ? `+${it.diffQtyBesar}` : it.diffQtyBesar} {it.unitBesar}
-                                </td>
-                              </tr>
-                            ))}
-                            {(h.items || []).filter((it) => it.diffQtyBesar !== 0).length === 0 && (
-                              <tr>
-                                <td colSpan={4} className="px-4 py-3 text-center text-slate-400 font-bold">
-                                  Tidak ada selisih stok fisik vs sistem.
-                                </td>
-                              </tr>
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </Card>
-        </TabsContent>
+            </TabsContent>
+          </div>
+        </Card>
       </Tabs>
     </div>
   );

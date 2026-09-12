@@ -4,7 +4,7 @@ import React, { useState, useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useFirestore, useCollection, useMemoFirebase, collection } from "@/firebase";
+import { useFirestore, useConsolidatedCollection, useActiveBranch } from "@/firebase";
 import { query, orderBy, limit } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -49,6 +49,8 @@ interface PurchaseLog {
   suplier?: string;
   supplierName?: string;
   items?: PurchaseItem[];
+  _branchId?: string;
+  _branchName?: string;
 }
 
 const getLogDateStr = (log: PurchaseLog): string => {
@@ -106,6 +108,7 @@ const getMetodeInfo = (log: PurchaseLog, item?: PurchaseItem) => {
 
 export default function LaporanBelanjaBahanBakuPage() {
   const db = useFirestore();
+  const activeBranch = useActiveBranch();
   const { toast } = useToast();
 
   // Date Interval & Filter State
@@ -115,11 +118,12 @@ export default function LaporanBelanjaBahanBakuPage() {
   const [methodFilter, setMethodFilter] = useState<"all" | "supplier" | "beli-sendiri">("all");
 
   // Fetch purchase logs (log_pembelian_bahan)
-  const logsQuery = useMemoFirebase(
-    () => query(collection(db, "log_pembelian_bahan"), orderBy("createdAt", "desc"), limit(500)),
-    [db]
+  const { data: rawLogs, loading } = useConsolidatedCollection<PurchaseLog>(
+    db,
+    "log_pembelian_bahan",
+    (col) => query(col, orderBy("createdAt", "desc"), limit(500)),
+    []
   );
-  const { data: rawLogs, loading } = useCollection(logsQuery);
   const logs = rawLogs as PurchaseLog[] | null;
 
   // Filter logs by date range, method, & search term

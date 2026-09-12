@@ -1,6 +1,6 @@
 "use client";
 
-import { getStoreConfigDocId } from "@/lib/branch-helper";
+import { getStoreConfigDocId, useActiveBranch, BRANCH_LIST, getBranchScopedCollectionName, BranchId } from "@/lib/branch-helper";
 
 import React, { useState, useMemo } from "react";
 import { 
@@ -19,8 +19,8 @@ import {
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useFirestore, useCollection, useMemoFirebase, useDoc, collection, doc } from "@/firebase";
-import { query, deleteDoc, getDocs, where, orderBy } from "firebase/firestore";
+import { useFirestore, useConsolidatedCollection, useDoc, useMemoFirebase, doc } from "@/firebase";
+import { query, deleteDoc, getDocs, where, orderBy, collection } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
@@ -87,11 +87,14 @@ interface FreeProductRow {
   subtotal: number;
   notes: string;
   createdAt?: { seconds?: number; toDate?: () => Date } | null;
+  _branchId?: string;
+  _branchName?: string;
   rawLog: Record<string, unknown>;
 }
 
 export default function LaporanFreeProdukPage() {
   const db = useFirestore();
+  const activeBranch = useActiveBranch();
   const { toast } = useToast();
 
   const [reportType, setReportType] = useState<"daily" | "monthly" | "yearly">("daily");
@@ -105,17 +108,19 @@ export default function LaporanFreeProdukPage() {
   const settingsRef = useMemoFirebase(() => doc(db, "settings", getStoreConfigDocId()), [db]);
   const { data: settings } = useDoc(settingsRef);
 
-  // Fetch Input Free logs from Firestore
-  const freeLogsQuery = useMemoFirebase(() => {
-    return query(collection(db, "input-free"), orderBy("createdAt", "desc"));
-  }, [db]);
-  const { data: rawLogs, loading: loadingLogs } = useCollection(freeLogsQuery);
+  // Fetch Input Free logs across active branch or all stores
+  const { data: rawLogs, loading: loadingLogs } = useConsolidatedCollection(
+    db,
+    "input-free",
+    (ref) => query(ref, orderBy("createdAt", "desc"))
+  );
 
-  // Fetch Karyawan list from Firestore
-  const karyawanQuery = useMemoFirebase(() => {
-    return query(collection(db, "karyawan"), orderBy("nama", "asc"));
-  }, [db]);
-  const { data: rawKaryawanList, loading: loadingKaryawan } = useCollection(karyawanQuery);
+  // Fetch Karyawan list across active branch or all stores
+  const { data: rawKaryawanList, loading: loadingKaryawan } = useConsolidatedCollection(
+    db,
+    "karyawan",
+    (ref) => query(ref, orderBy("nama", "asc"))
+  );
 
   const loading = loadingLogs || loadingKaryawan;
 
@@ -189,6 +194,8 @@ export default function LaporanFreeProdukPage() {
           subtotal: Number(item.subtotal || (Number(item.harga || 0) * Number(item.qty || 1))),
           notes: String(log.notes || log.note || "-"),
           createdAt: (log.createdAt as { seconds?: number; toDate?: () => Date } | null | undefined) ?? null,
+          _branchId: (log._branchId as string) || 'gdm',
+          _branchName: (log._branchName as string) || (log._branchId ? BRANCH_LIST[log._branchId as keyof typeof BRANCH_LIST]?.shortName : 'Zona GDM'),
           rawLog: log,
         };
 
@@ -264,19 +271,23 @@ export default function LaporanFreeProdukPage() {
   }, [reportType, selectedDate, selectedMonth, selectedYear]);
 
   // Delete entire Input Free log entry
-  const handleDeleteLog = async (docId: string, operasionalDocId?: string, productName?: string) => {
+  const handleDeleteLog = async (docId: string, operasionalDocId?: string, productName?: string, rowBranchId?: string) => {
     const confirmMessage = `Hapus catatan input free produk "${productName || 'ini'}"?\n\nCatatan ini juga akan dihapus dari Laporan Operasional Owner.`;
     if (!confirm(confirmMessage)) return;
 
     try {
-      await deleteDoc(doc(db, "input-free", docId));
+      const targetBranch = (rowBranchId as BranchId) || activeBranch;
+      const freeColl = getBranchScopedCollectionName("input-free", targetBranch === 'all' ? 'gdm' : targetBranch);
+      const opColl = getBranchScopedCollectionName("operasional-kontainer", targetBranch === 'all' ? 'gdm' : targetBranch);
+
+      await deleteDoc(doc(db, freeColl, docId));
 
       if (operasionalDocId) {
-        await deleteDoc(doc(db, "operasional-kontainer", operasionalDocId)).catch(() => {});
+        await deleteDoc(doc(db, opColl, operasionalDocId)).catch(() => {});
       } else {
-        const opSnap = await getDocs(query(collection(db, "operasional-kontainer"), where("inputFreeId", "==", docId)));
+        const opSnap = await getDocs(query(collection(db, opColl), where("inputFreeId", "==", docId)));
         opSnap.forEach(async (d) => {
-          await deleteDoc(doc(db, "operasional-kontainer", d.id)).catch(() => {});
+          await deleteDoc(doc(db, opColl, d.id)).catch(() => {});
         });
       }
 
@@ -763,10 +774,20 @@ export default function LaporanFreeProdukPage() {
                             : "-"}
                       </div>
                     </td>
-                    <td className="px-4 py-4 font-black text-xs text-slate-900 uppercase">
-                      <div className="flex items-center gap-2">
-                        <Gift className="h-3.5 w-3.5 text-pink-500 shrink-0" />
-                        <span>{row.productName}</span>
+                    <td className="px-4 py-4">
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-2">
+                          <Gift className="h-3.5 w-3.5 text-pink-500 shrink-0" />
+                          <span className="font-black text-xs text-slate-900 uppercase">{row.productName}</span>
+                        </div>
+                        {activeBranch === 'all' && (
+                          <span className={cn(
+                            "inline-block px-1.5 py-0.5 text-[7.5px] font-black uppercase tracking-wider rounded border w-fit ml-5.5",
+                            BRANCH_LIST[row._branchId as keyof typeof BRANCH_LIST]?.badgeColor || "bg-slate-100 text-slate-700"
+                          )}>
+                            {row._branchName}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-4 font-black text-xs text-slate-900">
@@ -798,7 +819,7 @@ export default function LaporanFreeProdukPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => handleDeleteLog(row.docId, row.operasionalDocId, row.productName)}
+                        onClick={() => handleDeleteLog(row.docId, row.operasionalDocId, row.productName, row._branchId)}
                         className="h-8 w-8 rounded-xl hover:bg-rose-50 text-slate-300 hover:text-rose-600 transition-colors"
                         title="Hapus catatan free produk"
                       >

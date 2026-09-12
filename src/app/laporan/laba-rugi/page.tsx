@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useFirestore, useCollection, useMemoFirebase, useDoc, collection, doc } from "@/firebase";
+import { useFirestore, useConsolidatedCollection, useDoc, useMemoFirebase, doc } from "@/firebase";
 import { query, where, orderBy, writeBatch } from "firebase/firestore";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
@@ -58,6 +58,8 @@ interface PenjualanDoc {
   keuntunganTotal?: number;
   totalQty?: number;
   items?: SaleDocItem[];
+  _branchId?: string;
+  _branchName?: string;
   [key: string]: unknown;
 }
 
@@ -92,26 +94,23 @@ export default function LabaRugiPage() {
     setAppliedType(reportType);
   };
 
-  const penjualanQuery = useMemoFirebase(() => {
-    if (appliedType === 'daily') {
-      return query(
-        collection(db, "penjualan"),
-        where("tanggal", "==", appliedDate)
-      );
-    } else {
-      return query(
-        collection(db, "penjualan"),
-        orderBy("tanggal", "asc")
-      );
-    }
-  }, [db, appliedType, appliedDate]);
+  const { data: rawSales, loading } = useConsolidatedCollection<PenjualanDoc>(
+    db,
+    "penjualan",
+    (col) => appliedType === 'daily'
+      ? query(col, where("tanggal", "==", appliedDate))
+      : query(col, orderBy("tanggal", "asc")),
+    [appliedType, appliedDate]
+  );
+  const rawData = rawSales;
 
-  const { data: rawSales, loading } = useCollection(penjualanQuery);
-  const rawData = rawSales as unknown as PenjualanDoc[];
-
-  const productsQuery = useMemoFirebase(() => collection(db, "produk"), [db]);
-  const { data: rawProducts } = useCollection(productsQuery);
-  const products = rawProducts as unknown as ProductItem[];
+  const { data: rawProducts } = useConsolidatedCollection<ProductItem>(
+    db,
+    "produk",
+    undefined,
+    []
+  );
+  const products = rawProducts;
 
   const filteredData = useMemo(() => {
     if (appliedType === 'daily') return rawData || [];

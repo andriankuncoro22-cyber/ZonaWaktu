@@ -1,6 +1,6 @@
 "use client";
 
-import { getStoreConfigDocId } from "@/lib/branch-helper";
+import { getStoreConfigDocId, useActiveBranch, getBranchScopedCollectionName, BranchId } from "@/lib/branch-helper";
 
 import React, { useState } from "react";
 import { Card } from "@/components/ui/card";
@@ -39,6 +39,7 @@ interface BahanRow {
 
 export default function LaporanPemakaianBahanBakuPage() {
   const db = useFirestore();
+  const activeBranch = useActiveBranch();
 
   // Date pickers
   const today = new Date().toISOString().split("T")[0];
@@ -60,85 +61,94 @@ export default function LaporanPemakaianBahanBakuPage() {
   async function fetchReport(mode: "harian" | "bulanan") {
     setLoadingReport(true);
     try {
-      // 1. Load all bahan baku
-      const bahanSnap = await getDocs(collection(db, "bahan-baku"));
+      const branchesToQuery: BranchId[] = activeBranch === 'all'
+        ? ['gdm', 'kedungreja', 'tehwarga']
+        : [activeBranch];
+
+      // Combined maps across queried branches
       const bahanMap: { [id: string]: { code: string; nama: string; satuanKecil: string; hargaSatuanKecil: number } } = {};
-      bahanSnap.forEach((d) => {
-        const data = d.data();
-        const conversionRate = Number(data.qtyKecil || 1);
-        const priceBesar = Number(data.currentPrice ?? data.avgPrice ?? data.hargaBeliSatuanBesar ?? 0);
-        const unitPriceKecil = Number(data.hargaSatuanKecil ?? (conversionRate > 0 ? priceBesar / conversionRate : 0));
-
-        bahanMap[d.id] = {
-          code: data.code ?? "-",
-          nama: data.nama ?? "-",
-          satuanKecil: data.satuanKecil ?? "",
-          hargaSatuanKecil: unitPriceKecil,
-        };
-      });
-
-      // 2. Load all products (produk)
-      const produkSnap = await getDocs(collection(db, "produk"));
-      const productCodeMap: { [code: string]: string } = {};
-      produkSnap.forEach((d) => {
-        const data = d.data();
-        if (data.code) {
-          productCodeMap[data.code] = d.id;
-        }
-      });
-
-      // 3. Load all recipes (resep)
-      const resepSnap = await getDocs(collection(db, "resep"));
-      const recipeMap: { [produkId: string]: { bahanBakuId: string; jumlah: number }[] } = {};
-      resepSnap.forEach((d) => {
-        const data = d.data();
-        if (data.produkId) {
-          recipeMap[data.produkId] = data.komposisi ?? [];
-        }
-      });
-
-      // 4. Load penjualan filtered by date
-      let penjualanQuery;
-      if (mode === "harian") {
-        penjualanQuery = query(
-          collection(db, "penjualan"),
-          where("tanggal", "==", hariDate)
-        );
-      } else {
-        // Bulanan: tanggal starts with YYYY-MM
-        const [year, month] = bulanYM.split("-");
-        const start = `${year}-${month}-01`;
-        // last day of month
-        const lastDay = new Date(Number(year), Number(month), 0).getDate();
-        const end = `${year}-${month}-${String(lastDay).padStart(2, "0")}`;
-        penjualanQuery = query(
-          collection(db, "penjualan"),
-          where("tanggal", ">=", start),
-          where("tanggal", "<=", end)
-        );
-      }
-
-      const penjualanSnap = await getDocs(penjualanQuery);
-
-      // 5. Aggregate: for each sales doc -> each item -> each composition ingredient
       const agg: { [bahanId: string]: number } = {};
 
-      penjualanSnap.forEach((doc) => {
-        const data = doc.data() as any;
-        const items = data.items ?? [];
-        items.forEach((item: any) => {
-          const qty = Number(item.total ?? 0);
-          if (qty <= 0) return;
-          const productId = productCodeMap[item.code];
-          if (!productId) return;
-          const recipe = recipeMap[productId];
-          if (!recipe) return;
-          recipe.forEach((ing) => {
-            const used = ing.jumlah * qty;
-            agg[ing.bahanBakuId] = (agg[ing.bahanBakuId] || 0) + used;
+      for (const b of branchesToQuery) {
+        // 1. Load bahan baku for branch
+        const bahanColl = getBranchScopedCollectionName("bahan-baku", b);
+        const bahanSnap = await getDocs(collection(db, bahanColl));
+        bahanSnap.forEach((d) => {
+          const data = d.data();
+          const conversionRate = Number(data.qtyKecil || 1);
+          const priceBesar = Number(data.currentPrice ?? data.avgPrice ?? data.hargaBeliSatuanBesar ?? 0);
+          const unitPriceKecil = Number(data.hargaSatuanKecil ?? (conversionRate > 0 ? priceBesar / conversionRate : 0));
+
+          bahanMap[d.id] = {
+            code: data.code ?? "-",
+            nama: data.nama ?? "-",
+            satuanKecil: data.satuanKecil ?? "",
+            hargaSatuanKecil: unitPriceKecil,
+          };
+        });
+
+        // 2. Load products for branch
+        const produkColl = getBranchScopedCollectionName("produk", b);
+        const produkSnap = await getDocs(collection(db, produkColl));
+        const productCodeMap: { [code: string]: string } = {};
+        produkSnap.forEach((d) => {
+          const data = d.data();
+          if (data.code) {
+            productCodeMap[data.code] = d.id;
+          }
+        });
+
+        // 3. Load recipes for branch
+        const resepColl = getBranchScopedCollectionName("resep", b);
+        const resepSnap = await getDocs(collection(db, resepColl));
+        const recipeMap: { [produkId: string]: { bahanBakuId: string; jumlah: number }[] } = {};
+        resepSnap.forEach((d) => {
+          const data = d.data();
+          if (data.produkId) {
+            recipeMap[data.produkId] = data.komposisi ?? [];
+          }
+        });
+
+        // 4. Load penjualan filtered by date for branch
+        const penjualanColl = getBranchScopedCollectionName("penjualan", b);
+        let penjualanQuery;
+        if (mode === "harian") {
+          penjualanQuery = query(
+            collection(db, penjualanColl),
+            where("tanggal", "==", hariDate)
+          );
+        } else {
+          const [year, month] = bulanYM.split("-");
+          const start = `${year}-${month}-01`;
+          const lastDay = new Date(Number(year), Number(month), 0).getDate();
+          const end = `${year}-${month}-${String(lastDay).padStart(2, "0")}`;
+          penjualanQuery = query(
+            collection(db, penjualanColl),
+            where("tanggal", ">=", start),
+            where("tanggal", "<=", end)
+          );
+        }
+
+        const penjualanSnap = await getDocs(penjualanQuery);
+
+        // 5. Aggregate: for each sales doc -> each item -> each composition ingredient
+        penjualanSnap.forEach((docSnap) => {
+          const data = docSnap.data() as any;
+          const items = data.items ?? [];
+          items.forEach((item: any) => {
+            const qty = Number(item.total ?? 0);
+            if (qty <= 0) return;
+            const productId = productCodeMap[item.code];
+            if (!productId) return;
+            const recipe = recipeMap[productId];
+            if (!recipe) return;
+            recipe.forEach((ing) => {
+              const used = ing.jumlah * qty;
+              agg[ing.bahanBakuId] = (agg[ing.bahanBakuId] || 0) + used;
+            });
           });
         });
-      });
+      }
 
       // 6. Build rows with Total Harga Bahan Baku calculation
       const rows: BahanRow[] = Object.entries(agg)

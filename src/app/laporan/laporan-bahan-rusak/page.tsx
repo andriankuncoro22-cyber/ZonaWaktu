@@ -1,6 +1,6 @@
 "use client";
 
-import { getStoreConfigDocId } from "@/lib/branch-helper";
+import { getStoreConfigDocId, useActiveBranch, BRANCH_LIST, getBranchScopedCollectionName, BranchId } from "@/lib/branch-helper";
 
 import React, { useState, useMemo } from "react";
 import { 
@@ -19,7 +19,7 @@ import {
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useFirestore, useCollection, useMemoFirebase, useDoc, collection, doc } from "@/firebase";
+import { useFirestore, useConsolidatedCollection, useDoc, useMemoFirebase, doc } from "@/firebase";
 import { query, where, deleteDoc, updateDoc, increment, orderBy } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -39,11 +39,14 @@ interface BahanRusakLogDoc {
   keterangan?: string;
   karyawanNama?: string;
   createdAt?: unknown;
+  _branchId?: string;
+  _branchName?: string;
   [key: string]: unknown;
 }
 
 export default function LaporanBahanRusakPage() {
   const db = useFirestore();
+  const activeBranch = useActiveBranch();
   const { toast } = useToast();
 
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
@@ -55,11 +58,12 @@ export default function LaporanBahanRusakPage() {
   const settingsRef = useMemoFirebase(() => doc(db, "settings", getStoreConfigDocId()), [db]);
   const { data: settings } = useDoc(settingsRef);
 
-  // Fetch Bahan Rusak logs
-  const rusakQuery = useMemoFirebase(() => {
-    return query(collection(db, "bahan-rusak"), orderBy("createdAt", "desc"));
-  }, [db]);
-  const { data: rawLogs, loading } = useCollection(rusakQuery);
+  // Fetch Bahan Rusak logs across active branch or all stores
+  const { data: rawLogs, loading } = useConsolidatedCollection(
+    db,
+    "bahan-rusak",
+    (ref) => query(ref, orderBy("createdAt", "desc"))
+  );
 
   // Filter logs by date/month and search term
   const filteredLogs = useMemo(() => {
@@ -99,27 +103,27 @@ export default function LaporanBahanRusakPage() {
     if (!confirm(confirmMessage)) return;
 
     try {
-      // 1. Revert container stock in bahan-baku collection
+      const targetBranch = (log._branchId as BranchId) || activeBranch;
+      const rusakColl = getBranchScopedCollectionName("bahan-rusak", targetBranch === 'all' ? 'gdm' : targetBranch);
+      const bahanColl = getBranchScopedCollectionName("bahan-baku", targetBranch === 'all' ? 'gdm' : targetBranch);
+
+      await deleteDoc(doc(db, rusakColl, log.id));
+
       if (log.materialId) {
-        const matRef = doc(db, "bahan-baku", log.materialId);
-        await updateDoc(matRef, {
+        await updateDoc(doc(db, bahanColl, log.materialId), {
           qtyKontainerKecil: increment(Number(log.jumlah || 0))
         });
       }
 
-      // 2. Delete document from bahan-rusak collection
-      await deleteDoc(doc(db, "bahan-rusak", log.id));
-
       toast({
-        title: "Catatan Bahan Rusak Dihapus",
-        description: `Stok kontainer ${log.materialName} sebanyak ${log.jumlah} ${log.satuanKecil} berhasil dikembalikan.`,
+        title: "Berhasil",
+        description: `Catatan bahan rusak dihapus dan ${log.jumlah} ${log.satuanKecil} dikembalikan ke stok kontainer.`
       });
-    } catch (err) {
-      console.error("Error deleting bahan rusak log:", err);
+    } catch (e: any) {
       toast({
-        variant: "destructive",
         title: "Gagal Menghapus",
-        description: "Terjadi kesalahan saat mengembalikan stok kontainer.",
+        description: e.message,
+        variant: "destructive"
       });
     }
   };
@@ -336,8 +340,18 @@ export default function LaporanBahanRusakPage() {
                     <td className="pl-6 py-4 font-bold text-xs text-rose-600">
                       {log.materialCode || "-"}
                     </td>
-                    <td className="px-4 py-4 font-black text-xs text-slate-900 uppercase">
-                      {log.materialName || "-"}
+                    <td className="px-4 py-4">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-black text-xs text-slate-900 uppercase">{log.materialName || "-"}</span>
+                        {activeBranch === 'all' && (
+                          <span className={cn(
+                            "inline-block px-1.5 py-0.5 text-[7.5px] font-black uppercase tracking-wider rounded border w-fit",
+                            BRANCH_LIST[log._branchId as keyof typeof BRANCH_LIST]?.badgeColor || "bg-slate-100 text-slate-700"
+                          )}>
+                            {log._branchName || (log._branchId ? BRANCH_LIST[log._branchId as keyof typeof BRANCH_LIST]?.shortName : 'Zona GDM')}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-4 font-black text-xs text-slate-900">
                       <span className="inline-block px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-100">

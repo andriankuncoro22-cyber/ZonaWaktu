@@ -1,6 +1,6 @@
 "use client";
 
-import { getStoreConfigDocId } from "@/lib/branch-helper";
+import { getStoreConfigDocId, useActiveBranch, filterContainerMaterials } from "@/lib/branch-helper";
 
 import React, { useState, useMemo } from "react";
 import { 
@@ -54,6 +54,7 @@ interface BahanBaku {
 export default function RekapanStockKritisPage() {
   const db = useFirestore();
   const { toast } = useToast();
+  const activeBranch = useActiveBranch();
   const [searchTerm, setSearchTerm] = useState("");
   const [activeTab, setActiveTab] = useState("kontainer");
   const [isWaDialogOpen, setIsWaDialogOpen] = useState(false);
@@ -89,12 +90,13 @@ export default function RekapanStockKritisPage() {
 
   const criticalKontainer = useMemo(() => {
     if (!materials) return [];
-    return (materials as BahanBaku[]).filter(item => {
+    const containerMats = filterContainerMaterials(materials as BahanBaku[], activeBranch);
+    return containerMats.filter(item => {
       const minStock = getMinStockKontainer(item);
       const total = getKontainerTotal(item);
       return total <= minStock;
     });
-  }, [materials]);
+  }, [materials, activeBranch]);
 
   const filteredGudang = useMemo(() => {
     return criticalGudang.filter(item => 

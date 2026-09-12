@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useFirestore, useCollection, useMemoFirebase, collection } from "@/firebase";
+import { useFirestore, useConsolidatedCollection } from "@/firebase";
 import { query, where, orderBy } from "firebase/firestore";
 import { Calendar, Search, ShoppingBag, TrendingUp, Wallet, Package } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -64,6 +64,8 @@ interface ClosingPenjualanDoc {
   id: string;
   tanggal?: string;
   items?: ClosingItemDoc[];
+  _branchId?: string;
+  _branchName?: string;
 }
 
 interface ProductSummaryItem {
@@ -92,23 +94,18 @@ export default function HppReportPage() {
     setAppliedType(reportType);
   };
 
-  const penjualanQuery = useMemoFirebase(() => {
-    if (appliedType === "daily") {
-      return query(collection(db, "penjualan"), where("tanggal", "==", appliedDate));
-    }
-    return query(collection(db, "penjualan"), orderBy("tanggal", "asc"));
-  }, [db, appliedType, appliedDate]);
+  const { data: rawData, loading } = useConsolidatedCollection<ClosingPenjualanDoc>(
+    db,
+    "penjualan",
+    (col) => appliedType === "daily"
+      ? query(col, where("tanggal", "==", appliedDate))
+      : query(col, orderBy("tanggal", "asc")),
+    [appliedType, appliedDate]
+  );
 
-  const { data: rawData, loading } = useCollection(penjualanQuery);
-
-  const productsQuery = useMemoFirebase(() => collection(db, "produk"), [db]);
-  const { data: products } = useCollection(productsQuery);
-
-  const recipesQuery = useMemoFirebase(() => collection(db, "resep"), [db]);
-  const { data: recipes } = useCollection(recipesQuery);
-
-  const materialsQuery = useMemoFirebase(() => collection(db, "bahan-baku"), [db]);
-  const { data: materials } = useCollection(materialsQuery);
+  const { data: products } = useConsolidatedCollection<ProductItem>(db, "produk");
+  const { data: recipes } = useConsolidatedCollection<RecipeItem>(db, "resep");
+  const { data: materials } = useConsolidatedCollection<MaterialItem>(db, "bahan-baku");
 
   const filteredData = useMemo(() => {
     if (!rawData) return [];

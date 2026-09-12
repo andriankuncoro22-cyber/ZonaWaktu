@@ -1,8 +1,8 @@
 "use client";
 
-import { getStoreConfigDocId } from "@/lib/branch-helper";
+import { getStoreConfigDocId, useActiveBranch, filterContainerMaterials } from "@/lib/branch-helper";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -52,6 +52,7 @@ export function StockContainerOpnameView({
   subtitle = "Verifikasi stok kontainer harian dengan alur yang sama seperti stok opname kontainer",
 }: StockContainerOpnameViewProps) {
   const db = useFirestore();
+  const activeBranch = useActiveBranch();
   const [searchTerm, setSearchTerm] = useState("");
 
   const materialsQuery = useMemoFirebase(
@@ -59,7 +60,11 @@ export function StockContainerOpnameView({
     [db]
   );
 
-  const { data: materials, loading } = useCollection(materialsQuery);
+  const { data: rawMaterials, loading } = useCollection(materialsQuery);
+  const materials = useMemo(() => {
+    return filterContainerMaterials(rawMaterials as BahanBaku[], activeBranch);
+  }, [rawMaterials, activeBranch]);
+
   const settingsRef = useMemoFirebase(() => doc(db, "settings", getStoreConfigDocId()), [db]);
   const { data: settings } = useDoc(settingsRef);
 

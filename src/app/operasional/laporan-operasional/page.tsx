@@ -3,9 +3,9 @@
 import React, { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useFirestore, collection } from "@/firebase";
+import { useFirestore, useActiveBranch, branchCollection, branchDoc, BRANCH_LIST, BranchId } from "@/firebase";
 import { query, where, getDocs } from "firebase/firestore";
-import { Loader2, FileSpreadsheet, FileDown, CalendarDays, Trash2 } from "lucide-react";
+import { Loader2, FileSpreadsheet, FileDown, CalendarDays, Trash2, Store } from "lucide-react";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -19,10 +19,13 @@ interface Row {
   pembayaran: string;
   nominal: number;
   sumber: "Karyawan" | "Owner";
+  branchId: BranchId;
+  branchName: string;
 }
 
 export default function LaporanOperasionalPage() {
   const db = useFirestore();
+  const activeBranch = useActiveBranch();
   const { toast } = useToast();
   const today = new Date().toISOString().split("T")[0];
   const [startDate, setStartDate] = useState(today);
@@ -30,17 +33,17 @@ export default function LaporanOperasionalPage() {
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<Row[] | null>(null);
 
-  const handleDelete = async (id: string, sumber: "Karyawan" | "Owner") => {
+  const handleDelete = async (id: string, sumber: "Karyawan" | "Owner", branchId: BranchId) => {
     if (!confirm(`Hapus catatan pengeluaran ini? Pengeluaran ini akan otomatis terhapus dari perhitungan Laba Rugi.`)) return;
 
     try {
-      const { deleteDoc, doc } = await import("firebase/firestore");
+      const { deleteDoc } = await import("firebase/firestore");
       const collectionName = sumber === "Karyawan" ? "operasional-kontainer" : "operasional-toko";
-      await deleteDoc(doc(db, collectionName, id));
+      await deleteDoc(branchDoc(db, collectionName, id, branchId));
 
       toast({
         title: "Berhasil Dihapus",
-        description: `Catatan pengeluaran ${sumber} berhasil dihapus.`,
+        description: `Catatan pengeluaran ${sumber} (${BRANCH_LIST[branchId]?.shortName}) berhasil dihapus.`,
       });
 
       if (rows) {
@@ -60,42 +63,41 @@ export default function LaporanOperasionalPage() {
     setLoading(true);
     setRows(null);
     try {
-      const [karyawanSnap, ownerSnap] = await Promise.all([
+      const targetBranches: BranchId[] = activeBranch === 'all' 
+        ? ['gdm', 'kedungreja', 'tehwarga'] 
+        : [activeBranch];
+
+      const fetchPromises = targetBranches.flatMap((bId) => [
         getDocs(query(
-          collection(db, "operasional-kontainer"),
+          branchCollection(db, "operasional-kontainer", bId),
           where("tanggal", ">=", startDate),
           where("tanggal", "<=", endDate)
-        )),
+        )).then(snap => ({ snap, branchId: bId, sumber: "Karyawan" as const })),
         getDocs(query(
-          collection(db, "operasional-toko"),
+          branchCollection(db, "operasional-toko", bId),
           where("tanggal", ">=", startDate),
           where("tanggal", "<=", endDate)
-        )),
+        )).then(snap => ({ snap, branchId: bId, sumber: "Owner" as const }))
       ]);
 
+      const results = await Promise.all(fetchPromises);
       const data: Row[] = [];
 
-      karyawanSnap.forEach((d) => {
-        const s = d.data() as Record<string, unknown>;
-        data.push({
-          id: d.id,
-          tanggal: String(s.tanggal || ""),
-          createdAt: s.createdAt as Row["createdAt"],
-          pembayaran: String(s.pembayaran || "-"),
-          nominal: Number(s.nominal || 0),
-          sumber: "Karyawan",
-        });
-      });
-
-      ownerSnap.forEach((d) => {
-        const s = d.data() as Record<string, unknown>;
-        data.push({
-          id: d.id,
-          tanggal: String(s.tanggal || ""),
-          createdAt: s.createdAt as Row["createdAt"],
-          pembayaran: String(s.paymentTypeLabel || s.paymentType || "Operasional Toko"),
-          nominal: Number(s.nominal || s.total || 0),
-          sumber: "Owner",
+      results.forEach(({ snap, branchId, sumber }) => {
+        snap.forEach((d) => {
+          const s = d.data() as Record<string, unknown>;
+          data.push({
+            id: d.id,
+            tanggal: String(s.tanggal || ""),
+            createdAt: s.createdAt as Row["createdAt"],
+            pembayaran: sumber === "Karyawan"
+              ? String(s.pembayaran || "-")
+              : String(s.paymentTypeLabel || s.paymentType || "Operasional Toko"),
+            nominal: Number(s.nominal || s.total || 0),
+            sumber,
+            branchId,
+            branchName: BRANCH_LIST[branchId]?.shortName || branchId,
+          });
         });
       });
 
@@ -240,12 +242,19 @@ export default function LaporanOperasionalPage() {
                   <Card key={r.id} className="border border-slate-100 rounded-2xl p-4 space-y-3 shadow-none bg-slate-50/30">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{r.tanggal}</span>
-                      <span className={cn(
-                        "text-[9px] font-black uppercase px-2 py-0.5 rounded",
-                        r.sumber === "Owner" ? "bg-blue-50 text-blue-700 border border-blue-150" : "bg-emerald-50 text-emerald-700 border border-emerald-150"
-                      )}>
-                        {r.sumber}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {activeBranch === 'all' && (
+                          <span className="text-[8.5px] font-black uppercase px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100">
+                            {r.branchName}
+                          </span>
+                        )}
+                        <span className={cn(
+                          "text-[9px] font-black uppercase px-2 py-0.5 rounded",
+                          r.sumber === "Owner" ? "bg-blue-50 text-blue-700 border border-blue-150" : "bg-emerald-50 text-emerald-700 border border-emerald-150"
+                        )}>
+                          {r.sumber}
+                        </span>
+                      </div>
                     </div>
 
                     <div className="flex items-start justify-between gap-4">
@@ -264,7 +273,7 @@ export default function LaporanOperasionalPage() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleDelete(r.id, r.sumber)}
+                        onClick={() => handleDelete(r.id, r.sumber, r.branchId)}
                         className="h-8 text-[10px] font-black uppercase text-rose-600 hover:bg-rose-50 gap-1.5 rounded-lg px-3"
                       >
                         <Trash2 className="h-3.5 w-3.5" /> Hapus Catatan
@@ -280,6 +289,9 @@ export default function LaporanOperasionalPage() {
                   <thead>
                     <tr className="bg-slate-50/80">
                       <th className="px-6 py-3 text-[9px] font-black uppercase text-slate-500">Tanggal</th>
+                      {activeBranch === 'all' && (
+                        <th className="px-4 py-3 text-[9px] font-black uppercase text-slate-500">Outlet</th>
+                      )}
                       <th className="px-4 py-3 text-[9px] font-black uppercase text-slate-500">Sumber</th>
                       <th className="px-4 py-3 text-[9px] font-black uppercase text-slate-500">Pembayaran</th>
                       <th className="px-4 py-3 text-[9px] font-black uppercase text-slate-500 text-right">Nominal</th>
@@ -290,6 +302,13 @@ export default function LaporanOperasionalPage() {
                     {rows.map((r) => (
                       <tr key={r.id} className="hover:bg-slate-50/60 transition-colors">
                         <td className="px-6 py-4 text-sm font-black text-slate-900">{r.tanggal}</td>
+                        {activeBranch === 'all' && (
+                          <td className="px-4 py-4 text-xs font-bold text-slate-600">
+                            <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-md border border-indigo-100 text-[10px] font-black uppercase">
+                              {r.branchName}
+                            </span>
+                          </td>
+                        )}
                         <td className="px-4 py-4 text-sm font-black text-slate-700">{r.sumber}</td>
                         <td className="px-4 py-4 text-sm text-slate-700">{r.pembayaran}</td>
                         <td className="px-4 py-4 text-right font-black text-primary">Rp {r.nominal.toLocaleString("id-ID")}</td>
@@ -297,7 +316,7 @@ export default function LaporanOperasionalPage() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => handleDelete(r.id, r.sumber)}
+                            onClick={() => handleDelete(r.id, r.sumber, r.branchId)}
                             className="h-8 w-8 text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg"
                           >
                             <Trash2 className="h-4 w-4" />

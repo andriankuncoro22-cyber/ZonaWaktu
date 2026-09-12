@@ -423,14 +423,6 @@ export default function PengaturanAbsensiPage() {
     return all.filter((k) => normalizeBranchId(k.cabang) === selectedBranch);
   }, [karyawanList, selectedBranch]);
 
-  const tim1Karyawan = useMemo(() => {
-    return filteredKaryawanList.filter(k => k.team !== "tim2");
-  }, [filteredKaryawanList]);
-
-  const tim2Karyawan = useMemo(() => {
-    return filteredKaryawanList.filter(k => k.team === "tim2");
-  }, [filteredKaryawanList]);
-
   // Fetch Schedules
   const monthKey = `${selectedDate.getFullYear()}-${(selectedDate.getMonth() + 1).toString().padStart(2, '0')}`;
   const schedulesQuery = useMemoFirebase(() => 
@@ -769,7 +761,6 @@ export default function PengaturanAbsensiPage() {
   const [formUsername, setFormUsername] = useState("");
   const [formPassword, setFormPassword] = useState("");
   const [formGender, setFormGender] = useState("Laki-laki");
-  const [formTeam, setFormTeam] = useState("tim1");
   const [prevBranch, setPrevBranch] = useState<BranchId>(selectedBranch);
   const [formCabang, setFormCabang] = useState<"gdm" | "kedungreja" | "tehwarga">(
     (selectedBranch === "all" ? "gdm" : selectedBranch) as "gdm" | "kedungreja" | "tehwarga"
@@ -810,7 +801,6 @@ export default function PengaturanAbsensiPage() {
             role: "employee",
             cabang: b,
             gender: data.gender || "Laki-laki",
-            team: data.team || "tim1",
             status: data.status || "aktif"
           });
         }
@@ -881,7 +871,6 @@ export default function PengaturanAbsensiPage() {
         username: cleanUsername,
         password: cleanPassword,
         gender: formGender,
-        team: formTeam,
         cabang: formCabang,
         status: "aktif",
         updatedAt: serverTimestamp()
@@ -918,7 +907,6 @@ export default function PengaturanAbsensiPage() {
       setFormUsername("");
       setFormPassword("");
       setFormGender("Laki-laki");
-      setFormTeam("tim1");
       setFormCabang("gdm");
     } catch (err) {
       console.error(err);
@@ -986,24 +974,22 @@ export default function PengaturanAbsensiPage() {
 
   const handleAutoFillSchedules = async () => {
     if (!karyawanList || karyawanList.length === 0) return;
-    const confirm = window.confirm("Apakah Anda yakin ingin mengisi otomatis seluruh jadwal bulan ini dengan rotasi harian (Tim 1: S1/S2 bergantian, Tim 2: S2/S1 bergantian)?");
+    const confirm = window.confirm("Apakah Anda yakin ingin mengisi otomatis seluruh jadwal bulan ini dengan rotasi shift harian?");
     if (!confirm) return;
 
     setProcessingSchedule(true);
     try {
       const batch = writeBatch(db);
       
-      (karyawanList as KaryawanData[]).forEach((k) => {
-        const isTim2 = k.team === "tim2";
+      (filteredKaryawanList as KaryawanData[]).forEach((k, idx) => {
+        const startsWithS2 = idx % 2 !== 0;
         for (let day = 1; day <= daysInMonth; day++) {
           const isOddDay = day % 2 !== 0;
           let shiftType = "shift1";
           
-          if (isTim2) {
-            // Tim 2: odd S2, even S1
+          if (startsWithS2) {
             shiftType = isOddDay ? "shift2" : "shift1";
           } else {
-            // Tim 1: odd S1, even S2
             shiftType = isOddDay ? "shift1" : "shift2";
           }
 
@@ -1282,7 +1268,6 @@ export default function PengaturanAbsensiPage() {
                       setFormUsername("");
                       setFormPassword("");
                       setFormGender("Laki-laki");
-                      setFormTeam("tim1");
                       setFormCabang("gdm");
                     }}
                     className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 h-8 px-3 rounded-xl border border-slate-100"
@@ -1329,7 +1314,7 @@ export default function PengaturanAbsensiPage() {
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label className="text-[10px] font-black uppercase">Cabang Penempatan</Label>
                     <select 
@@ -1353,18 +1338,6 @@ export default function PengaturanAbsensiPage() {
                     >
                       <option value="Laki-laki">Laki-laki</option>
                       <option value="Perempuan">Perempuan</option>
-                    </select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-[10px] font-black uppercase">Tim Karyawan</Label>
-                    <select 
-                      value={formTeam} 
-                      onChange={(e) => setFormTeam(e.target.value)} 
-                      required 
-                      className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold focus-visible:outline-none"
-                    >
-                      <option value="tim1">Tim 1</option>
-                      <option value="tim2">Tim 2</option>
                     </select>
                   </div>
                 </div>
@@ -1470,9 +1443,6 @@ export default function PengaturanAbsensiPage() {
                             <span className="text-[9px] font-bold text-slate-600 bg-slate-100 rounded-md px-2 py-0.5 w-fit">
                               {k.gender || "Laki-laki"}
                             </span>
-                            <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 rounded-md px-2 py-0.5 w-fit">
-                              {k.team === "tim2" ? "Tim 2" : "Tim 1"}
-                            </span>
                           </div>
                         </td>
                         <td className="px-6 py-4 text-right">
@@ -1485,11 +1455,10 @@ export default function PengaturanAbsensiPage() {
                                 setFormNama(k.nama || "");
                                 setFormUsername(k.username || "");
                                 setFormPassword(k.password || "");
-                                 setFormGender(k.gender || "Laki-laki");
-                                 setFormTeam(k.team || "tim1");
-                                 const branchValue = normalizeBranchId(k.cabang);
-                                 setFormCabang(branchValue === "all" ? "gdm" : branchValue);
-                                 setTimeout(() => {
+                                setFormGender(k.gender || "Laki-laki");
+                                const branchValue = normalizeBranchId(k.cabang);
+                                setFormCabang(branchValue === "all" ? "gdm" : branchValue);
+                                setTimeout(() => {
                                   formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
                                 }, 50);
                               }} 
@@ -1574,90 +1543,43 @@ export default function PengaturanAbsensiPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {/* Header Tim 1 */}
-                  <tr className="bg-amber-50/50">
-                    <td className="sticky left-0 bg-amber-50/80 z-10 px-2.5 sm:px-4 py-1.5 sm:py-2 border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.01)] font-black text-[8px] sm:text-[9px] uppercase tracking-wider text-amber-700" colSpan={daysInMonth + 1}>
-                      <div className="flex items-center gap-1.5">
-                        <div className="h-1.5 w-1.5 rounded-full bg-amber-500" /> Karyawan Tim 1
-                      </div>
-                    </td>
-                  </tr>
-                  
-                  {tim1Karyawan.map((k: KaryawanData) => (
-                    <tr key={k.id} className="hover:bg-slate-50/30 transition-colors">
-                      <td className="sticky left-0 bg-white z-10 px-2.5 sm:px-4 py-1.5 sm:py-2 border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.02)]">
-                        <p className="text-[9.5px] sm:text-xs font-black text-slate-900 uppercase truncate max-w-[95px] sm:max-w-[160px]">{k.nama}</p>
+                  {filteredKaryawanList.length === 0 ? (
+                    <tr>
+                      <td colSpan={daysInMonth + 1} className="px-4 py-8 text-center text-xs font-bold text-slate-400 uppercase tracking-wider">
+                        Belum ada data karyawan terdaftar di {selectedBranch === "all" ? "semua outlet" : selectedBranch === "kedungreja" ? "Zona Kedungreja" : selectedBranch === "tehwarga" ? "Teh Warga GDM" : "Zona Gandrungmangu"}.
                       </td>
-                      {Array.from({ length: daysInMonth }).map((_, i) => {
-                        const day = i + 1;
-                        const type = getScheduleType(k.id, day);
-                        return (
-                          <td key={i} className="px-0.5 sm:px-1 py-1 sm:py-1.5 text-center border-r border-slate-100">
-                            <select 
-                              value={type}
-                              onChange={(e) => handleUpdateSchedule(k.id, day, e.target.value)}
-                              className={cn(
-                                "w-6 h-6 sm:w-7 sm:h-7 rounded-md text-[7.5px] sm:text-[8.5px] font-black appearance-none text-center cursor-pointer transition-all outline-none",
-                                type === 'shift1' ? "bg-amber-100 text-amber-700 border border-amber-200" :
-                                type === 'shift2' ? "bg-indigo-100 text-indigo-700 border border-indigo-200" :
-                                "bg-slate-100 text-slate-400 border border-slate-200"
-                              )}
-                            >
-                              <option value="shift1">S1</option>
-                              <option value="shift2">S2</option>
-                              <option value="libur">L</option>
-                            </select>
-                          </td>
-                        );
-                      })}
                     </tr>
-                  ))}
-
-                  {/* Spacer / Divider row for separation */}
-                  <tr className="bg-slate-100/50">
-                    <td className="sticky left-0 bg-slate-100/50 z-10 px-2 sm:px-4 py-1 border-r border-slate-100" colSpan={daysInMonth + 1}>
-                      <div className="h-1.5 sm:h-3" />
-                    </td>
-                  </tr>
-
-                  {/* Header Tim 2 */}
-                  <tr className="bg-indigo-50/50">
-                    <td className="sticky left-0 bg-indigo-50/80 z-10 px-2.5 sm:px-4 py-1.5 sm:py-2 border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.01)] font-black text-[8px] sm:text-[9px] uppercase tracking-wider text-indigo-700" colSpan={daysInMonth + 1}>
-                      <div className="flex items-center gap-1.5">
-                        <div className="h-1.5 w-1.5 rounded-full bg-indigo-500" /> Karyawan Tim 2
-                      </div>
-                    </td>
-                  </tr>
-
-                  {tim2Karyawan.map((k: KaryawanData) => (
-                    <tr key={k.id} className="hover:bg-slate-50/30 transition-colors">
-                      <td className="sticky left-0 bg-white z-10 px-2.5 sm:px-4 py-1.5 sm:py-2 border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.02)]">
-                        <p className="text-[9.5px] sm:text-xs font-black text-slate-900 uppercase truncate max-w-[95px] sm:max-w-[160px]">{k.nama}</p>
-                      </td>
-                      {Array.from({ length: daysInMonth }).map((_, i) => {
-                        const day = i + 1;
-                        const type = getScheduleType(k.id, day);
-                        return (
-                          <td key={i} className="px-0.5 sm:px-1 py-1 sm:py-1.5 text-center border-r border-slate-100">
-                            <select 
-                              value={type}
-                              onChange={(e) => handleUpdateSchedule(k.id, day, e.target.value)}
-                              className={cn(
-                                "w-6 h-6 sm:w-7 sm:h-7 rounded-md text-[7.5px] sm:text-[8.5px] font-black appearance-none text-center cursor-pointer transition-all outline-none",
-                                type === 'shift1' ? "bg-amber-100 text-amber-700 border border-amber-200" :
-                                type === 'shift2' ? "bg-indigo-100 text-indigo-700 border border-indigo-200" :
-                                "bg-slate-100 text-slate-400 border border-slate-200"
-                              )}
-                            >
-                              <option value="shift1">S1</option>
-                              <option value="shift2">S2</option>
-                              <option value="libur">L</option>
-                            </select>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
+                  ) : (
+                    filteredKaryawanList.map((k: KaryawanData) => (
+                      <tr key={k.id} className="hover:bg-slate-50/30 transition-colors">
+                        <td className="sticky left-0 bg-white z-10 px-2.5 sm:px-4 py-1.5 sm:py-2 border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.02)]">
+                          <p className="text-[9.5px] sm:text-xs font-black text-slate-900 uppercase truncate max-w-[95px] sm:max-w-[160px]">{k.nama}</p>
+                        </td>
+                        {Array.from({ length: daysInMonth }).map((_, i) => {
+                          const day = i + 1;
+                          const type = getScheduleType(k.id, day);
+                          return (
+                            <td key={i} className="px-0.5 sm:px-1 py-1 sm:py-1.5 text-center border-r border-slate-100">
+                              <select 
+                                value={type}
+                                onChange={(e) => handleUpdateSchedule(k.id, day, e.target.value)}
+                                className={cn(
+                                  "w-6 h-6 sm:w-7 sm:h-7 rounded-md text-[7.5px] sm:text-[8.5px] font-black appearance-none text-center cursor-pointer transition-all outline-none",
+                                  type === 'shift1' ? "bg-amber-100 text-amber-700 border border-amber-200" :
+                                  type === 'shift2' ? "bg-indigo-100 text-indigo-700 border border-indigo-200" :
+                                  "bg-slate-100 text-slate-400 border border-slate-200"
+                                )}
+                              >
+                                <option value="shift1">S1</option>
+                                <option value="shift2">S2</option>
+                                <option value="libur">L</option>
+                              </select>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>

@@ -12,9 +12,11 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { useCollection, useFirestore, useMemoFirebase, collection } from "@/firebase";
+import { useConsolidatedCollection, useFirestore } from "@/firebase";
+import { useActiveBranch, BRANCH_LIST } from "@/lib/branch-helper";
 import { query, orderBy } from "firebase/firestore";
 import * as XLSX from "xlsx";
+import { cn } from "@/lib/utils";
 
 // Helper to format currency/numbers
 const formatNumber = (value: number) => {
@@ -23,6 +25,7 @@ const formatNumber = (value: number) => {
 
 export default function LaporanStockLossPage() {
   const db = useFirestore();
+  const activeBranch = useActiveBranch();
   const today = new Date().toLocaleDateString("sv-SE"); // sv-SE returns YYYY-MM-DD
   const [selectedDate, setSelectedDate] = useState(today);
   const [searchTerm, setSearchTerm] = useState("");
@@ -38,47 +41,31 @@ export default function LaporanStockLossPage() {
     }
   }, [selectedDate]);
 
-  // Fetch materials (bahan-baku)
-  const materialsQuery = useMemoFirebase(
-    () => query(collection(db, "bahan-baku"), orderBy("code", "asc")),
-    [db]
+  // Fetch materials (bahan-baku) across active branch or all stores
+  const { data: materials, loading: loadingMaterials } = useConsolidatedCollection(
+    db,
+    "bahan-baku",
+    (ref) => query(ref, orderBy("code", "asc"))
   );
-  const { data: materials, loading: loadingMaterials } = useCollection(materialsQuery);
 
-  // Fetch products (produk)
-  const productsQuery = useMemoFirebase(
-    () => collection(db, "produk"),
-    [db]
-  );
-  const { data: products, loading: loadingProducts } = useCollection(productsQuery);
+  // Fetch products (produk) across active branch or all stores
+  const { data: products, loading: loadingProducts } = useConsolidatedCollection(db, "produk");
 
-  // Fetch recipes (resep)
-  const recipesQuery = useMemoFirebase(
-    () => collection(db, "resep"),
-    [db]
-  );
-  const { data: recipes, loading: loadingRecipes } = useCollection(recipesQuery);
+  // Fetch recipes (resep) across active branch or all stores
+  const { data: recipes, loading: loadingRecipes } = useConsolidatedCollection(db, "resep");
 
-  // Fetch sales (penjualan) for selectedDate
-  const salesQuery = useMemoFirebase(
-    () => collection(db, "penjualan"),
-    [db]
-  );
-  const { data: allSales, loading: loadingSales } = useCollection(salesQuery);
+  // Fetch sales (penjualan) across active branch or all stores
+  const { data: allSales, loading: loadingSales } = useConsolidatedCollection(db, "penjualan");
 
-  // Fetch stock opname harian
-  const opnameQuery = useMemoFirebase(
-    () => query(collection(db, "opnam_harian"), orderBy("date", "desc")),
-    [db]
+  // Fetch stock opname harian across active branch or all stores
+  const { data: allOpnames, loading: loadingOpnames } = useConsolidatedCollection(
+    db,
+    "opnam_harian",
+    (ref) => query(ref, orderBy("date", "desc"))
   );
-  const { data: allOpnames, loading: loadingOpnames } = useCollection(opnameQuery);
 
-  // Fetch purchase and mutation logs (log_pembelian_bahan)
-  const logsQuery = useMemoFirebase(
-    () => collection(db, "log_pembelian_bahan"),
-    [db]
-  );
-  const { data: allLogs, loading: loadingLogs } = useCollection(logsQuery);
+  // Fetch purchase and mutation logs (log_pembelian_bahan) across active branch or all stores
+  const { data: allLogs, loading: loadingLogs } = useConsolidatedCollection(db, "log_pembelian_bahan");
 
   // Convert Firebase Timestamp or Date or String to YYYY-MM-DD
   const parseDateString = (value: any): string => {
@@ -138,39 +125,42 @@ export default function LaporanStockLossPage() {
     }
 
     // 4. Find stock opnames (yesterday vs today)
-    // We look for any daily opname matching the respective dates
-    let yesterdayOpname: any = null;
-    let todayOpname: any = null;
+    // We collect all daily opnames matching the respective dates across branches
+    const yesterdayOpnames: any[] = [];
+    const todayOpnames: any[] = [];
 
     if (allOpnames) {
       allOpnames.forEach((op: any) => {
         const opDate = parseDateString(op.date);
         if (opDate === selectedDate) {
-          todayOpname = op;
+          todayOpnames.push(op);
         } else if (opDate === yesterdayDate) {
-          yesterdayOpname = op;
+          yesterdayOpnames.push(op);
         }
       });
     }
 
     // Map opname items by materialId
-    const getOpnameStockMap = (opnameDoc: any) => {
+    const getOpnameStockMap = (opnameDocs: any[]) => {
       const map: { [materialId: string]: { bulk: number; small: number } } = {};
-      if (opnameDoc?.items) {
-        opnameDoc.items.forEach((item: any) => {
-          if (item.id) {
-            map[item.id] = {
-              bulk: Number(item.after?.qtyKontainerBesar ?? 0),
-              small: Number(item.after?.qtyKontainerKecil ?? 0),
-            };
-          }
-        });
-      }
+      opnameDocs.forEach((opnameDoc) => {
+        if (opnameDoc?.items) {
+          opnameDoc.items.forEach((item: any) => {
+            if (item.id) {
+              const prev = map[item.id] || { bulk: 0, small: 0 };
+              map[item.id] = {
+                bulk: prev.bulk + Number(item.after?.qtyKontainerBesar ?? 0),
+                small: prev.small + Number(item.after?.qtyKontainerKecil ?? 0),
+              };
+            }
+          });
+        }
+      });
       return map;
     };
 
-    const yesterdayStockMap = getOpnameStockMap(yesterdayOpname);
-    const todayStockMap = getOpnameStockMap(todayOpname);
+    const yesterdayStockMap = getOpnameStockMap(yesterdayOpnames);
+    const todayStockMap = getOpnameStockMap(todayOpnames);
 
     // 5. Aggregate belanja and pengambilan gudang from log_pembelian_bahan
     // Belanja = type in ['supplier', 'belanja'] and location === 'kontainer'
@@ -231,10 +221,6 @@ export default function LaporanStockLossPage() {
 
         // Col 6: Rekap Belanja (if it was added as bulk units without totalQtyKecil, convert it)
         const rawBelanjaVal = belanjaMap[mat.id] || 0;
-        // In our system, if it's totalQtyKecil it will be stored directly, otherwise it's bulk quantity
-        // Let's assume rawBelanjaVal is in small units if it represents totalQtyKecil, else convert it:
-        // Actually, we sum item.totalQtyKecil or raw item.qty. If raw item.qty, we multiply it by conversion rate:
-        // Since input-bahan saves totalQtyKecil, it's already in small units. Let's make sure:
         const belanjaKecil = rawBelanjaVal;
 
         // Col 7: Pengambilan Gudang (stored as bulk units, so multiply by conversion rate)
@@ -255,7 +241,9 @@ export default function LaporanStockLossPage() {
           id: mat.id,
           code: mat.code ?? "-",
           nama: mat.nama ?? "-",
-          satuanKecil: mat.satuanKecil ?? "pcs",
+          satuanBesar: mat.satuanBesar ?? "",
+          satuanKecil: mat.satuanKecil ?? "",
+          conversionRate,
           resepUsage,
           prevStockKecil,
           currStockKecil,
@@ -263,8 +251,9 @@ export default function LaporanStockLossPage() {
           pengambilanKecil,
           pemakaianFisik,
           stockLoss,
-          unitPriceKecil,
           calibrationNominal,
+          _branchId: mat._branchId || 'gdm',
+          _branchName: mat._branchName || (mat._branchId ? BRANCH_LIST[mat._branchId as keyof typeof BRANCH_LIST]?.shortName : 'Zona GDM')
         };
       })
       .filter((row: any) => {
@@ -448,7 +437,19 @@ export default function LaporanStockLossPage() {
                     {reportRows.map((row) => (
                       <tr key={row.id} className="hover:bg-slate-50/50">
                         <td className="px-5 py-4 font-bold text-slate-900">{row.code}</td>
-                        <td className="px-4 py-4 font-black uppercase italic text-slate-800">{row.nama}</td>
+                        <td className="px-4 py-4">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-black uppercase italic text-slate-800">{row.nama}</span>
+                            {activeBranch === 'all' && (
+                              <span className={cn(
+                                "inline-block px-1.5 py-0.5 text-[7.5px] font-black uppercase tracking-wider rounded border w-fit",
+                                BRANCH_LIST[row._branchId as keyof typeof BRANCH_LIST]?.badgeColor || "bg-slate-100 text-slate-700"
+                              )}>
+                                {row._branchName}
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="px-4 py-4 text-center font-bold text-blue-600 tabular-nums">
                           {formatNumber(row.resepUsage)} <span className="text-[10px] text-slate-400 font-semibold">{row.satuanKecil}</span>
                         </td>
@@ -497,10 +498,18 @@ export default function LaporanStockLossPage() {
                   <Card key={row.id} className="rounded-[1.5rem] bg-white border border-slate-100 p-4 shadow-sm hover:shadow-md transition-shadow relative">
                     <div className="flex justify-between items-start gap-2 mb-3">
                       <div className="space-y-1">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="inline-flex px-2 py-0.5 rounded bg-primary/5 border border-primary/10 text-[8px] font-bold text-primary">
                             {row.code}
                           </span>
+                          {activeBranch === 'all' && (
+                            <span className={cn(
+                              "inline-flex px-1.5 py-0.5 rounded text-[7.5px] font-bold border",
+                              BRANCH_LIST[row._branchId as keyof typeof BRANCH_LIST]?.badgeColor || "bg-slate-100 text-slate-700"
+                            )}>
+                              {row._branchName}
+                            </span>
+                          )}
                         </div>
                         <h4 className="text-xs font-black text-slate-900 uppercase italic">
                           {row.nama}

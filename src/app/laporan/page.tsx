@@ -32,9 +32,13 @@ import LaporanStockLossPage from "@/app/laporan/stock-loss/page";
 import LaporanBahanRusakPage from "@/app/laporan/laporan-bahan-rusak/page";
 import LaporanFreeProdukPage from "@/app/laporan/free-produk/page";
 
+import { useActiveBranch, BRANCH_LIST } from "@/firebase";
+import { cn } from "@/lib/utils";
+
 function ReportHubContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const activeBranch = useActiveBranch();
   
   const tabParam = searchParams.get("tab") || "keuangan";
   const [activeTab, setActiveTab] = useState(tabParam);
@@ -80,10 +84,54 @@ function ReportHubContent() {
             Laporan
           </h1>
           <p className="text-[10px] md:text-xs text-slate-600 font-black uppercase tracking-[0.2em] mt-1">
-            Rekapitulasi Keuangan, HPP, Operasional & Stock Opname • Zona Waktu
+            Rekapitulasi Keuangan, HPP, Operasional & Stock Opname • {BRANCH_LIST[activeBranch]?.name || "Zona Waktu"}
           </p>
         </div>
+
+        {/* Branch Mode Indicator */}
+        <div className="flex items-center gap-2">
+          {activeBranch === 'all' ? (
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-900 shadow-sm animate-in fade-in">
+              <span className="h-2 w-2 rounded-full bg-indigo-600 animate-pulse" />
+              <span className="text-[10px] font-black uppercase tracking-wider">
+                Mode Konsolidasi: 3 Toko Terpadu
+              </span>
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-100 border border-slate-200 text-slate-700 shadow-xs">
+              <span className={cn(
+                "h-2 w-2 rounded-full",
+                activeBranch === 'tehwarga' ? "bg-amber-500" : activeBranch === 'kedungreja' ? "bg-cyan-500" : "bg-emerald-500"
+              )} />
+              <span className="text-[10px] font-black uppercase tracking-wider">
+                Filter: {BRANCH_LIST[activeBranch]?.shortName}
+              </span>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Consolidation Info Banner (Only when activeBranch is 'all') */}
+      {activeBranch === 'all' && (
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-900 to-slate-900 text-white shadow-md flex items-center justify-between gap-4 border border-indigo-700/50">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-xl bg-white/10 flex items-center justify-center shrink-0 border border-white/10">
+              <Layers className="h-5 w-5 text-indigo-300" />
+            </div>
+            <div>
+              <p className="text-xs font-black uppercase tracking-wide text-indigo-200">
+                Konsolidasi Seluruh Outlet Aktif
+              </p>
+              <p className="text-[11px] text-slate-300 font-medium leading-tight">
+                Menampilkan hasil akumulasi dan gabungan data dari <strong>Zona Waktu GDM</strong>, <strong>Zona Kedungreja</strong>, dan <strong>Teh Warga GDM</strong>.
+              </p>
+            </div>
+          </div>
+          <div className="hidden sm:flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider bg-white/10 px-3 py-1.5 rounded-xl border border-white/10 shrink-0">
+            <span>3 Outlet</span> &bull; <span>2 Gudang</span>
+          </div>
+        </div>
+      )}
 
       {/* Tabs Navigation (Multi-row grid for PC & Mobile - No scrolling needed) */}
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full space-y-6">

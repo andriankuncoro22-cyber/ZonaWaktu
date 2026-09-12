@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useMemo } from "react";
 import { 
   Plus, 
   Database, 
@@ -53,13 +53,17 @@ interface BahanBaku {
   kalibrasiNote?: string;
 }
 
-import { getStoreConfigDocId } from "@/lib/branch-helper";
+import { getStoreConfigDocId, useActiveBranch, filterContainerMaterials } from "@/lib/branch-helper";
 
 export default function MasterBahanBakuPage() {
   const db = useFirestore();
+  const activeBranch = useActiveBranch();
   
   const materialsQuery = useMemoFirebase(() => collection(db, "bahan-baku"), [db]);
-  const { data: materials, loading } = useCollection(materialsQuery);
+  const { data: rawMaterials, loading } = useCollection(materialsQuery);
+  const materials = useMemo(() => {
+    return filterContainerMaterials(rawMaterials as BahanBaku[], activeBranch);
+  }, [rawMaterials, activeBranch]);
   
   const settingsRef = useMemoFirebase(() => doc(db, "settings", getStoreConfigDocId()), [db]);
   const { data: settings } = useDoc(settingsRef);
