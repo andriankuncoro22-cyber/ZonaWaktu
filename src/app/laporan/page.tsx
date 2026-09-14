@@ -31,6 +31,7 @@ import LaporanClosingTokoPage from "@/app/laporan/closing-toko/page";
 import LaporanStockLossPage from "@/app/laporan/stock-loss/page";
 import LaporanBahanRusakPage from "@/app/laporan/laporan-bahan-rusak/page";
 import LaporanFreeProdukPage from "@/app/laporan/free-produk/page";
+import LaporanStockRealKontainerPage from "@/app/laporan/stock-real-kontainer/page";
 
 import { useActiveBranch, BRANCH_LIST } from "@/firebase";
 import { cn } from "@/lib/utils";
@@ -69,6 +70,7 @@ function ReportHubContent() {
     { id: "stock-loss", name: "10. Stock Loss Harian", icon: AlertTriangle },
     { id: "bahan-rusak", name: "11. Laporan Bahan Rusak", icon: PackageX },
     { id: "free-produk", name: "12. Laporan Free Produk", icon: Gift },
+    { id: "stock-real-kontainer", name: "13. Stock Real Kontainer", icon: Layers },
   ];
 
   return (
@@ -98,7 +100,7 @@ function ReportHubContent() {
               </span>
             </div>
           ) : (
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-slate-100 border border-slate-200 text-slate-700 shadow-xs">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-2xl bg-slate-100 border border-slate-200 text-slate-700 shadow-xs">
               <span className={cn(
                 "h-2 w-2 rounded-full",
                 activeBranch === 'tehwarga' ? "bg-amber-500" : activeBranch === 'kedungreja' ? "bg-cyan-500" : "bg-emerald-500"
@@ -135,7 +137,7 @@ function ReportHubContent() {
 
       {/* Tabs Navigation (Multi-row grid for PC & Mobile - No scrolling needed) */}
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full space-y-6">
-        <TabsList className="bg-white p-2 rounded-2xl md:rounded-3xl shadow-sm border border-slate-100 h-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 w-full">
+        <TabsList className="bg-white p-2 rounded-2xl md:rounded-3xl shadow-sm border border-slate-100 h-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2 w-full">
           {reportTabs.map((tab) => (
             <TabsTrigger
               key={tab.id}
@@ -196,6 +198,10 @@ function ReportHubContent() {
 
           <TabsContent value="free-produk" className="m-0">
             <LaporanFreeProdukPage />
+          </TabsContent>
+
+          <TabsContent value="stock-real-kontainer" className="m-0">
+            <LaporanStockRealKontainerPage />
           </TabsContent>
         </div>
       </Tabs>
