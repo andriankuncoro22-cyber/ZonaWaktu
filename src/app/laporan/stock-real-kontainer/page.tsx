@@ -8,16 +8,11 @@ import {
   RotateCcw, 
   FileSpreadsheet, 
   FileDown, 
-  Layers, 
   PackageCheck, 
   Truck, 
   ShoppingBag, 
   Clock, 
-  TrendingUp, 
-  CheckCircle2,
   RefreshCw,
-  Store,
-  Building2,
   Info
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -34,7 +29,7 @@ import {
   useActiveBranch, 
   BRANCH_LIST, 
   normalizeBranchId, 
-  isMaterialForBranchContainer,
+  filterContainerMaterials,
   getStoreConfigDocId
 } from "@/lib/branch-helper";
 import { SHARED_MATERIAL_ALIASES } from "@/lib/material-mapping";
@@ -98,6 +93,49 @@ interface StockRealRow {
   targetBranches: BranchPill[];
 }
 
+interface RawOpnameItem {
+  id?: string;
+  code?: string;
+  nama?: string;
+  grams?: number | string;
+  before?: { qtyKontainerBesar?: number | string; qtyKontainerKecil?: number | string };
+  after?: { qtyKontainerBesar?: number | string; qtyKontainerKecil?: number | string; grams?: number | string };
+  afterBulk?: number | string;
+  afterAktif?: number | string;
+}
+
+interface RawOpnameDoc {
+  id?: string;
+  date?: unknown;
+  items?: RawOpnameItem[];
+  _branchId?: string;
+  _branchName?: string;
+}
+
+interface RawLogItem {
+  materialId?: string;
+  materialCode?: string;
+  materialName?: string;
+  id?: string;
+  code?: string;
+  nama?: string;
+  qty?: number | string;
+  qtyKecil?: number | string;
+  totalQtyKecil?: number | string;
+  unit?: string;
+}
+
+interface RawLogDoc {
+  id?: string;
+  tanggal?: string;
+  createdAt?: unknown;
+  type?: string;
+  purchaseType?: string;
+  items?: RawLogItem[];
+  _branchId?: string;
+  branchId?: string;
+}
+
 const cleanNumber = (val: unknown): number => {
   if (val === undefined || val === null) return 0;
   if (typeof val === "number") return isNaN(val) ? 0 : val;
@@ -152,7 +190,7 @@ export default function LaporanStockRealKontainerPage() {
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [searchTerm, setSearchTerm] = useState<string>("");
 
-  // 1. Fetch Materials
+  // 1. Fetch Materials across active branch or all stores
   const { data: rawMaterials, loading: loadingMaterials } = useConsolidatedCollection(
     db,
     "bahan-baku",
@@ -188,7 +226,7 @@ export default function LaporanStockRealKontainerPage() {
     };
 
     (rawMaterials as BahanBaku[])?.forEach((mat) => {
-      const bId = (mat._branchId || 'gdm') as 'gdm' | 'kedungreja' | 'tehwarga';
+      const bId = normalizeBranchId(mat._branchId || 'gdm') as 'gdm' | 'kedungreja' | 'tehwarga';
       if (bId === 'gdm' && (mat.isFromTehWarga || mat.originalTwCode || /^BB-0(0[1-9]|[1-4][0-9])$/i.test(mat.code || ''))) {
         return;
       }
@@ -221,33 +259,60 @@ export default function LaporanStockRealKontainerPage() {
   const filteredMaterials = useMemo((): BahanBaku[] => {
     const list = (rawMaterials as BahanBaku[]) || [];
     if (activeBranch === 'all') {
-      // In all branch mode, keep all unique items
       return list;
     }
-    return list.filter((mat) => isMaterialForBranchContainer(mat, activeBranch));
+    if (activeBranch === 'kedungreja' || activeBranch === 'tehwarga') {
+      return list;
+    }
+    // For GDM container, isolate Zona Waktu materials (filter out Teh Warga items)
+    return filterContainerMaterials(list, 'gdm');
   }, [rawMaterials, activeBranch]);
 
-  // Aggregate Previous Opname Data (Strictly prior to selectedDate, or latest available)
+  // Aggregate Previous Opname Data (Strictly prior to selectedDate, or latest available prior opname per branch)
   const previousOpnameMap = useMemo(() => {
     const map: Record<string, { bulk: number; aktif: number; dateStr: string }> = {};
     if (!rawOpnames) return map;
 
-    // Filter opnames strictly before selectedDate
-    const priorOpnames = (rawOpnames as any[]).filter((op) => {
-      const opDate = parseDateString(op.date);
-      if (!opDate) return false;
-      if (activeBranch !== 'all') {
-        const bId = normalizeBranchId(op._branchId || 'gdm');
-        if (bId !== activeBranch) return false;
+    // Find the latest prior opname entry per branch (before selectedDate)
+    const latestPriorOpnamePerBranch: Record<string, RawOpnameDoc> = {};
+
+    (rawOpnames as RawOpnameDoc[]).forEach((opDoc) => {
+      const opDate = parseDateString(opDoc.date);
+      if (!opDate || opDate >= selectedDate) return;
+      const bId = normalizeBranchId(opDoc._branchId || 'gdm');
+
+      if (activeBranch !== 'all' && bId !== activeBranch) return;
+
+      if (!latestPriorOpnamePerBranch[bId]) {
+        latestPriorOpnamePerBranch[bId] = opDoc;
+      } else {
+        const existingDate = parseDateString(latestPriorOpnamePerBranch[bId].date);
+        if (opDate > existingDate) {
+          latestPriorOpnamePerBranch[bId] = opDoc;
+        }
       }
-      return opDate < selectedDate;
     });
 
-    // Group by material, take the most recent entry
-    priorOpnames.forEach((opDoc) => {
+    // If no opname strictly before selectedDate was found, fall back to the latest opname document in history for that branch
+    const targetBranchesToInspect: Array<'gdm' | 'kedungreja' | 'tehwarga'> = 
+      activeBranch === 'all' 
+        ? ['gdm', 'kedungreja', 'tehwarga'] 
+        : [activeBranch as 'gdm' | 'kedungreja' | 'tehwarga'];
+
+    targetBranchesToInspect.forEach((bId) => {
+      if (!latestPriorOpnamePerBranch[bId]) {
+        const fallback = (rawOpnames as RawOpnameDoc[]).find((opDoc) => normalizeBranchId(opDoc._branchId || 'gdm') === bId);
+        if (fallback) {
+          latestPriorOpnamePerBranch[bId] = fallback;
+        }
+      }
+    });
+
+    // Populate previousOpnameMap from the selected opnames
+    Object.values(latestPriorOpnamePerBranch).forEach((opDoc: RawOpnameDoc) => {
       const opDate = parseDateString(opDoc.date);
       const items = opDoc.items || [];
-      items.forEach((item: any) => {
+      items.forEach((item: RawOpnameItem) => {
         const idKey = String(item.id || "").trim().toLowerCase();
         const codeKey = String(item.code || "").trim().toLowerCase();
         const nameKey = String(item.nama || "").trim().toLowerCase();
@@ -262,18 +327,24 @@ export default function LaporanStockRealKontainerPage() {
           aktifVal = cleanNumber(item.after?.qtyKontainerKecil ?? item.afterAktif ?? 0);
         }
 
-        const assignIfLatest = (k: string) => {
+        const assignOrAccumulate = (k: string) => {
           if (!k) return;
           if (!map[k]) {
             map[k] = { bulk: bulkVal, aktif: aktifVal, dateStr: opDate };
-          } else if (opDate > map[k].dateStr) {
-            map[k] = { bulk: bulkVal, aktif: aktifVal, dateStr: opDate };
+          } else {
+            // When in 'all' mode, accumulate quantities from multiple branches
+            if (activeBranch === 'all') {
+              map[k].bulk += bulkVal;
+              map[k].aktif += aktifVal;
+            } else {
+              map[k] = { bulk: bulkVal, aktif: aktifVal, dateStr: opDate };
+            }
           }
         };
 
-        if (idKey) assignIfLatest(idKey);
-        if (codeKey && codeKey !== "-") assignIfLatest(codeKey);
-        if (nameKey && nameKey !== "-") assignIfLatest(nameKey);
+        if (idKey) assignOrAccumulate(idKey);
+        if (codeKey && codeKey !== "-") assignOrAccumulate(codeKey);
+        if (nameKey && nameKey !== "-") assignOrAccumulate(nameKey);
       });
     });
 
@@ -288,14 +359,12 @@ export default function LaporanStockRealKontainerPage() {
     let belanjaCnt = 0;
 
     if (rawLogs) {
-      (rawLogs as any[]).forEach((log) => {
+      (rawLogs as RawLogDoc[]).forEach((log) => {
         const logDate = parseDateString(log.tanggal || log.createdAt);
         if (logDate !== selectedDate) return;
 
-        if (activeBranch !== 'all') {
-          const logBranch = normalizeBranchId(log._branchId || log.branchId || 'gdm');
-          if (logBranch !== activeBranch) return;
-        }
+        const logBranch = normalizeBranchId(log._branchId || log.branchId || 'gdm');
+        if (activeBranch !== 'all' && logBranch !== activeBranch) return;
 
         const isAmbilGudang = 
           log.type === "ambil-gudang" || 
@@ -313,7 +382,7 @@ export default function LaporanStockRealKontainerPage() {
 
         if (isAmbilGudang) {
           ambilCnt++;
-          items.forEach((it: any) => {
+          items.forEach((it: RawLogItem) => {
             const idKey = String(it.materialId || it.id || "").trim().toLowerCase();
             const codeKey = String(it.materialCode || it.code || "").trim().toLowerCase();
             const nameKey = String(it.materialName || it.nama || "").trim().toLowerCase();
@@ -332,7 +401,7 @@ export default function LaporanStockRealKontainerPage() {
           });
         } else if (isBelanja) {
           belanjaCnt++;
-          items.forEach((it: any) => {
+          items.forEach((it: RawLogItem) => {
             const idKey = String(it.materialId || it.id || "").trim().toLowerCase();
             const codeKey = String(it.materialCode || it.code || "").trim().toLowerCase();
             const nameKey = String(it.materialName || it.nama || "").trim().toLowerCase();
@@ -365,11 +434,15 @@ export default function LaporanStockRealKontainerPage() {
 
   // Combine rows into consolidated Real-Time Stock Matrix
   const tableRows = useMemo((): StockRealRow[] => {
-    // Map to group unique materials by canonical name/code
     const groupedMap: Record<string, StockRealRow> = {};
 
     filteredMaterials.forEach((mat) => {
-      const key = String(mat.nama || mat.code || mat.id || "").trim().toLowerCase();
+      // In single branch mode, use unique material id/code as key
+      // In 'all' mode, group by canonical material name/key
+      const key = activeBranch === 'all' 
+        ? String(mat.nama || mat.code || mat.id || "").trim().toLowerCase()
+        : String(mat.id || mat.code || mat.nama || "").trim().toLowerCase();
+        
       if (!key) return;
 
       const matIdKey = String(mat.id || "").trim().toLowerCase();
@@ -422,7 +495,7 @@ export default function LaporanStockRealKontainerPage() {
           targetBranches: [],
         };
       } else {
-        // Accumulate for same materials across multiple branches
+        // Accumulate for same materials across multiple branches in 'all' mode
         groupedMap[key].opnamePrevBulk += prevOpname.bulk;
         groupedMap[key].opnamePrevAktif += prevOpname.aktif;
         groupedMap[key].ambilGudangBulk += ambilGudang.bulk;
@@ -490,7 +563,8 @@ export default function LaporanStockRealKontainerPage() {
     pengambilanGudangMap, 
     belanjaRuteMap, 
     materialStoreUsageMap, 
-    searchTerm
+    searchTerm,
+    activeBranch
   ]);
 
   // Export to Excel
@@ -513,7 +587,7 @@ export default function LaporanStockRealKontainerPage() {
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Stock Real Kontainer");
-    XLSX.writeFile(wb, `Laporan_Stock_Real_Kontainer_${selectedDate || "today"}.xlsx`);
+    XLSX.writeFile(wb, `Laporan_Stock_Real_Kontainer_${BRANCH_LIST[activeBranch]?.shortName || "Semua_Toko"}_${selectedDate || "today"}.xlsx`);
   };
 
   // Export to PDF
@@ -597,7 +671,7 @@ export default function LaporanStockRealKontainerPage() {
       },
     });
 
-    docPDF.save(`Laporan_Stock_Real_Kontainer_${selectedDate}.pdf`);
+    docPDF.save(`Laporan_Stock_Real_Kontainer_${BRANCH_LIST[activeBranch]?.shortName || "Semua_Toko"}_${selectedDate}.pdf`);
   };
 
   const isLoading = loadingMaterials || loadingOpnames || loadingLogs;
@@ -615,7 +689,7 @@ export default function LaporanStockRealKontainerPage() {
             Stock Real Kontainer
           </h1>
           <p className="text-[10px] sm:text-xs font-black uppercase tracking-[0.2em] text-slate-500 mt-0.5">
-            Monitoring posisi stok real-time (Opname Sebelumnya + Ambil Gudang + Belanja Rute)
+            Monitoring posisi stok real-time (Opname Sebelumnya + Ambil Gudang + Belanja Rute) • {BRANCH_LIST[activeBranch]?.name || "Semua Toko"}
           </p>
         </div>
 
@@ -704,7 +778,7 @@ export default function LaporanStockRealKontainerPage() {
             </span>
           </div>
           <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 hidden sm:inline-block">
-            {tableRows.length} Bahan Terpantau
+            {tableRows.length} Bahan Terpantau ({BRANCH_LIST[activeBranch]?.shortName || "Semua Cabang"})
           </span>
         </div>
       </Card>
@@ -764,7 +838,7 @@ export default function LaporanStockRealKontainerPage() {
                 Matriks Stok Real Kontainer
               </h2>
               <p className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
-                Posisi barang opname sebelumnya, pasokan gudang & belanja rute
+                Posisi barang opname sebelumnya, pasokan gudang & belanja rute • {BRANCH_LIST[activeBranch]?.name || "Semua Toko"}
               </p>
             </div>
           </div>
@@ -780,7 +854,7 @@ export default function LaporanStockRealKontainerPage() {
           </div>
         ) : tableRows.length === 0 ? (
           <div className="px-6 py-20 text-center text-sm text-slate-500">
-            Tidak ada data bahan baku untuk filter ini.
+            Tidak ada data bahan baku untuk cabang dan filter ini.
           </div>
         ) : (
           <div className="p-3 sm:p-4 md:p-6 space-y-4">

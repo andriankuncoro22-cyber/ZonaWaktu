@@ -110,9 +110,13 @@ export function useConsolidatedCollection<T = DocumentData>(
 
   const data = useMemo(() => {
     if (!isAll) {
-      if (activeBranch === 'kedungreja') return resKdrj.data || [];
-      if (activeBranch === 'tehwarga') return resTeh.data || [];
-      return resGdm.data || [];
+      if (activeBranch === 'kedungreja') {
+        return (resKdrj.data || []).map(it => ({ ...it, _branchId: 'kedungreja', _branchName: 'Zona Kedungreja' }));
+      }
+      if (activeBranch === 'tehwarga') {
+        return (resTeh.data || []).map(it => ({ ...it, _branchId: 'tehwarga', _branchName: 'Teh Warga GDM' }));
+      }
+      return (resGdm.data || []).map(it => ({ ...it, _branchId: 'gdm', _branchName: 'Zona Waktu GDM' }));
     }
 
     const itemsGdm = (resGdm.data || []).map(it => ({ ...it, _branchId: 'gdm', _branchName: 'Zona Waktu GDM' }));
