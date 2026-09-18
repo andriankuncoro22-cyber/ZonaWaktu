@@ -17,7 +17,7 @@ import {
   AlertCircle,
   Loader2,
   X,
-  Store,
+  Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -37,10 +37,13 @@ import {
   normalizeBranchId, 
   BRANCH_LIST, 
   WAREHOUSE_LIST, 
-  isMaterialForBranchContainer 
+  isMaterialForBranchContainer,
+  branchDoc,
+  warehouseDoc,
+  BranchId
 } from "@/lib/branch-helper";
 import { SHARED_MATERIAL_ALIASES } from "@/lib/material-mapping";
-import { orderBy, query, writeBatch } from "firebase/firestore";
+import { orderBy, query, writeBatch, updateDoc, serverTimestamp } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
@@ -52,6 +55,35 @@ interface BranchPill {
   id: 'gdm' | 'kedungreja' | 'tehwarga';
   shortName: string;
   badgeColor: string;
+}
+
+interface MultiBranchEditBranchItem {
+  entryId: string;
+  branchId: BranchId;
+  warehouseId?: 'gdm' | 'kedungreja';
+  branchName: string;
+  badgeColor: string;
+  materialId?: string;
+  beforeBulk?: number;
+  beforeAktif?: number;
+  afterBulk: number;
+  afterAktif: number;
+  beforeQtyBesar?: number;
+  afterQtyBesar: number;
+  existsInOpname: boolean;
+}
+
+interface EditModalState {
+  isOpen: boolean;
+  type: "container" | "warehouse";
+  materialId?: string;
+  materialCode: string;
+  materialNama: string;
+  unitBulk?: string;
+  unitAktif?: string;
+  unitBesar?: string;
+  entryDateLabel: string;
+  branches: MultiBranchEditBranchItem[];
 }
 
 interface ConsolidatedContainerRow {
@@ -94,6 +126,9 @@ interface BahanBaku {
   qtyBesar?: number | string;
   qtyKontainerBesar?: number | string;
   qtyKontainerKecil?: number | string;
+  _branchId?: string;
+  isFromTehWarga?: boolean;
+  originalTwCode?: string;
   [key: string]: unknown;
 }
 
@@ -240,6 +275,21 @@ export default function LaporanStockOpnamePage() {
   const [isUpdatingStock, setIsUpdatingStock] = useState(false);
   const [updateSearchTerm, setUpdateSearchTerm] = useState("");
 
+  // State Edit Hasil Opname untuk Owner
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editModal, setEditModal] = useState<EditModalState>({
+    isOpen: false,
+    type: "container",
+    materialId: "",
+    materialCode: "",
+    materialNama: "",
+    unitBulk: "",
+    unitAktif: "",
+    unitBesar: "",
+    entryDateLabel: "",
+    branches: [],
+  });
+
   const { data: materials } = useConsolidatedCollection(
     db,
     "bahan-baku",
@@ -288,7 +338,7 @@ export default function LaporanStockOpnamePage() {
     };
 
     // 1. From master materials in all 3 branch collections
-    (materials as any[])?.forEach((mat) => {
+    (materials as BahanBaku[])?.forEach((mat) => {
       const bId = (mat._branchId || 'gdm') as 'gdm' | 'kedungreja' | 'tehwarga';
       // For GDM, exclude Teh Warga imported documents
       if (bId === 'gdm' && (mat.isFromTehWarga || mat.originalTwCode || /^BB-0(0[1-9]|[1-4][0-9])$/i.test(mat.code || ''))) {
@@ -816,6 +866,277 @@ export default function LaporanStockOpnamePage() {
     }
   };
 
+  // --- Handlers Edit Hasil Opname Owner ---
+  const handleOpenEditContainerSingle = (entry: EnrichedContainerEntry, item: EnrichedContainerItem) => {
+    const bId = normalizeBranchId(entry._branchId || activeBranch);
+    const branchName = BRANCH_LIST[bId]?.name || "Zona Waktu GDM";
+    const badgeColor = BRANCH_LIST[bId]?.badgeColor || "";
+
+    setEditModal({
+      isOpen: true,
+      type: "container",
+      materialId: item.id || "",
+      materialCode: item.code || "-",
+      materialNama: item.nama || "-",
+      unitBulk: item.unitBulk || "Pack",
+      unitAktif: item.unitAktif || "Gram",
+      entryDateLabel: formatDateLabel(entry.entryDate),
+      branches: [
+        {
+          entryId: entry.id,
+          branchId: bId,
+          branchName: branchName,
+          badgeColor: badgeColor,
+          materialId: item.id || "",
+          beforeBulk: item.beforeBulk,
+          beforeAktif: item.beforeAktif,
+          afterBulk: item.afterBulk,
+          afterAktif: item.afterAktif,
+          afterQtyBesar: 0,
+          existsInOpname: true,
+        }
+      ]
+    });
+  };
+
+  const handleOpenEditContainerMatrix = (row: ConsolidatedContainerRow) => {
+    const targetBranches: Array<'gdm' | 'kedungreja' | 'tehwarga'> = ['gdm', 'kedungreja', 'tehwarga'];
+    const branchList: MultiBranchEditBranchItem[] = [];
+
+    targetBranches.forEach((bId) => {
+      const entry = effectiveContainerEntries.find((e) => normalizeBranchId(e._branchId) === bId);
+      if (!entry) return;
+
+      const matchItem = entry.items?.find((it) => 
+        (it.code && it.code.trim().toLowerCase() === row.code.trim().toLowerCase()) ||
+        (it.nama && it.nama.trim().toLowerCase() === row.nama.trim().toLowerCase()) ||
+        (it.id && row.key && it.id.trim().toLowerCase() === row.key.trim().toLowerCase())
+      );
+
+      if (matchItem) {
+        branchList.push({
+          entryId: entry.id,
+          branchId: bId,
+          branchName: BRANCH_LIST[bId]?.name || bId,
+          badgeColor: BRANCH_LIST[bId]?.badgeColor || "",
+          materialId: matchItem.id || "",
+          beforeBulk: matchItem.beforeBulk,
+          beforeAktif: matchItem.beforeAktif,
+          afterBulk: matchItem.afterBulk,
+          afterAktif: matchItem.afterAktif,
+          afterQtyBesar: 0,
+          existsInOpname: true,
+        });
+      }
+    });
+
+    if (branchList.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Data Opname Tidak Ditemukan",
+        description: "Tidak ditemukan riwayat opname aktif untuk bahan baku ini.",
+      });
+      return;
+    }
+
+    setEditModal({
+      isOpen: true,
+      type: "container",
+      materialId: "",
+      materialCode: row.code,
+      materialNama: row.nama,
+      unitBulk: row.unitBulk || "Pack",
+      unitAktif: row.unitAktif || "Gram",
+      entryDateLabel: selectedDate ? `Tanggal ${selectedDate}` : "Opname Terakhir",
+      branches: branchList
+    });
+  };
+
+  const handleOpenEditWarehouseSingle = (entry: EnrichedWarehouseEntry, item: EnrichedWarehouseItem) => {
+    const wId = ((entry._warehouseId || 'gdm') === 'kedungreja' ? 'kedungreja' : 'gdm') as 'gdm' | 'kedungreja';
+    const whName = WAREHOUSE_LIST[wId]?.name || "Gudang Utama";
+    const badgeColor = WAREHOUSE_LIST[wId]?.badgeColor || "";
+
+    setEditModal({
+      isOpen: true,
+      type: "warehouse",
+      materialId: item.id || "",
+      materialCode: item.code || "-",
+      materialNama: item.nama || "-",
+      unitBesar: item.unitBesar || "Pack",
+      entryDateLabel: formatDateLabel(entry.entryDate),
+      branches: [
+        {
+          entryId: entry.id,
+          branchId: 'gdm',
+          warehouseId: wId,
+          branchName: whName,
+          badgeColor: badgeColor,
+          materialId: item.id || "",
+          beforeQtyBesar: item.beforeQtyBesar,
+          afterQtyBesar: item.afterQtyBesar,
+          afterBulk: 0,
+          afterAktif: 0,
+          existsInOpname: true,
+        }
+      ]
+    });
+  };
+
+  const handleOpenEditWarehouseMatrix = (row: ConsolidatedWarehouseRow) => {
+    const targetWarehouses: Array<'gdm' | 'kedungreja'> = ['gdm', 'kedungreja'];
+    const branchList: MultiBranchEditBranchItem[] = [];
+
+    targetWarehouses.forEach((wId) => {
+      const entry = effectiveWarehouseEntries.find((e) => (e._warehouseId || 'gdm') === wId);
+      if (!entry) return;
+
+      const matchItem = entry.items?.find((it) => 
+        (it.code && it.code.trim().toLowerCase() === row.code.trim().toLowerCase()) ||
+        (it.nama && it.nama.trim().toLowerCase() === row.nama.trim().toLowerCase()) ||
+        (it.id && row.key && it.id.trim().toLowerCase() === row.key.trim().toLowerCase())
+      );
+
+      if (matchItem) {
+        branchList.push({
+          entryId: entry.id,
+          branchId: 'gdm',
+          warehouseId: wId,
+          branchName: WAREHOUSE_LIST[wId]?.name || wId,
+          badgeColor: WAREHOUSE_LIST[wId]?.badgeColor || "",
+          materialId: matchItem.id || "",
+          beforeQtyBesar: matchItem.beforeQtyBesar,
+          afterQtyBesar: matchItem.afterQtyBesar,
+          afterBulk: 0,
+          afterAktif: 0,
+          existsInOpname: true,
+        });
+      }
+    });
+
+    if (branchList.length === 0) {
+      toast({
+        variant: "destructive",
+        title: "Data Opname Gudang Tidak Ditemukan",
+        description: "Tidak ditemukan riwayat opname gudang untuk bahan baku ini.",
+      });
+      return;
+    }
+
+    setEditModal({
+      isOpen: true,
+      type: "warehouse",
+      materialId: "",
+      materialCode: row.code,
+      materialNama: row.nama,
+      unitBesar: row.unitBesar || "Pack",
+      entryDateLabel: selectedDate ? `Tanggal ${selectedDate}` : "Opname Terakhir",
+      branches: branchList
+    });
+  };
+
+  const handleSaveEditOpname = async () => {
+    if (editModal.branches.length === 0) return;
+    setIsSavingEdit(true);
+
+    try {
+      let savedCount = 0;
+
+      for (const br of editModal.branches) {
+        if (!br.entryId || !br.existsInOpname) continue;
+
+        if (editModal.type === "container") {
+          const rawEntry = (opnameHistory as RawOpnameEntry[])?.find(
+            (e) => e.id === br.entryId && normalizeBranchId(e._branchId) === br.branchId
+          );
+          if (!rawEntry) continue;
+
+          const updatedItems = (rawEntry.items || []).map((it) => {
+            const isMatch = 
+              (it.id && br.materialId && it.id === br.materialId) ||
+              (it.code && it.code.trim().toLowerCase() === editModal.materialCode.trim().toLowerCase()) ||
+              (it.nama && it.nama.trim().toLowerCase() === editModal.materialNama.trim().toLowerCase());
+            
+            if (!isMatch) return it;
+
+            const newBulk = cleanNumber(br.afterBulk);
+            const newAktif = cleanNumber(br.afterAktif);
+            const currentAfter = (it.after as Record<string, unknown>) || {};
+
+            return {
+              ...it,
+              after: {
+                ...currentAfter,
+                qtyKontainerBesar: newBulk,
+                qtyKontainerKecil: newAktif,
+                grams: newAktif,
+              },
+              afterBulk: newBulk,
+              afterAktif: newAktif,
+              grams: newAktif,
+            };
+          });
+
+          const docRef = branchDoc(db, "opnam_harian", br.entryId, br.branchId);
+          await updateDoc(docRef, {
+            items: updatedItems,
+            updatedAt: serverTimestamp(),
+            lastEditedBy: "Owner",
+          });
+          savedCount++;
+        } else {
+          // Warehouse
+          const rawEntry = (warehouseHistory as RawOpnameEntry[])?.find(
+            (e) => e.id === br.entryId && (e._warehouseId || 'gdm') === br.warehouseId
+          );
+          if (!rawEntry) continue;
+
+          const updatedItems = (rawEntry.items || []).map((it) => {
+            const isMatch = 
+              (it.id && br.materialId && it.id === br.materialId) ||
+              (it.code && it.code.trim().toLowerCase() === editModal.materialCode.trim().toLowerCase()) ||
+              (it.nama && it.nama.trim().toLowerCase() === editModal.materialNama.trim().toLowerCase());
+            
+            if (!isMatch) return it;
+
+            const newQty = cleanNumber(br.afterQtyBesar);
+            const beforeQty = cleanNumber(it.beforeQtyBesar ?? 0);
+
+            return {
+              ...it,
+              afterQtyBesar: newQty,
+              diffQtyBesar: newQty - beforeQty,
+            };
+          });
+
+          const docRef = warehouseDoc(db, "opnam_gudang", br.entryId, br.warehouseId);
+          await updateDoc(docRef, {
+            items: updatedItems,
+            updatedAt: serverTimestamp(),
+            lastEditedBy: "Owner",
+          });
+          savedCount++;
+        }
+      }
+
+      toast({
+        title: "Hasil Opname Berhasil Diperbarui",
+        description: `Perubahan hasil opname untuk ${editModal.materialNama} (${savedCount} data) telah tersimpan dan laporan otomatis diperbarui.`,
+      });
+      setEditModal((prev) => ({ ...prev, isOpen: false }));
+    } catch (err: unknown) {
+      console.error("Error saving opname edit:", err);
+      const errMsg = err instanceof Error ? err.message : "Terjadi kesalahan sistem saat menyimpan hasil opname.";
+      toast({
+        variant: "destructive",
+        title: "Gagal Menyimpan Perubahan",
+        description: errMsg,
+      });
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
   const handleExportExcel = () => {
     if (activeBranch === "all") {
       const containerRowsExport = consolidatedContainerMatrix.map((item, idx) => ({
@@ -1319,8 +1640,11 @@ export default function LaporanStockOpnamePage() {
                             <th colSpan={2} className="px-2 py-1.5 text-center border-r border-slate-200 bg-slate-900 text-white font-black text-[9px]">
                               TOTAL (Semua Toko)
                             </th>
-                            <th rowSpan={2} className="px-2 py-2 w-[150px] text-center bg-slate-100 text-slate-800 font-black text-[9px]">
+                            <th rowSpan={2} className="px-2 py-2 w-[140px] text-center bg-slate-100 text-slate-800 font-black text-[9px] border-r border-slate-200">
                               Peruntukan Toko
+                            </th>
+                            <th rowSpan={2} className="px-2 py-2 w-14 text-center bg-amber-50 text-amber-900 font-black text-[9px]">
+                              Aksi
                             </th>
                           </tr>
                           {/* Row 2: Sub Columns */}
@@ -1401,7 +1725,7 @@ export default function LaporanStockOpnamePage() {
                                 {formatNumber(item.totalAktif)} <span className="text-[9px] text-slate-500 font-medium">{item.unitAktif}</span>
                               </td>
                               {/* Peruntukan Toko (Teks Kecil Ringkas) */}
-                              <td className="px-2 py-1.5 text-left bg-slate-50/40">
+                              <td className="px-2 py-1.5 text-left bg-slate-50/40 border-r border-slate-100">
                                 <div className="flex flex-wrap items-center gap-1">
                                   {item.targetBranches.map((br) => (
                                     <span
@@ -1417,6 +1741,20 @@ export default function LaporanStockOpnamePage() {
                                     </span>
                                   ))}
                                 </div>
+                              </td>
+                              {/* Aksi Edit */}
+                              <td className="px-1.5 py-1.5 text-center bg-amber-50/30">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleOpenEditContainerMatrix(item)}
+                                  className="h-6 px-2 text-amber-800 bg-amber-100/70 hover:bg-amber-200/80 rounded-lg text-[9px] font-black uppercase tracking-wider gap-1 border border-amber-300/80 shadow-2xs transition-all"
+                                  title="Edit Hasil Opname"
+                                >
+                                  <Pencil className="h-2.5 w-2.5 text-amber-700" />
+                                  <span>Edit</span>
+                                </Button>
                               </td>
                             </tr>
                           ))}
@@ -1442,6 +1780,16 @@ export default function LaporanStockOpnamePage() {
                                 </h4>
                               </div>
                             </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleOpenEditContainerMatrix(item)}
+                              className="h-6 px-2 text-amber-800 bg-amber-100/70 hover:bg-amber-200/80 rounded-lg text-[9px] font-black uppercase tracking-wider gap-1 border border-amber-300/80 shrink-0"
+                            >
+                              <Pencil className="h-2.5 w-2.5 text-amber-700" />
+                              <span>Edit</span>
+                            </Button>
                           </div>
 
                           {/* Peruntukan Toko on Mobile */}
@@ -1537,7 +1885,8 @@ export default function LaporanStockOpnamePage() {
                             <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest text-right border-r border-slate-200">Aktif (Sistem)</th>
                             <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest text-right">Bulk (Hasil Opname)</th>
                             <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest text-right border-r border-slate-200">Aktif (Hasil Opname)</th>
-                            <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest text-right bg-slate-200/50">Selisih</th>
+                            <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest text-right bg-slate-200/50 border-r border-slate-200">Selisih</th>
+                            <th className="px-2 py-3 text-[10px] font-black uppercase tracking-widest text-center w-14 bg-amber-50 text-amber-900">Aksi</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 text-xs">
@@ -1560,11 +1909,24 @@ export default function LaporanStockOpnamePage() {
                               <td className="px-3 py-2.5 text-right font-bold text-slate-900 border-r border-slate-100">
                                 {formatNumber(item.afterAktif)} <span className="text-[10px] text-slate-400">{item.unitAktif || ""}</span>
                               </td>
-                              <td className={`px-3 py-2.5 text-right font-black ${item.diffBulk + item.diffAktif >= 0 ? "text-emerald-600 bg-emerald-50/30" : "text-rose-600 bg-rose-50/30"}`}>
+                              <td className={`px-3 py-2.5 text-right font-black border-r border-slate-100 ${item.diffBulk + item.diffAktif >= 0 ? "text-emerald-600 bg-emerald-50/30" : "text-rose-600 bg-rose-50/30"}`}>
                                 <div className="flex items-center justify-end gap-1">
                                   {item.diffBulk + item.diffAktif >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
                                   {formatCombinedDifference(item)}
                                 </div>
+                              </td>
+                              <td className="px-1.5 py-1.5 text-center bg-amber-50/30">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleOpenEditContainerSingle(entry, item)}
+                                  className="h-6 px-2 text-amber-800 bg-amber-100/70 hover:bg-amber-200/80 rounded-lg text-[9px] font-black uppercase tracking-wider gap-1 border border-amber-300/80 shadow-2xs transition-all"
+                                  title="Edit Hasil Opname"
+                                >
+                                  <Pencil className="h-2.5 w-2.5 text-amber-700" />
+                                  <span>Edit</span>
+                                </Button>
                               </td>
                             </tr>
                           ))}
@@ -1590,9 +1952,21 @@ export default function LaporanStockOpnamePage() {
                                 </h4>
                               </div>
                             </div>
-                            <div className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full ${item.diffBulk + item.diffAktif >= 0 ? "bg-emerald-50 text-emerald-600 border border-emerald-200" : "bg-rose-50 text-rose-600 border border-rose-200"}`}>
-                              {item.diffBulk + item.diffAktif >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                              <span>{formatCombinedDifference(item)}</span>
+                            <div className="flex items-center gap-1.5">
+                              <div className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full ${item.diffBulk + item.diffAktif >= 0 ? "bg-emerald-50 text-emerald-600 border border-emerald-200" : "bg-rose-50 text-rose-600 border border-rose-200"}`}>
+                                {item.diffBulk + item.diffAktif >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                                <span>{formatCombinedDifference(item)}</span>
+                              </div>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleOpenEditContainerSingle(entry, item)}
+                                className="h-6 px-1.5 text-amber-800 bg-amber-100/70 hover:bg-amber-200/80 rounded-lg text-[9px] font-black uppercase tracking-wider gap-1 border border-amber-300/80 shrink-0"
+                              >
+                                <Pencil className="h-2.5 w-2.5 text-amber-700" />
+                                <span>Edit</span>
+                              </Button>
                             </div>
                           </div>
 
@@ -1690,8 +2064,11 @@ export default function LaporanStockOpnamePage() {
                             <th className="px-3 py-3 text-right border-r border-slate-200 bg-cyan-50 text-cyan-800">
                               Gudang Kedungreja (Opname)
                             </th>
-                            <th className="px-3 py-3 text-right bg-slate-900 text-white font-black">
+                            <th className="px-3 py-3 text-right bg-slate-900 text-white font-black border-r border-slate-200">
                               Total Gudang
+                            </th>
+                            <th className="px-2 py-3 text-center w-14 bg-amber-50 text-amber-900 font-black">
+                              Aksi
                             </th>
                           </tr>
                         </thead>
@@ -1720,8 +2097,22 @@ export default function LaporanStockOpnamePage() {
                                 )}
                               </td>
                               {/* Total */}
-                              <td className="px-3 py-2.5 text-right font-black text-slate-950 bg-slate-50">
+                              <td className="px-3 py-2.5 text-right font-black text-slate-950 bg-slate-50 border-r border-slate-100">
                                 {formatNumber(item.totalQty)} <span className="text-[10px] text-slate-500 font-bold">{item.unitBesar}</span>
+                              </td>
+                              {/* Aksi */}
+                              <td className="px-1.5 py-1.5 text-center bg-amber-50/30">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleOpenEditWarehouseMatrix(item)}
+                                  className="h-6 px-2 text-amber-800 bg-amber-100/70 hover:bg-amber-200/80 rounded-lg text-[9px] font-black uppercase tracking-wider gap-1 border border-amber-300/80 shadow-2xs transition-all"
+                                  title="Edit Hasil Opname"
+                                >
+                                  <Pencil className="h-2.5 w-2.5 text-amber-700" />
+                                  <span>Edit</span>
+                                </Button>
                               </td>
                             </tr>
                           ))}
@@ -1747,6 +2138,16 @@ export default function LaporanStockOpnamePage() {
                                 </h4>
                               </div>
                             </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleOpenEditWarehouseMatrix(item)}
+                              className="h-6 px-2 text-amber-800 bg-amber-100/70 hover:bg-amber-200/80 rounded-lg text-[9px] font-black uppercase tracking-wider gap-1 border border-amber-300/80 shrink-0"
+                            >
+                              <Pencil className="h-2.5 w-2.5 text-amber-700" />
+                              <span>Edit</span>
+                            </Button>
                           </div>
 
                           <div className="grid grid-cols-2 gap-2 text-[10px]">
@@ -1810,7 +2211,8 @@ export default function LaporanStockOpnamePage() {
                             <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest border-r border-slate-200">Nama Bahan</th>
                             <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest text-right">Stok Bahan Baku</th>
                             <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest text-right border-r border-slate-200">Hasil Opname</th>
-                            <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest text-right bg-slate-200/50">Selisih</th>
+                            <th className="px-3 py-3 text-[10px] font-black uppercase tracking-widest text-right bg-slate-200/50 border-r border-slate-200">Selisih</th>
+                            <th className="px-2 py-3 text-[10px] font-black uppercase tracking-widest text-center w-14 bg-amber-50 text-amber-900">Aksi</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 text-xs">
@@ -1827,11 +2229,24 @@ export default function LaporanStockOpnamePage() {
                               <td className="px-3 py-2.5 text-right font-bold text-slate-900 border-r border-slate-100">
                                 {formatNumber(item.afterQtyBesar)} <span className="text-[10px] text-slate-400">{item.unitBesar || ""}</span>
                               </td>
-                              <td className={`px-3 py-2.5 text-right font-black ${item.diffQtyBesar >= 0 ? "text-emerald-600 bg-emerald-50/30" : "text-rose-600 bg-rose-50/30"}`}>
+                              <td className={`px-3 py-2.5 text-right font-black border-r border-slate-100 ${item.diffQtyBesar >= 0 ? "text-emerald-600 bg-emerald-50/30" : "text-rose-600 bg-rose-50/30"}`}>
                                 <div className="flex items-center justify-end gap-1">
                                   {item.diffQtyBesar >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
                                   {item.diffQtyBesar >= 0 ? `+${formatNumber(item.diffQtyBesar)}` : formatNumber(item.diffQtyBesar)} {item.unitBesar || ""}
                                 </div>
+                              </td>
+                              <td className="px-1.5 py-1.5 text-center bg-amber-50/30">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleOpenEditWarehouseSingle(entry, item)}
+                                  className="h-6 px-2 text-amber-800 bg-amber-100/70 hover:bg-amber-200/80 rounded-lg text-[9px] font-black uppercase tracking-wider gap-1 border border-amber-300/80 shadow-2xs transition-all"
+                                  title="Edit Hasil Opname"
+                                >
+                                  <Pencil className="h-2.5 w-2.5 text-amber-700" />
+                                  <span>Edit</span>
+                                </Button>
                               </td>
                             </tr>
                           ))}
@@ -1857,9 +2272,21 @@ export default function LaporanStockOpnamePage() {
                                 </h4>
                               </div>
                             </div>
-                            <div className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full ${item.diffQtyBesar >= 0 ? "bg-emerald-50 text-emerald-600 border border-emerald-200" : "bg-rose-50 text-rose-600 border border-rose-200"}`}>
-                              {item.diffQtyBesar >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                              <span>{item.diffQtyBesar >= 0 ? `+${formatNumber(item.diffQtyBesar)}` : formatNumber(item.diffQtyBesar)} {item.unitBesar || ""}</span>
+                            <div className="flex items-center gap-1.5">
+                              <div className={`inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full ${item.diffQtyBesar >= 0 ? "bg-emerald-50 text-emerald-600 border border-emerald-200" : "bg-rose-50 text-rose-600 border border-rose-200"}`}>
+                                {item.diffQtyBesar >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                                <span>{item.diffQtyBesar >= 0 ? `+${formatNumber(item.diffQtyBesar)}` : formatNumber(item.diffQtyBesar)} {item.unitBesar || ""}</span>
+                              </div>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleOpenEditWarehouseSingle(entry, item)}
+                                className="h-6 px-1.5 text-amber-800 bg-amber-100/70 hover:bg-amber-200/80 rounded-lg text-[9px] font-black uppercase tracking-wider gap-1 border border-amber-300/80 shrink-0"
+                              >
+                                <Pencil className="h-2.5 w-2.5 text-amber-700" />
+                                <span>Edit</span>
+                              </Button>
                             </div>
                           </div>
 
@@ -2095,6 +2522,242 @@ export default function LaporanStockOpnamePage() {
               ) : (
                 <>
                   <CheckCircle2 className="mr-2 h-4 w-4" /> Perbarui Sekarang
+                </>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog Edit Hasil Opname Owner */}
+      <Dialog 
+        open={editModal.isOpen} 
+        onOpenChange={(open) => {
+          if (!isSavingEdit) {
+            setEditModal((prev) => ({ ...prev, isOpen: open }));
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col rounded-[2rem] p-6 bg-white border-none shadow-2xl">
+          <DialogHeader>
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-2xl bg-amber-500/10 text-amber-600">
+                <Pencil className="h-6 w-6" />
+              </div>
+              <div>
+                <DialogTitle className="text-xl sm:text-2xl font-black uppercase italic text-slate-900">
+                  Edit Hasil Stock Opname
+                </DialogTitle>
+                <DialogDescription className="text-xs text-slate-500 font-bold mt-0.5">
+                  Koreksi hasil opname fisik secara langsung oleh Owner &bull; {editModal.type === "container" ? "Opname Kontainer" : "Opname Gudang"}
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-4 overflow-y-auto pr-1 flex-1 py-2 custom-scrollbar">
+            {/* Material Info Card */}
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <span className="inline-flex px-2 py-0.5 rounded-lg bg-indigo-50 font-mono text-[10px] font-bold text-indigo-700 border border-indigo-200">
+                  {editModal.materialCode}
+                </span>
+                <h3 className="text-sm sm:text-base font-black uppercase text-slate-900 mt-1">
+                  {editModal.materialNama}
+                </h3>
+              </div>
+              <div className="text-right sm:self-center">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+                  Periode Opname
+                </span>
+                <span className="text-xs font-black text-slate-700">
+                  {editModal.entryDateLabel}
+                </span>
+              </div>
+            </div>
+
+            {/* Edit Form per Branch */}
+            <div className="space-y-3">
+              {editModal.branches.map((br, index) => {
+                const isContainer = editModal.type === "container";
+                const diffBulk = (br.afterBulk || 0) - (br.beforeBulk || 0);
+                const diffAktif = (br.afterAktif || 0) - (br.beforeAktif || 0);
+                const diffGudang = (br.afterQtyBesar || 0) - (br.beforeQtyBesar || 0);
+
+                return (
+                  <div 
+                    key={index}
+                    className="p-4 rounded-2xl border border-slate-200/90 bg-white shadow-xs space-y-3"
+                  >
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className={cn(
+                          "px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider border",
+                          br.badgeColor || "bg-slate-100 text-slate-800 border-slate-200"
+                        )}>
+                          {br.branchName}
+                        </span>
+                      </div>
+                      <span className="text-[9px] font-mono text-slate-400 font-bold">
+                        ID: {br.entryId ? `${br.entryId.substring(0, 10)}...` : "-"}
+                      </span>
+                    </div>
+
+                    {isContainer ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {/* Bulk Input */}
+                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <label className="text-[10px] font-black uppercase tracking-wider text-slate-600">
+                              Bulk (Hasil Opname)
+                            </label>
+                            <span className="text-[9px] font-bold text-slate-400">
+                              Sistem: {formatNumber(br.beforeBulk)} {editModal.unitBulk}
+                            </span>
+                          </div>
+                          <div className="relative">
+                            <Input
+                              type="number"
+                              step="any"
+                              min="0"
+                              value={br.afterBulk}
+                              onChange={(e) => {
+                                const val = cleanNumber(e.target.value);
+                                setEditModal((prev) => {
+                                  const newBranches = [...prev.branches];
+                                  newBranches[index] = { ...newBranches[index], afterBulk: val };
+                                  return { ...prev, branches: newBranches };
+                                });
+                              }}
+                              className="h-10 rounded-xl bg-white border-slate-200 text-sm font-black text-slate-900 pr-14"
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 uppercase pointer-events-none">
+                              {editModal.unitBulk}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="text-slate-400 font-bold">Selisih:</span>
+                            <span className={cn(
+                              "font-black",
+                              diffBulk > 0 ? "text-emerald-600" : diffBulk < 0 ? "text-rose-600" : "text-slate-500"
+                            )}>
+                              {diffBulk > 0 ? `+${formatNumber(diffBulk)}` : formatNumber(diffBulk)} {editModal.unitBulk}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Aktif Input */}
+                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <label className="text-[10px] font-black uppercase tracking-wider text-slate-600">
+                              Aktif (Hasil Opname)
+                            </label>
+                            <span className="text-[9px] font-bold text-slate-400">
+                              Sistem: {formatNumber(br.beforeAktif)} {editModal.unitAktif}
+                            </span>
+                          </div>
+                          <div className="relative">
+                            <Input
+                              type="number"
+                              step="any"
+                              min="0"
+                              value={br.afterAktif}
+                              onChange={(e) => {
+                                const val = cleanNumber(e.target.value);
+                                setEditModal((prev) => {
+                                  const newBranches = [...prev.branches];
+                                  newBranches[index] = { ...newBranches[index], afterAktif: val };
+                                  return { ...prev, branches: newBranches };
+                                });
+                              }}
+                              className="h-10 rounded-xl bg-white border-slate-200 text-sm font-black text-slate-900 pr-14"
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 uppercase pointer-events-none">
+                              {editModal.unitAktif}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="text-slate-400 font-bold">Selisih:</span>
+                            <span className={cn(
+                              "font-black",
+                              diffAktif > 0 ? "text-emerald-600" : diffAktif < 0 ? "text-rose-600" : "text-slate-500"
+                            )}>
+                              {diffAktif > 0 ? `+${formatNumber(diffAktif)}` : formatNumber(diffAktif)} {editModal.unitAktif}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Warehouse Input */
+                      <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] font-black uppercase tracking-wider text-slate-600">
+                            Hasil Opname Gudang
+                          </label>
+                          <span className="text-[9px] font-bold text-slate-400">
+                            Sistem: {formatNumber(br.beforeQtyBesar)} {editModal.unitBesar}
+                          </span>
+                        </div>
+                        <div className="relative">
+                          <Input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={br.afterQtyBesar}
+                            onChange={(e) => {
+                              const val = cleanNumber(e.target.value);
+                              setEditModal((prev) => {
+                                const newBranches = [...prev.branches];
+                                newBranches[index] = { ...newBranches[index], afterQtyBesar: val };
+                                return { ...prev, branches: newBranches };
+                              });
+                            }}
+                            className="h-10 rounded-xl bg-white border-slate-200 text-sm font-black text-slate-900 pr-14"
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 uppercase pointer-events-none">
+                            {editModal.unitBesar}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="text-slate-400 font-bold">Selisih:</span>
+                          <span className={cn(
+                            "font-black",
+                            diffGudang > 0 ? "text-emerald-600" : diffGudang < 0 ? "text-rose-600" : "text-slate-500"
+                          )}>
+                            {diffGudang > 0 ? `+${formatNumber(diffGudang)}` : formatNumber(diffGudang)} {editModal.unitBesar}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="border-t border-slate-100 pt-4 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setEditModal((prev) => ({ ...prev, isOpen: false }))}
+              disabled={isSavingEdit}
+              className="rounded-xl border-slate-200 text-xs font-bold"
+            >
+              Batal
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSaveEditOpname}
+              disabled={isSavingEdit}
+              className="rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black uppercase tracking-wider shadow-md shadow-amber-500/20"
+            >
+              {isSavingEdit ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Menyimpan...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="mr-2 h-4 w-4" /> Simpan Hasil Opname
                 </>
               )}
             </Button>
