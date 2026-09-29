@@ -26,6 +26,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     pathname.startsWith("/zona_gdm") ||
     pathname === "/zona_kedungreja" ||
     pathname.startsWith("/zona_kedungreja") ||
+    pathname === "/zona_gembong" ||
+    pathname.startsWith("/zona_gembong") ||
     pathname === "/teh_warga_gdm" ||
     pathname.startsWith("/teh_warga_gdm") ||
     pathname === "/absensi" ||

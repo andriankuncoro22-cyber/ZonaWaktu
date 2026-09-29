@@ -20,6 +20,7 @@ import { useCollection, useFirestore, useMemoFirebase, collection } from "@/fire
 import { addDoc, query, serverTimestamp, where } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { useActiveBranch, BRANCH_LIST, getBranchTheme } from "@/lib/branch-helper";
 
 interface KeuanganKontainerDoc {
   id?: string;
@@ -143,6 +144,9 @@ const formatThousand = (val: number | string) => {
 };
 
 export default function EmployeeKeuanganKontainerPage() {
+  const activeBranch = useActiveBranch();
+  const branchInfo = BRANCH_LIST[activeBranch] || BRANCH_LIST.gdm;
+  const theme = getBranchTheme(activeBranch);
   const db = useFirestore();
   const { toast } = useToast();
   const [shift, setShift] = useState<1 | 2>(1);
@@ -617,11 +621,17 @@ export default function EmployeeKeuanganKontainerPage() {
     <div className="space-y-6 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-700">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className={cn("px-2.5 py-0.5 rounded-full text-[8px] font-black uppercase border", theme.badgeClass)}>
+              <span className={cn("inline-block h-1.5 w-1.5 rounded-full mr-1", theme.dotColor)} />
+              {branchInfo.shortName}
+            </span>
+          </div>
           <h1 className="text-2xl sm:text-3xl md:text-4xl font-black uppercase italic tracking-tighter text-slate-900 leading-none">
-            Keuangan Kontainer
+            Keuangan Kontainer &bull; {branchInfo.shortName}
           </h1>
           <p className="mt-2 text-[9px] sm:text-[10px] md:text-xs font-black uppercase tracking-[0.2em] text-slate-500">
-            Hitung kas yang harus disetorkan dari hasil closing dan pengeluaran hari ini
+            Hitung kas yang harus disetorkan dari hasil closing dan pengeluaran hari ini di {branchInfo.name}
           </p>
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 w-full md:w-auto">
@@ -635,7 +645,7 @@ export default function EmployeeKeuanganKontainerPage() {
               className={cn(
                 "rounded-xl px-3 sm:px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all text-center",
                 shift === 1
-                  ? "bg-primary text-white shadow-md shadow-primary/10"
+                  ? cn(theme.buttonGradient, "shadow-md")
                   : "text-slate-500 hover:bg-slate-50"
               )}
             >
@@ -649,7 +659,7 @@ export default function EmployeeKeuanganKontainerPage() {
               className={cn(
                 "rounded-xl px-3 sm:px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all text-center",
                 shift === 2
-                  ? "bg-primary text-white shadow-md shadow-primary/10"
+                  ? cn(theme.buttonGradient, "shadow-md")
                   : "text-slate-500 hover:bg-slate-50"
               )}
             >
@@ -658,7 +668,7 @@ export default function EmployeeKeuanganKontainerPage() {
           </div>
 
           <div className="flex items-center gap-2.5 rounded-2xl border border-slate-100 bg-white px-4 py-2 sm:py-3 shadow-sm w-full sm:w-auto h-11 sm:h-auto">
-            <CalendarIcon className="h-4 w-4 text-primary shrink-0" />
+            <CalendarIcon className={cn("h-4 w-4 shrink-0", theme.accentTextClass)} />
             <input
               type="date"
               value={selectedDate}
@@ -922,19 +932,24 @@ export default function EmployeeKeuanganKontainerPage() {
                   )}
                 </div>
 
-                {/* Kartu 2: Terpisah Khusus Nominal Kas & Hitung Selisih (Dark Emerald) */}
-                <div className="rounded-2xl sm:rounded-[1.5rem] border border-emerald-900/60 bg-gradient-to-br from-slate-900 to-emerald-950 p-4 sm:p-5 text-white shadow-lg">
+                {/* Kartu 2: Terpisah Khusus Nominal Kas & Hitung Selisih */}
+                <div className={cn(
+                  "rounded-2xl sm:rounded-[1.5rem] border p-4 sm:p-5 text-white shadow-lg",
+                  activeBranch === "gembong"
+                    ? "border-indigo-900/60 bg-gradient-to-br from-slate-900 to-[#1e1b4b]"
+                    : "border-emerald-900/60 bg-gradient-to-br from-slate-900 to-emerald-950"
+                )}>
                   <div className="flex items-center gap-2.5 mb-3.5 sm:mb-4">
-                    <Wallet className="h-4 w-4 sm:h-5 sm:w-5 text-emerald-400 shrink-0" />
+                    <Wallet className={cn("h-4 w-4 sm:h-5 sm:w-5 shrink-0", activeBranch === "gembong" ? "text-indigo-400" : "text-emerald-400")} />
                     <div>
                       <h3 className="text-xs sm:text-sm font-black uppercase italic text-white leading-none">Nominal Kas (Uang di Pegang)</h3>
-                      <p className="text-[8px] sm:text-[9px] text-emerald-300/80 font-bold uppercase tracking-wider mt-1">Hitung Fisik Uang Tunai Kasir</p>
+                      <p className={cn("text-[8px] sm:text-[9px] font-bold uppercase tracking-wider mt-1", activeBranch === "gembong" ? "text-indigo-300/80" : "text-emerald-300/80")}>Hitung Fisik Uang Tunai Kasir</p>
                     </div>
                   </div>
 
                   <div className="space-y-3.5 sm:space-y-4">
                     <div className="space-y-1.5">
-                      <Label className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.15em] text-emerald-200 flex items-center justify-between">
+                      <Label className={cn("text-[9px] sm:text-[10px] font-black uppercase tracking-[0.15em] flex items-center justify-between", activeBranch === "gembong" ? "text-indigo-200" : "text-emerald-200")}>
                         <span>Uang Fisik Kasir (Cash on Hand)</span>
                         <span className="text-[8px] font-black text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">*WAJIB</span>
                       </Label>
@@ -944,7 +959,12 @@ export default function EmployeeKeuanganKontainerPage() {
                         value={cashOnHand === "" ? "" : formatThousand(cashOnHand)}
                         onChange={(e) => setCashOnHand(e.target.value.replace(/\D/g, ""))}
                         placeholder="0"
-                        className="h-12 sm:h-14 rounded-xl border-emerald-700/60 bg-slate-800/90 text-white placeholder:text-slate-500 font-black text-base sm:text-lg focus:ring-2 focus:ring-emerald-400"
+                        className={cn(
+                          "h-12 sm:h-14 rounded-xl text-white placeholder:text-slate-500 font-black text-base sm:text-lg focus:ring-2",
+                          activeBranch === "gembong"
+                            ? "border-indigo-700/60 bg-slate-800/90 focus:ring-indigo-400"
+                            : "border-emerald-700/60 bg-slate-800/90 focus:ring-emerald-400"
+                        )}
                       />
                     </div>
 
@@ -952,7 +972,7 @@ export default function EmployeeKeuanganKontainerPage() {
                     <div className={cn(
                       "rounded-xl sm:rounded-2xl p-3 sm:p-4 border transition-all",
                       difference === 0 
-                        ? "bg-emerald-900/40 border-emerald-500/40 text-emerald-200" 
+                        ? (activeBranch === "gembong" ? "bg-indigo-900/40 border-indigo-500/40 text-indigo-200" : "bg-emerald-900/40 border-emerald-500/40 text-emerald-200") 
                         : difference > 0 
                           ? "bg-amber-900/40 border-amber-500/40 text-amber-200" 
                           : "bg-rose-900/40 border-rose-500/40 text-rose-200"
@@ -961,7 +981,7 @@ export default function EmployeeKeuanganKontainerPage() {
                         <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.15em] opacity-80">Perhitungan Selisih</span>
                         <span className={cn(
                           "text-[8px] sm:text-[9px] font-black uppercase px-2 py-0.5 rounded-md",
-                          difference === 0 ? "bg-emerald-500/20 text-emerald-300" : difference > 0 ? "bg-amber-500/20 text-amber-300" : "bg-rose-500/20 text-rose-300"
+                          difference === 0 ? (activeBranch === "gembong" ? "bg-indigo-500/20 text-indigo-300" : "bg-emerald-500/20 text-emerald-300") : difference > 0 ? "bg-amber-500/20 text-amber-300" : "bg-rose-500/20 text-rose-300"
                         )}>
                           {difference === 0 ? "Pas / Sesuai" : difference > 0 ? "Kas Lebih" : "Kas Kurang"}
                         </span>
@@ -996,7 +1016,12 @@ export default function EmployeeKeuanganKontainerPage() {
                     <Button
                       onClick={handleSave}
                       disabled={saving || (shift === 2 && !dailyClosing)}
-                      className="mt-1.5 h-12 sm:h-14 w-full rounded-xl sm:rounded-2xl bg-emerald-500 hover:bg-emerald-600 font-black uppercase tracking-wider sm:tracking-[0.2em] text-slate-950 text-[10px] sm:text-[11px] shadow-lg shadow-emerald-950 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                      className={cn(
+                        "mt-1.5 h-12 sm:h-14 w-full rounded-xl sm:rounded-2xl font-black uppercase tracking-wider sm:tracking-[0.2em] text-[10px] sm:text-[11px] shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all",
+                        activeBranch === "gembong"
+                          ? "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-950"
+                          : "bg-emerald-500 hover:bg-emerald-600 text-slate-950 shadow-emerald-950"
+                      )}
                     >
                       {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                       Simpan Histori Closing Shift {shift}
@@ -1010,7 +1035,7 @@ export default function EmployeeKeuanganKontainerPage() {
           <div className="grid gap-4 sm:gap-6 lg:grid-cols-3">
             <Card className="rounded-2xl sm:rounded-[2rem] border-none bg-white p-4 sm:p-6 shadow-sm">
               <div className="flex items-center gap-2.5 sm:gap-3">
-                <Wallet className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
+                <Wallet className={cn("h-4 w-4 sm:h-5 sm:w-5", theme.accentTextClass)} />
                 <h3 className="text-sm sm:text-base font-black uppercase italic text-slate-900">Rincian Operasional</h3>
               </div>
               <div className="mt-3.5 sm:mt-4 space-y-2.5 sm:space-y-3">
@@ -1038,7 +1063,7 @@ export default function EmployeeKeuanganKontainerPage() {
  
             <Card className="rounded-2xl sm:rounded-[2rem] border-none bg-white p-4 sm:p-6 shadow-sm">
               <div className="flex items-center gap-2.5 sm:gap-3">
-                <Coins className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
+                <Coins className={cn("h-4 w-4 sm:h-5 sm:w-5", theme.accentTextClass)} />
                 <h3 className="text-sm sm:text-base font-black uppercase italic text-slate-900">Rincian Belanja Bahan</h3>
               </div>
               <div className="mt-3.5 sm:mt-4 space-y-2.5 sm:space-y-3">

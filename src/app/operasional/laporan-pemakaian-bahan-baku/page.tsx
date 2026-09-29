@@ -1,10 +1,11 @@
 "use client";
 
-import { getStoreConfigDocId, useActiveBranch, getBranchScopedCollectionName, BranchId } from "@/lib/branch-helper";
+import { getStoreConfigDocId, useActiveBranch, getBranchScopedCollectionName, BranchId, setActiveBranch, BRANCH_LIST } from "@/lib/branch-helper";
 
-import React, { useState } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useFirestore, useDoc, useMemoFirebase, collection, doc } from "@/firebase";
 import { query, where, getDocs } from "firebase/firestore";
 import {
@@ -14,17 +15,35 @@ import {
   FileDown,
   FileSpreadsheet,
   ChevronDown,
+  Search,
+  X,
+  Filter,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { cn } from "@/lib/utils";
 
 /* ─────────────────── helpers ─────────────────── */
 function monthLabel(ym: string) {
   const [year, month] = ym.split("-");
   const d = new Date(Number(year), Number(month) - 1, 1);
   return d.toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+}
+
+function cleanCode(code: string | undefined | null): string {
+  if (!code) return "";
+  return String(code).trim().replace(/^0+/, "");
+}
+
+function cleanName(name: string | undefined | null): string {
+  if (!name) return "";
+  return String(name).trim().toLowerCase();
+}
+
+function compareMaterialCode(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 }
 
 /* ─────────────────── types ─────────────────── */
@@ -53,6 +72,58 @@ export default function LaporanPemakaianBahanBakuPage() {
   const [hariRows, setHariRows] = useState<BahanRow[] | null>(null);
   const [bulanRows, setBulanRows] = useState<BahanRow[] | null>(null);
 
+  // Filter Nama Bahan Baku
+  const [selectedMaterialName, setSelectedMaterialName] = useState<string>("all");
+  const [searchMaterial, setSearchMaterial] = useState<string>("");
+
+  const availableMaterialsHari = useMemo(() => {
+    if (!hariRows) return [];
+    const set = new Set<string>();
+    hariRows.forEach((r) => {
+      if (r.nama && r.nama !== "-") set.add(r.nama);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [hariRows]);
+
+  const availableMaterialsBulan = useMemo(() => {
+    if (!bulanRows) return [];
+    const set = new Set<string>();
+    bulanRows.forEach((r) => {
+      if (r.nama && r.nama !== "-") set.add(r.nama);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [bulanRows]);
+
+  const filteredHariRows = useMemo(() => {
+    if (!hariRows) return null;
+    return hariRows.filter((r) => {
+      const matchSelected = selectedMaterialName === "all" || r.nama.toLowerCase() === selectedMaterialName.toLowerCase();
+      const matchSearch = !searchMaterial.trim() || 
+        r.nama.toLowerCase().includes(searchMaterial.toLowerCase()) || 
+        r.code.toLowerCase().includes(searchMaterial.toLowerCase());
+      return matchSelected && matchSearch;
+    });
+  }, [hariRows, selectedMaterialName, searchMaterial]);
+
+  const filteredBulanRows = useMemo(() => {
+    if (!bulanRows) return null;
+    return bulanRows.filter((r) => {
+      const matchSelected = selectedMaterialName === "all" || r.nama.toLowerCase() === selectedMaterialName.toLowerCase();
+      const matchSearch = !searchMaterial.trim() || 
+        r.nama.toLowerCase().includes(searchMaterial.toLowerCase()) || 
+        r.code.toLowerCase().includes(searchMaterial.toLowerCase());
+      return matchSelected && matchSearch;
+    });
+  }, [bulanRows, selectedMaterialName, searchMaterial]);
+
+  // Reset data when activeBranch changes
+  useEffect(() => {
+    setHariRows(null);
+    setBulanRows(null);
+    setSelectedMaterialName("all");
+    setSearchMaterial("");
+  }, [activeBranch]);
+
   // Settings (for PDF header)
   const settingsRef = useMemoFirebase(() => doc(db, "settings", getStoreConfigDocId()), [db]);
   const { data: settings } = useDoc(settingsRef);
@@ -62,7 +133,7 @@ export default function LaporanPemakaianBahanBakuPage() {
     setLoadingReport(true);
     try {
       const branchesToQuery: BranchId[] = activeBranch === 'all'
-        ? ['gdm', 'kedungreja', 'tehwarga']
+        ? ['gdm', 'kedungreja', 'tehwarga', 'gembong']
         : [activeBranch];
 
       // Combined maps across queried branches
@@ -90,22 +161,82 @@ export default function LaporanPemakaianBahanBakuPage() {
         // 2. Load products for branch
         const produkColl = getBranchScopedCollectionName("produk", b);
         const produkSnap = await getDocs(collection(db, produkColl));
-        const productCodeMap: { [code: string]: string } = {};
+        const productList: Array<{
+          id: string;
+          code: string;
+          cleanCode: string;
+          nama: string;
+          cleanName: string;
+        }> = [];
+
         produkSnap.forEach((d) => {
           const data = d.data();
-          if (data.code) {
-            productCodeMap[data.code] = d.id;
-          }
+          const rawCode = String(data.code || "").trim();
+          const rawNama = String(data.nama || "").trim();
+          productList.push({
+            id: d.id,
+            code: rawCode,
+            cleanCode: cleanCode(rawCode),
+            nama: rawNama,
+            cleanName: cleanName(rawNama),
+          });
         });
+
+        const findProduct = (item: any) => {
+          const itemCode = String(item.code || "").trim();
+          const itemName = String(item.name || "").trim();
+          const itemCleanCode = cleanCode(itemCode);
+          const itemCleanName = cleanName(itemName);
+
+          // 1. Direct match by ID if item has productId
+          if (item.productId) {
+            const found = productList.find((p) => p.id === item.productId);
+            if (found) return found;
+          }
+          // 2. Exact code match
+          if (itemCode) {
+            const found = productList.find((p) => p.code === itemCode);
+            if (found) return found;
+          }
+          // 3. Cleaned code match (stripping leading zeros, e.g. "0000000000001" vs "00001" -> "1")
+          if (itemCleanCode) {
+            const found = productList.find((p) => p.cleanCode === itemCleanCode);
+            if (found) return found;
+          }
+          // 4. Exact cleaned name match
+          if (itemCleanName) {
+            const found = productList.find((p) => p.cleanName === itemCleanName);
+            if (found) return found;
+          }
+          // 5. Fallback substring name match
+          if (itemCleanName && itemCleanName.length > 2) {
+            const found = productList.find(
+              (p) => p.cleanName.includes(itemCleanName) || itemCleanName.includes(p.cleanName)
+            );
+            if (found) return found;
+          }
+          return null;
+        };
 
         // 3. Load recipes for branch
         const resepColl = getBranchScopedCollectionName("resep", b);
         const resepSnap = await getDocs(collection(db, resepColl));
         const recipeMap: { [produkId: string]: { bahanBakuId: string; jumlah: number }[] } = {};
+        const recipeByCode: { [code: string]: { bahanBakuId: string; jumlah: number }[] } = {};
+        const recipeByName: { [name: string]: { bahanBakuId: string; jumlah: number }[] } = {};
+
         resepSnap.forEach((d) => {
           const data = d.data();
+          const komposisi = data.komposisi ?? [];
           if (data.produkId) {
-            recipeMap[data.produkId] = data.komposisi ?? [];
+            recipeMap[data.produkId] = komposisi;
+          }
+          if (data.kodeProduk) {
+            recipeByCode[data.kodeProduk] = komposisi;
+            recipeByCode[cleanCode(data.kodeProduk)] = komposisi;
+          }
+          if (data.namaProduk) {
+            recipeByName[cleanName(data.namaProduk)] = komposisi;
           }
         });
 
@@ -136,14 +267,34 @@ export default function LaporanPemakaianBahanBakuPage() {
           const data = docSnap.data() as any;
           const items = data.items ?? [];
           items.forEach((item: any) => {
-            const qty = Number(item.total ?? 0);
+            // Quantity can be item.total, item.qty, or item.jumlah
+            const qty = Number(item.total ?? item.qty ?? item.jumlah ?? 0);
             if (qty <= 0) return;
-            const productId = productCodeMap[item.code];
-            if (!productId) return;
-            const recipe = recipeMap[productId];
-            if (!recipe) return;
+
+            const matchedProduct = findProduct(item);
+
+            let recipe = matchedProduct ? recipeMap[matchedProduct.id] : undefined;
+            if (!recipe && matchedProduct) {
+              recipe =
+                recipeByCode[matchedProduct.code] ||
+                recipeByCode[matchedProduct.cleanCode] ||
+                recipeByName[matchedProduct.cleanName];
+            }
+            if (!recipe) {
+              const itemCode = String(item.code || "").trim();
+              const itemName = String(item.name || "").trim();
+              recipe =
+                recipeByCode[itemCode] ||
+                recipeByCode[cleanCode(itemCode)] ||
+                recipeByName[cleanName(itemName)];
+            }
+
+            if (!recipe || !Array.isArray(recipe)) return;
+
             recipe.forEach((ing) => {
-              const used = ing.jumlah * qty;
+              const jumlahPerPorsi = Number(ing.jumlah || 0);
+              if (jumlahPerPorsi <= 0 || !ing.bahanBakuId) return;
+              const used = jumlahPerPorsi * qty;
               agg[ing.bahanBakuId] = (agg[ing.bahanBakuId] || 0) + used;
             });
           });
@@ -167,7 +318,7 @@ export default function LaporanPemakaianBahanBakuPage() {
           };
         })
         .filter(Boolean)
-        .sort((a: any, b: any) => a.code.localeCompare(b.code)) as BahanRow[];
+        .sort((a: any, b: any) => compareMaterialCode(a.code, b.code)) as BahanRow[];
 
       if (mode === "harian") setHariRows(rows);
       else setBulanRows(rows);
@@ -277,16 +428,53 @@ export default function LaporanPemakaianBahanBakuPage() {
             Laporan Pemakaian
           </h1>
           <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em] mt-2">
-            Pemakaian Bahan Baku — Harian &amp; Bulanan
+            Pemakaian Bahan Baku — Harian &amp; Bulanan • {BRANCH_LIST[activeBranch]?.name || "Zona Waktu"}
           </p>
         </div>
         <div className="flex items-center gap-2 bg-primary/5 border border-primary/10 rounded-2xl px-5 py-3">
           <BarChart2 className="h-4 w-4 text-primary" />
-          <span className="text-[10px] font-black uppercase tracking-widest text-primary">
-            Rekap Otomatis dari Penjualan &amp; Resep
-          </span>
+          <div className="flex flex-col">
+            <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">
+              Cabang: <strong className="text-primary">{BRANCH_LIST[activeBranch]?.shortName || "Zona Waktu"}</strong>
+            </span>
+            <span className="text-[10px] font-black uppercase tracking-widest text-primary">
+              Rekap Otomatis dari Penjualan &amp; Resep
+            </span>
+          </div>
         </div>
       </header>
+
+      {/* Branch Selector Switcher */}
+      <div className="flex flex-wrap items-center gap-2 bg-slate-50/80 p-2.5 rounded-2xl border border-slate-200/60 shadow-2xs">
+        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 pl-2 mr-1">
+          Pilih Toko:
+        </span>
+        {[
+          { id: 'gdm' as BranchId, label: 'Zona Waktu GDM', color: 'bg-emerald-500' },
+          { id: 'kedungreja' as BranchId, label: 'Zona Kedungreja', color: 'bg-cyan-500' },
+          { id: 'tehwarga' as BranchId, label: 'Teh Warga GDM', color: 'bg-amber-500' },
+          { id: 'gembong' as BranchId, label: 'Zona Gembong', color: 'bg-indigo-500' },
+          { id: 'all' as BranchId, label: 'Semua Toko', color: 'bg-slate-700' },
+        ].map((b) => {
+          const isActive = activeBranch === b.id;
+          return (
+            <button
+              key={b.id}
+              type="button"
+              onClick={() => setActiveBranch(b.id)}
+              className={cn(
+                "inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border shadow-2xs cursor-pointer",
+                isActive
+                  ? "bg-slate-900 text-white border-slate-900 shadow-sm ring-2 ring-slate-900/10 font-bold"
+                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-900"
+              )}
+            >
+              <span className={cn("h-2 w-2 rounded-full", b.color, isActive && "ring-2 ring-white/50")} />
+              {b.label}
+            </button>
+          );
+        })}
+      </div>
 
       {/* Tabs */}
       <Tabs defaultValue="harian" className="w-full">
@@ -345,7 +533,7 @@ export default function LaporanPemakaianBahanBakuPage() {
                 <div className="grid grid-cols-2 gap-2 w-full md:w-auto md:flex md:items-center">
                   <Button
                     variant="outline"
-                    onClick={() => exportExcel(hariRows, hariDate)}
+                    onClick={() => exportExcel(filteredHariRows || hariRows, hariDate)}
                     className="h-11 md:h-12 px-3 sm:px-5 rounded-xl border-slate-200 font-black uppercase tracking-widest text-[9px] gap-1.5 sm:gap-2 bg-white flex items-center justify-center"
                   >
                     <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
@@ -353,7 +541,7 @@ export default function LaporanPemakaianBahanBakuPage() {
                   </Button>
                   <Button
                     variant="outline"
-                    onClick={() => exportPDF(hariRows, hariDate)}
+                    onClick={() => exportPDF(filteredHariRows || hariRows, hariDate)}
                     className="h-11 md:h-12 px-3 sm:px-5 rounded-xl border-slate-200 font-black uppercase tracking-widest text-[9px] gap-1.5 sm:gap-2 bg-white flex items-center justify-center"
                   >
                     <FileDown className="h-4 w-4 text-primary" />
@@ -363,19 +551,79 @@ export default function LaporanPemakaianBahanBakuPage() {
               )}
             </div>
 
+            {/* Filter Nama Bahan Toolbar */}
+            {hariRows && hariRows.length > 0 && (
+              <div className="px-4 sm:px-6 md:px-8 py-3 bg-slate-50/80 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex flex-1 flex-wrap items-center gap-2.5">
+                  <div className="flex items-center gap-2 bg-white border border-slate-200/90 rounded-xl px-3 py-1.5 shadow-2xs">
+                    <Filter className="h-3.5 w-3.5 text-primary shrink-0" />
+                    <span className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Nama Bahan:</span>
+                    <select
+                      value={selectedMaterialName}
+                      onChange={(e) => setSelectedMaterialName(e.target.value)}
+                      className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer max-w-[200px] truncate"
+                    >
+                      <option value="all">Semua Bahan Baku ({availableMaterialsHari.length})</option>
+                      {availableMaterialsHari.map((name) => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="relative flex-1 min-w-[200px] max-w-sm">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                    <Input
+                      type="text"
+                      value={searchMaterial}
+                      onChange={(e) => setSearchMaterial(e.target.value)}
+                      placeholder="Ketik cari nama atau kode bahan..."
+                      className="pl-8 pr-7 h-9 rounded-xl bg-white border-slate-200 text-xs font-bold"
+                    />
+                    {searchMaterial && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchMaterial("")}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {(selectedMaterialName !== "all" || searchMaterial.trim()) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedMaterialName("all");
+                        setSearchMaterial("");
+                      }}
+                      className="h-8 px-2.5 rounded-xl text-[10px] font-black uppercase text-rose-600 hover:bg-rose-50 gap-1"
+                    >
+                      <X className="h-3.5 w-3.5" /> Reset Filter
+                    </Button>
+                  )}
+                </div>
+
+                <div className="text-[10px] font-bold text-slate-500 shrink-0">
+                  Menampilkan <span className="font-black text-slate-900">{filteredHariRows?.length ?? 0}</span> dari {hariRows.length} bahan
+                </div>
+              </div>
+            )}
+
             {/* Summary badges */}
             {hariRows && hariRows.length > 0 && (
               <div className="px-6 md:px-8 pt-6 grid grid-cols-2 md:flex md:flex-wrap items-center gap-3 w-full">
                 <div className="bg-primary/5 text-primary border border-primary/10 rounded-2xl p-4 md:px-4 md:py-2 text-center md:text-left flex flex-col md:block">
                   <span className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-wider block md:hidden">Jenis Bahan</span>
                   <span className="text-xs md:text-[10px] font-black uppercase tracking-widest">
-                    {hariRows.length} Jenis
+                    {filteredHariRows?.length ?? 0} Jenis {(filteredHariRows?.length ?? 0) !== hariRows.length ? `(dari ${hariRows.length})` : ""}
                   </span>
                 </div>
                 <div className="bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded-2xl p-4 md:px-4 md:py-2 text-center md:text-left flex flex-col md:block">
                   <span className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-wider block md:hidden">Total Biaya</span>
                   <span className="text-xs md:text-[10px] font-black uppercase tracking-widest">
-                    Rp {hariRows.reduce((sum, r) => sum + r.totalHarga, 0).toLocaleString("id-ID")}
+                    Rp {(filteredHariRows || hariRows).reduce((sum, r) => sum + r.totalHarga, 0).toLocaleString("id-ID")}
                   </span>
                 </div>
                 <div className="col-span-2 text-center md:text-left text-[9px] md:text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1 md:mt-0">
@@ -389,7 +637,7 @@ export default function LaporanPemakaianBahanBakuPage() {
               </div>
             )}
 
-            <ReportTable rows={hariRows} loading={loadingReport} />
+            <ReportTable rows={filteredHariRows} loading={loadingReport} />
           </Card>
         </TabsContent>
 
@@ -431,7 +679,7 @@ export default function LaporanPemakaianBahanBakuPage() {
                 <div className="grid grid-cols-2 gap-2 w-full md:w-auto md:flex md:items-center">
                   <Button
                     variant="outline"
-                    onClick={() => exportExcel(bulanRows, monthLabel(bulanYM))}
+                    onClick={() => exportExcel(filteredBulanRows || bulanRows, monthLabel(bulanYM))}
                     className="h-11 md:h-12 px-3 sm:px-5 rounded-xl border-slate-200 font-black uppercase tracking-widest text-[9px] gap-1.5 sm:gap-2 bg-white flex items-center justify-center"
                   >
                     <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
@@ -439,7 +687,7 @@ export default function LaporanPemakaianBahanBakuPage() {
                   </Button>
                   <Button
                     variant="outline"
-                    onClick={() => exportPDF(bulanRows, monthLabel(bulanYM))}
+                    onClick={() => exportPDF(filteredBulanRows || bulanRows, monthLabel(bulanYM))}
                     className="h-11 md:h-12 px-3 sm:px-5 rounded-xl border-slate-200 font-black uppercase tracking-widest text-[9px] gap-1.5 sm:gap-2 bg-white flex items-center justify-center"
                   >
                     <FileDown className="h-4 w-4 text-primary" />
@@ -449,19 +697,79 @@ export default function LaporanPemakaianBahanBakuPage() {
               )}
             </div>
 
+            {/* Filter Nama Bahan Toolbar */}
+            {bulanRows && bulanRows.length > 0 && (
+              <div className="px-4 sm:px-6 md:px-8 py-3 bg-slate-50/80 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div className="flex flex-1 flex-wrap items-center gap-2.5">
+                  <div className="flex items-center gap-2 bg-white border border-slate-200/90 rounded-xl px-3 py-1.5 shadow-2xs">
+                    <Filter className="h-3.5 w-3.5 text-primary shrink-0" />
+                    <span className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Nama Bahan:</span>
+                    <select
+                      value={selectedMaterialName}
+                      onChange={(e) => setSelectedMaterialName(e.target.value)}
+                      className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer max-w-[200px] truncate"
+                    >
+                      <option value="all">Semua Bahan Baku ({availableMaterialsBulan.length})</option>
+                      {availableMaterialsBulan.map((name) => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="relative flex-1 min-w-[200px] max-w-sm">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                    <Input
+                      type="text"
+                      value={searchMaterial}
+                      onChange={(e) => setSearchMaterial(e.target.value)}
+                      placeholder="Ketik cari nama atau kode bahan..."
+                      className="pl-8 pr-7 h-9 rounded-xl bg-white border-slate-200 text-xs font-bold"
+                    />
+                    {searchMaterial && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchMaterial("")}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {(selectedMaterialName !== "all" || searchMaterial.trim()) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedMaterialName("all");
+                        setSearchMaterial("");
+                      }}
+                      className="h-8 px-2.5 rounded-xl text-[10px] font-black uppercase text-rose-600 hover:bg-rose-50 gap-1"
+                    >
+                      <X className="h-3.5 w-3.5" /> Reset Filter
+                    </Button>
+                  )}
+                </div>
+
+                <div className="text-[10px] font-bold text-slate-500 shrink-0">
+                  Menampilkan <span className="font-black text-slate-900">{filteredBulanRows?.length ?? 0}</span> dari {bulanRows.length} bahan
+                </div>
+              </div>
+            )}
+
             {/* Summary badges */}
             {bulanRows && bulanRows.length > 0 && (
               <div className="px-6 md:px-8 pt-6 grid grid-cols-2 md:flex md:flex-wrap items-center gap-3 w-full">
                 <div className="bg-primary/5 text-primary border border-primary/10 rounded-2xl p-4 md:px-4 md:py-2 text-center md:text-left flex flex-col md:block">
                   <span className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-wider block md:hidden">Jenis Bahan</span>
                   <span className="text-xs md:text-[10px] font-black uppercase tracking-widest">
-                    {bulanRows.length} Jenis
+                    {filteredBulanRows?.length ?? 0} Jenis {(filteredBulanRows?.length ?? 0) !== bulanRows.length ? `(dari ${bulanRows.length})` : ""}
                   </span>
                 </div>
                 <div className="bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded-2xl p-4 md:px-4 md:py-2 text-center md:text-left flex flex-col md:block">
                   <span className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-wider block md:hidden">Total Biaya</span>
                   <span className="text-xs md:text-[10px] font-black uppercase tracking-widest">
-                    Rp {bulanRows.reduce((sum, r) => sum + r.totalHarga, 0).toLocaleString("id-ID")}
+                    Rp {(filteredBulanRows || bulanRows).reduce((sum, r) => sum + r.totalHarga, 0).toLocaleString("id-ID")}
                   </span>
                 </div>
                 <div className="col-span-2 text-center md:text-left text-[9px] md:text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1 md:mt-0">
@@ -470,7 +778,7 @@ export default function LaporanPemakaianBahanBakuPage() {
               </div>
             )}
 
-            <ReportTable rows={bulanRows} loading={loadingReport} />
+            <ReportTable rows={filteredBulanRows} loading={loadingReport} />
           </Card>
         </TabsContent>
       </Tabs>

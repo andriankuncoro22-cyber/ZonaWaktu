@@ -25,6 +25,8 @@ import {
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+import { useActiveBranch, BRANCH_LIST, getBranchTheme } from "@/lib/branch-helper";
 
 const formatThousand = (val: number | string) => {
   if (val === null || val === undefined || val === '') return '';
@@ -36,6 +38,9 @@ const formatThousand = (val: number | string) => {
 export default function EmployeeOperasionalKontainerPage() {
   const db = useFirestore();
   const { toast } = useToast();
+  const activeBranch = useActiveBranch();
+  const branchInfo = BRANCH_LIST[activeBranch] || BRANCH_LIST.gdm;
+  const theme = getBranchTheme(activeBranch);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [expenseName, setExpenseName] = useState("");
   const [amount, setAmount] = useState("");
@@ -146,15 +151,21 @@ export default function EmployeeOperasionalKontainerPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className={cn("px-2.5 py-0.5 rounded-full text-[8px] font-black uppercase border", theme.badgeClass)}>
+              <span className={cn("inline-block h-1.5 w-1.5 rounded-full mr-1", theme.dotColor)} />
+              {branchInfo.shortName}
+            </span>
+          </div>
           <h1 className="text-3xl md:text-4xl font-black tracking-tighter text-slate-900 uppercase italic leading-none">Operasional Kontainer</h1>
           <p className="text-[10px] md:text-xs text-slate-400 font-black uppercase tracking-[0.2em] mt-1">
-            Catat Pengeluaran Harian Karyawan di Area Kontainer
+            Catat Pengeluaran Harian Karyawan di Area Kontainer &bull; {branchInfo.name}
           </p>
         </div>
         
         {/* Date Selector */}
         <div className="flex items-center gap-3 bg-white px-6 py-3 rounded-xl md:rounded-[1.5rem] shadow-sm border border-slate-100 self-start md:self-auto">
-          <CalendarIcon className="h-4 w-4 text-primary shrink-0" />
+          <CalendarIcon className={cn("h-4 w-4 shrink-0", theme.accentTextClass)} />
           <input 
             type="date" 
             value={selectedDate}
@@ -170,7 +181,7 @@ export default function EmployeeOperasionalKontainerPage() {
           <Card className="rounded-[3rem] border-none shadow-sm bg-white overflow-hidden p-8 md:p-12">
             <form onSubmit={handleSubmit} className="space-y-8">
               <div className="flex items-center gap-2 px-1">
-                <Wallet className="h-5 w-5 text-primary" />
+                <Wallet className={cn("h-5 w-5", theme.accentTextClass)} />
                 <h3 className="text-lg font-black uppercase italic text-slate-900">
                   Input Pengeluaran Baru
                 </h3>
@@ -249,10 +260,10 @@ export default function EmployeeOperasionalKontainerPage() {
               <Button 
                 type="submit" 
                 disabled={saving || !expenseName || !amount}
-                className="w-full h-16 rounded-[1.5rem] bg-primary hover:bg-primary/90 text-white font-black uppercase tracking-[0.2em] text-[11px] shadow-xl shadow-primary/20 gap-3 transition-all active:scale-[0.98]"
+                className={cn("w-full h-16 rounded-[1.5rem] font-black uppercase tracking-[0.2em] text-[11px] shadow-xl gap-3 transition-all active:scale-[0.98]", theme.buttonGradient)}
               >
                 {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5" />}
-                Simpan Pengeluaran
+                Simpan Pengeluaran {branchInfo.shortName}
               </Button>
             </form>
           </Card>
@@ -274,7 +285,7 @@ export default function EmployeeOperasionalKontainerPage() {
           {/* History List */}
           <div className="space-y-4">
             <div className="flex items-center gap-3 px-4">
-              <History className="h-5 w-5 text-primary" />
+              <History className={cn("h-5 w-5", theme.accentTextClass)} />
               <h3 className="text-[11px] md:text-sm font-black uppercase tracking-widest text-slate-900">Daftar Pengeluaran</h3>
             </div>
 
@@ -284,7 +295,7 @@ export default function EmployeeOperasionalKontainerPage() {
                   <div className="flex items-start justify-between">
                     <div className="space-y-2 flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
+                        <CheckCircle2 className={cn("h-4 w-4 shrink-0", theme.accentTextClass)} />
                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider">
                           {log.createdAt?.toDate ? new Date(log.createdAt.toDate()).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : 'Baru saja'}
                           {log.shift && ` • Shift ${log.shift}`}

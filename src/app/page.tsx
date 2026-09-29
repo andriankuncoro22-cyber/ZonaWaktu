@@ -12,8 +12,7 @@ import {
   Search, 
   Flame,
   ShieldCheck,
-  UserCheck,
-  Smartphone
+  UserCheck
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -166,6 +165,42 @@ const DEFAULT_BRANCHES: StoreBranch[] = [
       btnText: "text-[#022c22]",
       btnHover: "hover:from-emerald-300 hover:to-lime-200 hover:shadow-xl hover:shadow-emerald-500/20",
       accentLine: "bg-gradient-to-r from-emerald-400 via-lime-400 to-transparent",
+    }
+  },
+  {
+    id: "cabang-gembong",
+    code: "ZW-03",
+    region: "GEMBONG",
+    name: "Zona Waktu - Gembong",
+    tagline: "Coffee & Teh Bakar Cabang Gembong",
+    address: "Area Gembong - Outlet Operasional & Gudang Mandiri",
+    hours: "08.00 - 22.00 WIB",
+    status: "active",
+    branchNumber: "CABANG 04 • OUTLET",
+    route: "/zona_gembong",
+    ownerLoginRoute: "/zona_gembong/owner-login",
+    adminLoginRoute: "/zona_gembong/admin-login",
+    employeeLoginRoute: "/zona_gembong/employee-login",
+    absensiRoute: "/zona_gembong/absensi",
+    features: ["Coffee & Teh Bakar", "Kasir POS", "Sistem Karyawan", "Absensi GPS", "Gudang Utama Mandiri"],
+    theme: {
+      cardBg: "bg-gradient-to-b from-[#1e1b4b] via-[#0f172a] to-[#020617]",
+      cardBorder: "border-indigo-400/70 hover:border-indigo-300 shadow-2xl shadow-indigo-950/80",
+      glowColor: "bg-indigo-500/25",
+      regionTextColor: "text-transparent bg-clip-text bg-gradient-to-r from-indigo-200 via-blue-200 to-sky-100",
+      textColor: "text-white",
+      subtextColor: "text-indigo-100/80",
+      infoBorderColor: "border-indigo-500/20",
+      featureBg: "bg-indigo-900/50 text-indigo-200 border-indigo-500/40 font-bold",
+      badgeBg: "bg-indigo-500/20",
+      badgeText: "text-indigo-300",
+      badgeBorder: "border-indigo-400/40",
+      tagBg: "bg-black/40 border-indigo-500/30 text-indigo-200",
+      tagText: "text-indigo-300",
+      btnBg: "bg-gradient-to-r from-indigo-500 to-blue-500",
+      btnText: "text-white",
+      btnHover: "hover:from-indigo-400 hover:to-blue-400 hover:shadow-xl hover:shadow-indigo-500/25",
+      accentLine: "bg-gradient-to-r from-indigo-400 via-blue-400 to-transparent",
     }
   }
 ];
@@ -423,6 +458,9 @@ export default function MultiStoreLandingPage() {
             </Link>
             <Link href="/teh_warga_gdm" className="hover:text-emerald-300 transition-colors font-bold underline-offset-4 hover:underline">
               Teh Warga GDM &rarr;
+            </Link>
+            <Link href="/zona_gembong" className="hover:text-violet-300 transition-colors font-bold underline-offset-4 hover:underline">
+              Gembong &rarr;
             </Link>
             <Link href="/absensi" className="hover:text-white transition-colors underline-offset-4 hover:underline">
               Portal Absensi &rarr;

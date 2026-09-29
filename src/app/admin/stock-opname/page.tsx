@@ -365,6 +365,16 @@ export default function AdminStockOpnamePage() {
               >
                 Gudang Kedungreja
               </button>
+              <button
+                type="button"
+                onClick={() => setSelectedWarehouse("gembong")}
+                className={cn(
+                  "px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
+                  selectedWarehouse === "gembong" ? "bg-violet-900 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+                )}
+              >
+                Gudang Gembong (Mandiri)
+              </button>
             </div>
           ) : (
             <div className="flex items-center gap-1 bg-white p-1 rounded-xl shadow-xs border border-slate-200/60">
@@ -397,6 +407,16 @@ export default function AdminStockOpnamePage() {
                 )}
               >
                 ZW Kedungreja
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedBranch("gembong")}
+                className={cn(
+                  "px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
+                  selectedBranch === "gembong" ? "bg-violet-900 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+                )}
+              >
+                ZW Gembong
               </button>
             </div>
           )}

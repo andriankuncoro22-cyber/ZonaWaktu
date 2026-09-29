@@ -64,7 +64,7 @@ export default function LaporanOperasionalPage() {
     setRows(null);
     try {
       const targetBranches: BranchId[] = activeBranch === 'all' 
-        ? ['gdm', 'kedungreja', 'tehwarga'] 
+        ? ['gdm', 'kedungreja', 'tehwarga', 'gembong'] 
         : [activeBranch];
 
       const fetchPromises = targetBranches.flatMap((bId) => [

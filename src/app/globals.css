@@ -80,6 +80,19 @@
     --theme-primary: #065f46;
     --theme-primary-foreground: #ecfdf5;
   }
+
+  /* Khusus Tema Toko 4 - Zona Waktu Cabang Gembong (Dominasi Sapphire Indigo / Deep Indigo) */
+  html[data-branch="gembong"],
+  body.theme-gembong,
+  [data-branch="gembong"] {
+    --primary: 243 75% 59%; /* Indigo 600 #4f46e5 */
+    --primary-foreground: 210 100% 98%;
+    --ring: 243 75% 59%;
+    --accent: 238 100% 96%;
+    --accent-foreground: 243 75% 25%;
+    --theme-primary: #4f46e5;
+    --theme-primary-foreground: #ffffff;
+  }
 }
 
 @layer base {
@@ -107,6 +120,12 @@
   [data-branch="tehwarga"] ::selection {
     background-color: rgba(6, 95, 70, 0.25);
     color: #064e3b;
+  }
+
+  html[data-branch="gembong"] ::selection,
+  [data-branch="gembong"] ::selection {
+    background-color: rgba(79, 70, 229, 0.25);
+    color: #1e1b4b;
   }
 }
 

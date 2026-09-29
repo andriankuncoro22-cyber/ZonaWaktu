@@ -24,7 +24,7 @@ import {
   SelectValue 
 } from "@/components/ui/select";
 import { useFirestore, useCollection, useMemoFirebase, collection, doc } from "@/firebase";
-import { useActiveBranch, filterContainerMaterials } from "@/lib/branch-helper";
+import { useActiveBranch, filterContainerMaterials, BRANCH_LIST, getBranchTheme } from "@/lib/branch-helper";
 import { addDoc, serverTimestamp, query, orderBy, deleteDoc, updateDoc, increment, where } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -46,6 +46,8 @@ export default function EmployeeInputBahanRusakPage() {
   const db = useFirestore();
   const { toast } = useToast();
   const activeBranch = useActiveBranch();
+  const branchInfo = BRANCH_LIST[activeBranch] || BRANCH_LIST.gdm;
+  const theme = getBranchTheme(activeBranch);
 
   const [shift, setShift] = useState<1 | 2>(1);
   const [selectedKaryawanId, setSelectedKaryawanId] = useState<string>("");
@@ -209,15 +211,21 @@ export default function EmployeeInputBahanRusakPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div className="space-y-1">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-50 border border-rose-200 text-rose-700">
-            <AlertTriangle className="h-3.5 w-3.5" />
-            <span className="text-[9px] font-black uppercase tracking-widest">Pencatatan Logistik Kontainer</span>
+          <div className="flex items-center gap-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-rose-50 border border-rose-200 text-rose-700">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              <span className="text-[9px] font-black uppercase tracking-widest">Pencatatan Logistik Kontainer</span>
+            </div>
+            <span className={cn("px-2.5 py-0.5 rounded-full text-[8px] font-black uppercase border", theme.badgeClass)}>
+              <span className={cn("inline-block h-1.5 w-1.5 rounded-full mr-1", theme.dotColor)} />
+              {branchInfo.shortName}
+            </span>
           </div>
           <h1 className="text-3xl md:text-4xl font-black tracking-tighter text-slate-900 uppercase italic leading-none mt-2">
-            Input Bahan Rusak
+            Input Bahan Rusak &bull; {branchInfo.shortName}
           </h1>
           <p className="text-[10px] md:text-xs text-slate-600 font-black uppercase tracking-[0.2em] mt-1">
-            Pengurangan Stok Kontainer Akibat Rusak / Afkir • Zona Waktu
+            Pengurangan Stok Kontainer Akibat Rusak / Afkir &bull; {branchInfo.name}
           </p>
         </div>
       </div>

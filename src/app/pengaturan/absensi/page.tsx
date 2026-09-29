@@ -358,7 +358,8 @@ export default function PengaturanAbsensiPage() {
   const [allBranchShifts, setAllBranchShifts] = useState<Record<string, ShiftsConfig>>({
     gdm: defaultShifts,
     kedungreja: defaultShifts,
-    tehwarga: defaultShifts
+    tehwarga: defaultShifts,
+    gembong: defaultShifts
   });
 
   // State for Photo Modal
@@ -514,7 +515,7 @@ export default function PengaturanAbsensiPage() {
             karyawanId: k.id,
             nama: k.nama,
             cabang: k.cabang || selectedBranch,
-            cabangName: k.cabang === "kedungreja" ? "Zona Kedungreja" : k.cabang === "tehwarga" ? "Teh Warga GDM" : "Zona Waktu GDM",
+            cabangName: k.cabang === "gembong" ? "Zona Gembong" : k.cabang === "kedungreja" ? "Zona Kedungreja" : k.cabang === "tehwarga" ? "Teh Warga GDM" : "Zona Waktu GDM",
             tanggal: slash1,
             jamMasuk: "-",
             jamPulang: "-",
@@ -610,7 +611,7 @@ export default function PengaturanAbsensiPage() {
     setSavingEdit(true);
     try {
       const branch = getLogBranch(editingLog);
-      const branchName = branch === "kedungreja" ? "Zona Kedungreja" : branch === "tehwarga" ? "Teh Warga GDM" : "Zona Waktu GDM";
+      const branchName = branch === "gembong" ? "Zona Gembong" : branch === "kedungreja" ? "Zona Kedungreja" : branch === "tehwarga" ? "Teh Warga GDM" : "Zona Waktu GDM";
       
       const payload: Record<string, unknown> = {
         karyawanId: editingLog.karyawanId || "",
@@ -652,6 +653,7 @@ export default function PengaturanAbsensiPage() {
     const loadConfig = async () => {
       const branchKey = selectedBranch === "all" ? "gdm" : selectedBranch;
       const configDocName = 
+        branchKey === "gembong" ? "absensi_config_gembong" :
         branchKey === "tehwarga" ? "absensi_config_tehwarga" :
         branchKey === "kedungreja" ? "absensi_config_kedungreja" :
         "absensi_config";
@@ -677,7 +679,9 @@ export default function PengaturanAbsensiPage() {
           if (data.cloudinaryConfig) setCloudinaryConfig(data.cloudinaryConfig);
         } else {
           // Default initial location coordinate per branch if doc doesn't exist yet
-          if (branchKey === "kedungreja") {
+          if (branchKey === "gembong") {
+            setLocation({ lat: "-7.4900", lng: "108.8500", radius: "50" });
+          } else if (branchKey === "kedungreja") {
             setLocation({ lat: "-7.4851", lng: "108.8312", radius: "50" });
           } else if (branchKey === "tehwarga") {
             setLocation({ lat: "-7.5278", lng: "108.8789", radius: "50" });
@@ -690,7 +694,8 @@ export default function PengaturanAbsensiPage() {
         const branchConfigs = [
           { key: "gdm", docName: "absensi_config" },
           { key: "kedungreja", docName: "absensi_config_kedungreja" },
-          { key: "tehwarga", docName: "absensi_config_tehwarga" }
+          { key: "tehwarga", docName: "absensi_config_tehwarga" },
+          { key: "gembong", docName: "absensi_config_gembong" }
         ];
         for (const item of branchConfigs) {
           try {
@@ -712,11 +717,13 @@ export default function PengaturanAbsensiPage() {
   const handleSaveConfig = async (type: string) => {
     const branchKey = selectedBranch === "all" ? "gdm" : selectedBranch;
     const configDocName = 
+      branchKey === "gembong" ? "absensi_config_gembong" :
       branchKey === "tehwarga" ? "absensi_config_tehwarga" :
       branchKey === "kedungreja" ? "absensi_config_kedungreja" :
       "absensi_config";
 
     const branchLabel = 
+      branchKey === "gembong" ? "Zona Gembong (ZW-03)" :
       branchKey === "tehwarga" ? "Teh Warga GDM (TW-01)" :
       branchKey === "kedungreja" ? "Zona Kedungreja (ZW-02)" :
       "Zona Waktu GDM (ZW-01)";
@@ -762,8 +769,8 @@ export default function PengaturanAbsensiPage() {
   const [formPassword, setFormPassword] = useState("");
   const [formGender, setFormGender] = useState("Laki-laki");
   const [prevBranch, setPrevBranch] = useState<BranchId>(selectedBranch);
-  const [formCabang, setFormCabang] = useState<"gdm" | "kedungreja" | "tehwarga">(
-    (selectedBranch === "all" ? "gdm" : selectedBranch) as "gdm" | "kedungreja" | "tehwarga"
+  const [formCabang, setFormCabang] = useState<"gdm" | "kedungreja" | "tehwarga" | "gembong">(
+    (selectedBranch === "all" ? "gdm" : selectedBranch) as "gdm" | "kedungreja" | "tehwarga" | "gembong"
   );
 
   // Otomatis sinkronkan cabang input karyawan baru saat toko aktif di header switcher berubah
@@ -771,7 +778,7 @@ export default function PengaturanAbsensiPage() {
     setPrevBranch(selectedBranch);
     if (!editingKaryawan) {
       const active = selectedBranch === "all" ? "gdm" : selectedBranch;
-      setFormCabang(active as "gdm" | "kedungreja" | "tehwarga");
+      setFormCabang(active as "gdm" | "kedungreja" | "tehwarga" | "gembong");
     }
   }
 
@@ -779,7 +786,7 @@ export default function PengaturanAbsensiPage() {
   // Menjamin seluruh cabang tersinkronisasi bersamaan tanpa saling menghapus kasir/absensi
   const syncCredentialsToFirestore = async (firestoreDb: Firestore) => {
     const snapshot = await getDocs(collection(firestoreDb, "karyawan"));
-    const allBranches: ("gdm" | "kedungreja" | "tehwarga")[] = ["gdm", "kedungreja", "tehwarga"];
+    const allBranches: ("gdm" | "kedungreja" | "tehwarga" | "gembong")[] = ["gdm", "kedungreja", "tehwarga", "gembong"];
     let totalAll = 0;
 
     for (const b of allBranches) {
@@ -1056,6 +1063,14 @@ export default function PengaturanAbsensiPage() {
 
   const renderBranchBadge = (log: AbsensiLogData) => {
     const branch = getLogBranch(log);
+    if (branch === "gembong") {
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-violet-50 text-violet-700 border border-violet-200 text-[7.5px] font-bold uppercase whitespace-nowrap">
+          <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
+          Gembong
+        </span>
+      );
+    }
     if (branch === "kedungreja") {
       return (
         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-cyan-50 text-cyan-700 border border-cyan-200 text-[7.5px] font-bold uppercase whitespace-nowrap">
@@ -1125,11 +1140,13 @@ export default function PengaturanAbsensiPage() {
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-900 border border-slate-200 text-[9px] font-black uppercase tracking-wider w-fit">
                 <span className={cn(
                   "h-2 w-2 rounded-full",
+                  selectedBranch === "gembong" ? "bg-violet-500" :
                   selectedBranch === "kedungreja" ? "bg-cyan-500" :
                   selectedBranch === "tehwarga" ? "bg-amber-500" :
                   "bg-emerald-500"
                 )} />
                 <span>Toko: {
+                  selectedBranch === "gembong" ? "Zona Gembong (ZW-03)" :
                   selectedBranch === "kedungreja" ? "Zona Kedungreja (ZW-02)" :
                   selectedBranch === "tehwarga" ? "Teh Warga GDM (TW-01)" :
                   "Zona Waktu GDM (ZW-01)"
@@ -1180,11 +1197,13 @@ export default function PengaturanAbsensiPage() {
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-900 border border-slate-200 text-[9px] font-black uppercase tracking-wider w-fit">
                 <span className={cn(
                   "h-2 w-2 rounded-full",
+                  selectedBranch === "gembong" ? "bg-violet-500" :
                   selectedBranch === "kedungreja" ? "bg-cyan-500" :
                   selectedBranch === "tehwarga" ? "bg-amber-500" :
                   "bg-emerald-500"
                 )} />
                 <span>Toko: {
+                  selectedBranch === "gembong" ? "Zona Gembong (ZW-03)" :
                   selectedBranch === "kedungreja" ? "Zona Kedungreja (ZW-02)" :
                   selectedBranch === "tehwarga" ? "Teh Warga GDM (TW-01)" :
                   "Zona Waktu GDM (ZW-01)"
@@ -1221,11 +1240,13 @@ export default function PengaturanAbsensiPage() {
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 text-slate-900 border border-slate-200 text-[9px] font-black uppercase tracking-wider w-fit">
                 <span className={cn(
                   "h-2 w-2 rounded-full",
+                  selectedBranch === "gembong" ? "bg-violet-500" :
                   selectedBranch === "kedungreja" ? "bg-cyan-500" :
                   selectedBranch === "tehwarga" ? "bg-amber-500" :
                   "bg-emerald-500"
                 )} />
                 <span>Toko: {
+                  selectedBranch === "gembong" ? "Zona Gembong (ZW-03)" :
                   selectedBranch === "kedungreja" ? "Zona Kedungreja (ZW-02)" :
                   selectedBranch === "tehwarga" ? "Teh Warga GDM (TW-01)" :
                   "Zona Waktu GDM (ZW-01)"
@@ -1319,13 +1340,14 @@ export default function PengaturanAbsensiPage() {
                     <Label className="text-[10px] font-black uppercase">Cabang Penempatan</Label>
                     <select 
                       value={formCabang} 
-                      onChange={(e) => setFormCabang(e.target.value as "gdm" | "kedungreja" | "tehwarga")} 
+                      onChange={(e) => setFormCabang(e.target.value as "gdm" | "kedungreja" | "tehwarga" | "gembong")} 
                       required 
                       className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold focus-visible:outline-none"
                     >
                       <option value="gdm">ZW Gandrungmangu</option>
                       <option value="kedungreja">ZW Kedungreja</option>
                       <option value="tehwarga">Teh Warga GDM</option>
+                      <option value="gembong">ZW Gembong</option>
                     </select>
                   </div>
                   <div className="space-y-2">
@@ -1355,6 +1377,7 @@ export default function PengaturanAbsensiPage() {
                     <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-slate-100 text-slate-800 border border-slate-200 text-[10px] font-black uppercase tracking-wider">
                       <span className={cn(
                         "h-2 w-2 rounded-full",
+                        selectedBranch === "gembong" ? "bg-violet-500" :
                         selectedBranch === "kedungreja" ? "bg-cyan-500" :
                         selectedBranch === "tehwarga" ? "bg-amber-500" :
                         selectedBranch === "all" ? "bg-indigo-500" :
@@ -1363,6 +1386,8 @@ export default function PengaturanAbsensiPage() {
                       <span>
                         {selectedBranch === "all" 
                           ? "Semua Outlet" 
+                          : selectedBranch === "gembong"
+                          ? "ZW Gembong (ZW-03)"
                           : selectedBranch === "kedungreja" 
                           ? "ZW Kedungreja (ZW-02)" 
                           : selectedBranch === "tehwarga" 
@@ -1372,7 +1397,7 @@ export default function PengaturanAbsensiPage() {
                     </div>
                   </div>
                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
-                    {filteredKaryawanList.length} Karyawan Terdaftar di {selectedBranch === "all" ? "Semua Outlet" : selectedBranch === "kedungreja" ? "Zona Kedungreja" : selectedBranch === "tehwarga" ? "Teh Warga GDM" : "Zona Gandrungmangu"}
+                    {filteredKaryawanList.length} Karyawan Terdaftar di {selectedBranch === "all" ? "Semua Outlet" : selectedBranch === "gembong" ? "Zona Gembong" : selectedBranch === "kedungreja" ? "Zona Kedungreja" : selectedBranch === "tehwarga" ? "Teh Warga GDM" : "Zona Gandrungmangu"}
                   </p>
                 </div>
                 
@@ -1428,13 +1453,15 @@ export default function PengaturanAbsensiPage() {
                         <td className="px-6 py-4">
                           <span className={cn(
                             "text-[9px] font-black uppercase px-2.5 py-1 rounded-lg",
-                            (k.cabang === "kedungreja") 
+                            (k.cabang === "gembong")
+                              ? "bg-violet-50 text-violet-700 border border-violet-200"
+                              : (k.cabang === "kedungreja") 
                               ? "bg-cyan-50 text-cyan-700 border border-cyan-200" 
                               : (k.cabang === "tehwarga")
                               ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                               : "bg-red-50 text-red-700 border border-red-200"
                           )}>
-                            {k.cabang === "kedungreja" ? "ZW Kedungreja" : k.cabang === "tehwarga" ? "Teh Warga" : "ZW Gandrungmangu"}
+                            {k.cabang === "gembong" ? "ZW Gembong" : k.cabang === "kedungreja" ? "ZW Kedungreja" : k.cabang === "tehwarga" ? "Teh Warga" : "ZW Gandrungmangu"}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-xs font-bold text-slate-500">{k.username}</td>
@@ -1677,11 +1704,12 @@ export default function PengaturanAbsensiPage() {
                   {selectedBranch !== "all" && (
                     <span className={cn(
                       "px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-wider",
+                      selectedBranch === "gembong" ? "bg-violet-50 text-violet-700 border border-violet-200" :
                       selectedBranch === "gdm" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" :
                       selectedBranch === "kedungreja" ? "bg-cyan-50 text-cyan-700 border border-cyan-200" :
                       "bg-amber-50 text-amber-700 border border-amber-200"
                     )}>
-                      {selectedBranch === "gdm" ? "Zona Waktu GDM" : selectedBranch === "kedungreja" ? "Zona Kedungreja" : "Teh Warga GDM"}
+                      {selectedBranch === "gembong" ? "Zona Gembong" : selectedBranch === "gdm" ? "Zona Waktu GDM" : selectedBranch === "kedungreja" ? "Zona Kedungreja" : "Teh Warga GDM"}
                     </span>
                   )}
                 </div>

@@ -11,7 +11,8 @@ import {
   getStoreConfigDocId, 
   getDefaultStoreIdentity, 
   BRANCH_LIST, 
-  BranchId 
+  BranchId,
+  getBranchTheme
 } from "@/lib/branch-helper";
 import { logoutWithFirebaseAuth } from "@/lib/auth-service";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,7 @@ export function Header() {
   const db = useFirestore();
   const activeBranch = useActiveBranch();
   const defaultIdentity = getDefaultStoreIdentity(activeBranch);
+  const theme = getBranchTheme(activeBranch);
 
   const isReportPage = pathname.startsWith('/laporan') || pathname.startsWith('/operasional');
 
@@ -41,6 +43,7 @@ export function Header() {
   const logoHeader = settings?.logoHeader;
   const isTehWarga = activeBranch === "tehwarga";
   const isKedungreja = activeBranch === "kedungreja";
+  const isGembong = activeBranch === "gembong";
 
   const branchInfo = BRANCH_LIST[activeBranch] || BRANCH_LIST.gdm;
 
@@ -94,7 +97,7 @@ export function Header() {
                 <div 
                   suppressHydrationWarning
                   className={`h-8 w-8 md:h-10 md:w-10 rounded-xl md:rounded-2xl ${
-                    isTehWarga ? 'bg-amber-600' : isKedungreja ? 'bg-cyan-600' : activeBranch === 'all' ? 'bg-slate-900' : 'bg-emerald-600'
+                    isTehWarga ? 'bg-amber-600' : isKedungreja ? 'bg-cyan-600' : isGembong ? 'bg-indigo-600' : activeBranch === 'all' ? 'bg-slate-900' : 'bg-emerald-600'
                   } flex items-center justify-center shadow-lg shadow-slate-900/10`}
                 >
                   {isTehWarga ? (
@@ -134,11 +137,11 @@ export function Header() {
               className={cn(
                 "flex items-center gap-2 px-4 sm:px-5 py-2 rounded-full font-black text-xs uppercase tracking-wider transition-all duration-200",
                 activeBranch === 'gdm'
-                  ? "bg-slate-900 text-white shadow-sm scale-[1.02]"
+                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30 scale-[1.02]"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/80"
               )}
             >
-              <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+              <span className="h-2 w-2 rounded-full bg-emerald-300 shrink-0" />
               <span>ZONA WAKTU GDM</span>
             </button>
 
@@ -149,11 +152,11 @@ export function Header() {
               className={cn(
                 "flex items-center gap-2 px-4 sm:px-5 py-2 rounded-full font-black text-xs uppercase tracking-wider transition-all duration-200",
                 activeBranch === 'kedungreja'
-                  ? "bg-slate-900 text-white shadow-sm scale-[1.02]"
+                  ? "bg-cyan-600 text-white shadow-md shadow-cyan-600/30 scale-[1.02]"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/80"
               )}
             >
-              <span className="h-2 w-2 rounded-full bg-cyan-500 shrink-0" />
+              <span className="h-2 w-2 rounded-full bg-cyan-300 shrink-0" />
               <span>ZONA KEDUNGREJA</span>
             </button>
 
@@ -164,12 +167,27 @@ export function Header() {
               className={cn(
                 "flex items-center gap-2 px-4 sm:px-5 py-2 rounded-full font-black text-xs uppercase tracking-wider transition-all duration-200",
                 activeBranch === 'tehwarga'
-                  ? "bg-slate-900 text-white shadow-sm scale-[1.02]"
+                  ? "bg-amber-600 text-white shadow-md shadow-amber-600/30 scale-[1.02]"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/80"
               )}
             >
-              <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
+              <span className="h-2 w-2 rounded-full bg-amber-300 shrink-0" />
               <span>TEH WARGA GDM</span>
+            </button>
+
+            {/* ZONA GEMBONG */}
+            <button
+              type="button"
+              onClick={() => handleBranchSelect('gembong')}
+              className={cn(
+                "flex items-center gap-2 px-4 sm:px-5 py-2 rounded-full font-black text-xs uppercase tracking-wider transition-all duration-200",
+                activeBranch === 'gembong'
+                  ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/30 scale-[1.02]"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/80"
+              )}
+            >
+              <span className="h-2 w-2 rounded-full bg-indigo-300 shrink-0" />
+              <span>ZONA GEMBONG</span>
             </button>
 
             {/* SEMUA TOKO (KONSOLIDASI) - KHUSUS HALAMAN LAPORAN */}
@@ -215,7 +233,7 @@ export function Header() {
             </Avatar>
             <div className="text-left hidden md:block">
               <p className="text-[10px] font-black text-slate-900 leading-none uppercase italic">Owner / Admin</p>
-              <p className="text-[7px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">
+              <p className={cn("text-[7px] font-bold uppercase tracking-widest mt-0.5", theme.accentTextClass)}>
                 {branchInfo.shortName}
               </p>
             </div>
@@ -255,7 +273,7 @@ export function Header() {
 
       {/* MOBILE STORE SWITCHER */}
       <div className="md:hidden w-full px-0.5 pb-0.5">
-        <div className={cn("grid gap-1.5 p-1 bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-2xl shadow-xs w-full", isReportPage ? "grid-cols-4" : "grid-cols-3")}>
+        <div className={cn("grid gap-1.5 p-1 bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-2xl shadow-xs w-full", isReportPage ? "grid-cols-5" : "grid-cols-4")}>
           {/* ZONA WAKTU GDM */}
           <button
             type="button"
@@ -263,11 +281,11 @@ export function Header() {
             className={cn(
               "flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-tight transition-all min-h-[30px]",
               activeBranch === 'gdm'
-                ? "bg-slate-900 text-white shadow-xs scale-[1.01]"
+                ? "bg-emerald-600 text-white shadow-xs scale-[1.01]"
                 : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/80"
             )}
           >
-            <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+            <span className="h-2 w-2 rounded-full bg-emerald-300 shrink-0" />
             <span className="truncate font-black">GDM</span>
           </button>
 
@@ -278,11 +296,11 @@ export function Header() {
             className={cn(
               "flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-tight transition-all min-h-[30px]",
               activeBranch === 'kedungreja'
-                ? "bg-slate-900 text-white shadow-xs scale-[1.01]"
+                ? "bg-cyan-600 text-white shadow-xs scale-[1.01]"
                 : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/80"
             )}
           >
-            <span className="h-2 w-2 rounded-full bg-cyan-500 shrink-0" />
+            <span className="h-2 w-2 rounded-full bg-cyan-300 shrink-0" />
             <span className="truncate font-black">KD.REJA</span>
           </button>
 
@@ -293,12 +311,27 @@ export function Header() {
             className={cn(
               "flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-tight transition-all min-h-[30px]",
               activeBranch === 'tehwarga'
-                ? "bg-slate-900 text-white shadow-xs scale-[1.01]"
+                ? "bg-amber-600 text-white shadow-xs scale-[1.01]"
                 : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/80"
             )}
           >
-            <span className="h-2 w-2 rounded-full bg-amber-500 shrink-0" />
+            <span className="h-2 w-2 rounded-full bg-amber-300 shrink-0" />
             <span className="truncate font-black">TEH WARGA</span>
+          </button>
+
+          {/* ZONA GEMBONG */}
+          <button
+            type="button"
+            onClick={() => handleBranchSelect('gembong')}
+            className={cn(
+              "flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-xl font-black text-[9px] sm:text-[10px] uppercase tracking-tight transition-all min-h-[30px]",
+              activeBranch === 'gembong'
+                ? "bg-indigo-600 text-white shadow-xs scale-[1.01]"
+                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/80"
+            )}
+          >
+            <span className="h-2 w-2 rounded-full bg-indigo-300 shrink-0" />
+            <span className="truncate font-black">GEMBONG</span>
           </button>
 
           {/* SEMUA TOKO (KONSOLIDASI) - KHUSUS HALAMAN LAPORAN */}

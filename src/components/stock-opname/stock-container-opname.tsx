@@ -1,6 +1,7 @@
 "use client";
 
-import { getStoreConfigDocId, useActiveBranch, filterContainerMaterials } from "@/lib/branch-helper";
+import { getStoreConfigDocId, useActiveBranch, filterContainerMaterials, BRANCH_LIST, getBranchTheme } from "@/lib/branch-helper";
+import { cn } from "@/lib/utils";
 
 import React, { useState, useMemo } from "react";
 import {
@@ -53,6 +54,8 @@ export function StockContainerOpnameView({
 }: StockContainerOpnameViewProps) {
   const db = useFirestore();
   const activeBranch = useActiveBranch();
+  const branchInfo = BRANCH_LIST[activeBranch] || BRANCH_LIST.gdm;
+  const theme = getBranchTheme(activeBranch);
   const [searchTerm, setSearchTerm] = useState("");
 
   const materialsQuery = useMemoFirebase(
@@ -429,11 +432,17 @@ export function StockContainerOpnameView({
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20 sm:space-y-8">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <span className={cn("px-2.5 py-0.5 rounded-full text-[8px] font-black uppercase border", theme.badgeClass)}>
+              <span className={cn("inline-block h-1.5 w-1.5 rounded-full mr-1", theme.dotColor)} />
+              {branchInfo.shortName}
+            </span>
+          </div>
           <h1 className="text-2xl font-black uppercase italic tracking-tighter text-slate-900 sm:text-3xl">
-            {title}
+            {title} &bull; {branchInfo.shortName}
           </h1>
           <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-600 sm:text-xs">
-            {subtitle}
+            {subtitle} &bull; {branchInfo.name}
           </p>
         </div>
 
@@ -606,7 +615,7 @@ export function StockContainerOpnameView({
       <div className="mt-4">
         <Button
           onClick={finalizeAll}
-          className="mt-3 h-12 w-full rounded-2xl bg-emerald-600 px-6 text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-emerald-200 hover:bg-emerald-700 sm:h-14 sm:px-10 sm:text-[11px] md:w-auto"
+          className={cn("mt-3 h-12 w-full rounded-2xl px-6 text-[10px] font-black uppercase tracking-widest text-white shadow-xl sm:h-14 sm:px-10 sm:text-[11px] md:w-auto", theme.buttonGradient)}
           disabled={processing}
         >
           {processing ? "Memproses..." : "Finalisasi & Simpan Opnam Harian"}

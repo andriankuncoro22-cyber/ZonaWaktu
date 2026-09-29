@@ -30,7 +30,8 @@ import {
   BRANCH_LIST, 
   normalizeBranchId, 
   filterContainerMaterials,
-  getStoreConfigDocId
+  getStoreConfigDocId,
+  BranchId
 } from "@/lib/branch-helper";
 import { SHARED_MATERIAL_ALIASES } from "@/lib/material-mapping";
 import { query, orderBy } from "firebase/firestore";
@@ -59,7 +60,7 @@ interface BahanBaku {
 }
 
 interface BranchPill {
-  id: 'gdm' | 'kedungreja' | 'tehwarga';
+  id: 'gdm' | 'kedungreja' | 'tehwarga' | 'gembong';
   shortName: string;
   badgeColor: string;
 }
@@ -189,6 +190,7 @@ export default function LaporanStockRealKontainerPage() {
   const todayStr = useMemo(() => new Date().toISOString().split("T")[0], []);
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [searchTerm, setSearchTerm] = useState<string>("");
+  const [selectedMaterialName, setSelectedMaterialName] = useState<string>("all");
 
   // 1. Fetch Materials across active branch or all stores
   const { data: rawMaterials, loading: loadingMaterials } = useConsolidatedCollection(
@@ -216,9 +218,9 @@ export default function LaporanStockRealKontainerPage() {
 
   // Store Usage Map (Peruntukan Toko)
   const materialStoreUsageMap = useMemo(() => {
-    const map: Record<string, Set<'gdm' | 'kedungreja' | 'tehwarga'>> = {};
+    const map: Record<string, Set<'gdm' | 'kedungreja' | 'tehwarga' | 'gembong'>> = {};
 
-    const addUsage = (key: string, branch: 'gdm' | 'kedungreja' | 'tehwarga') => {
+    const addUsage = (key: string, branch: 'gdm' | 'kedungreja' | 'tehwarga' | 'gembong') => {
       const k = key.trim().toLowerCase();
       if (!k) return;
       if (!map[k]) map[k] = new Set();
@@ -226,8 +228,8 @@ export default function LaporanStockRealKontainerPage() {
     };
 
     (rawMaterials as BahanBaku[])?.forEach((mat) => {
-      const bId = normalizeBranchId(mat._branchId || 'gdm') as 'gdm' | 'kedungreja' | 'tehwarga';
-      if (bId === 'gdm' && (mat.isFromTehWarga || mat.originalTwCode || /^BB-0(0[1-9]|[1-4][0-9])$/i.test(mat.code || ''))) {
+      const bId = normalizeBranchId(mat._branchId || 'gdm') as 'gdm' | 'kedungreja' | 'tehwarga' | 'gembong';
+      if ((bId === 'gdm' || bId === 'gembong') && (mat.isFromTehWarga || mat.originalTwCode || /^BB-0(0[1-9]|[1-4][0-9])$/i.test(mat.code || ''))) {
         return;
       }
       if (mat.nama) addUsage(mat.nama, bId);
@@ -238,14 +240,17 @@ export default function LaporanStockRealKontainerPage() {
       addUsage(alias.canonicalName, 'gdm');
       addUsage(alias.canonicalName, 'kedungreja');
       addUsage(alias.canonicalName, 'tehwarga');
+      addUsage(alias.canonicalName, 'gembong');
       alias.aliases.forEach((a) => {
         addUsage(a, 'gdm');
         addUsage(a, 'kedungreja');
         addUsage(a, 'tehwarga');
+        addUsage(a, 'gembong');
       });
       if (alias.gdmCode) {
         addUsage(alias.gdmCode, 'gdm');
         addUsage(alias.gdmCode, 'kedungreja');
+        addUsage(alias.gdmCode, 'gembong');
       }
       if (alias.twCode) {
         addUsage(alias.twCode, 'tehwarga');
@@ -261,12 +266,23 @@ export default function LaporanStockRealKontainerPage() {
     if (activeBranch === 'all') {
       return list;
     }
-    if (activeBranch === 'kedungreja' || activeBranch === 'tehwarga') {
+    if (activeBranch === 'kedungreja' || activeBranch === 'tehwarga' || activeBranch === 'gembong') {
       return list;
     }
     // For GDM container, isolate Zona Waktu materials (filter out Teh Warga items)
     return filterContainerMaterials(list, 'gdm');
   }, [rawMaterials, activeBranch]);
+
+  // Unique material names for dropdown filter
+  const allUniqueMaterialNames = useMemo(() => {
+    const set = new Set<string>();
+    filteredMaterials.forEach((mat) => {
+      if (mat.nama && mat.nama !== "-") {
+        set.add(mat.nama);
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [filteredMaterials]);
 
   // Aggregate Previous Opname Data (Strictly prior to selectedDate, or latest available prior opname per branch)
   const previousOpnameMap = useMemo(() => {
@@ -294,10 +310,10 @@ export default function LaporanStockRealKontainerPage() {
     });
 
     // If no opname strictly before selectedDate was found, fall back to the latest opname document in history for that branch
-    const targetBranchesToInspect: Array<'gdm' | 'kedungreja' | 'tehwarga'> = 
+    const targetBranchesToInspect: BranchId[] = 
       activeBranch === 'all' 
-        ? ['gdm', 'kedungreja', 'tehwarga'] 
-        : [activeBranch as 'gdm' | 'kedungreja' | 'tehwarga'];
+        ? ['gdm', 'kedungreja', 'tehwarga', 'gembong'] 
+        : [activeBranch];
 
     targetBranchesToInspect.forEach((bId) => {
       if (!latestPriorOpnamePerBranch[bId]) {
@@ -507,14 +523,14 @@ export default function LaporanStockRealKontainerPage() {
       }
     });
 
-    const rows = Object.values(groupedMap);
-    rows.forEach((r) => {
+    let result = Object.values(groupedMap);
+    result.forEach((r) => {
       // Calculate real-time estimated stock
       r.estimasiBulk = r.opnamePrevBulk + r.ambilGudangBulk + r.belanjaRuteBulk;
       r.estimasiAktif = r.opnamePrevAktif + r.belanjaRuteAktif;
 
       // Determine Target Stores / Peruntukan Toko
-      const storeSet = new Set<'gdm' | 'kedungreja' | 'tehwarga'>();
+      const storeSet = new Set<'gdm' | 'kedungreja' | 'tehwarga' | 'gembong'>();
       const normName = r.nama.trim().toLowerCase();
       const normCode = r.code.trim().toLowerCase();
       const normKey = r.key.trim().toLowerCase();
@@ -533,21 +549,28 @@ export default function LaporanStockRealKontainerPage() {
         } else {
           storeSet.add('gdm');
           storeSet.add('kedungreja');
+          storeSet.add('gembong');
         }
       }
 
-      const branchOrder: Array<'gdm' | 'kedungreja' | 'tehwarga'> = ['gdm', 'kedungreja', 'tehwarga'];
+      const branchOrder: Array<'gdm' | 'kedungreja' | 'tehwarga' | 'gembong'> = ['gdm', 'kedungreja', 'tehwarga', 'gembong'];
       r.targetBranches = branchOrder
         .filter((b) => storeSet.has(b))
         .map((b) => ({
           id: b,
-          shortName: b === 'gdm' ? 'Zona GDM' : b === 'kedungreja' ? 'Kedungreja' : 'Teh Warga',
+          shortName: b === 'gdm' ? 'Zona GDM' : b === 'kedungreja' ? 'Kedungreja' : b === 'gembong' ? 'Zona Gembong' : 'Teh Warga',
           badgeColor: BRANCH_LIST[b]?.badgeColor || ''
         }));
     });
 
+    // Filter by Selected Material Name
+    if (selectedMaterialName !== "all") {
+      result = result.filter(
+        (r) => r.nama.toLowerCase() === selectedMaterialName.toLowerCase()
+      );
+    }
+
     // Filter by Search Term
-    let result = rows;
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase();
       result = result.filter(
@@ -563,6 +586,7 @@ export default function LaporanStockRealKontainerPage() {
     pengambilanGudangMap, 
     belanjaRuteMap, 
     materialStoreUsageMap, 
+    selectedMaterialName,
     searchTerm,
     activeBranch
   ]);
@@ -756,16 +780,57 @@ export default function LaporanStockRealKontainerPage() {
             )}
           </div>
 
-          {/* Search Box */}
-          <div className="relative w-full lg:w-72">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <Input
-              type="text"
-              placeholder="Cari kode atau nama bahan..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 h-9 rounded-xl border-slate-200 bg-slate-50/50 text-xs font-bold text-slate-800 focus-visible:ring-primary"
-            />
+          {/* Material Name Filter & Search Box */}
+          <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+            {/* Dropdown Nama Bahan */}
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-1.5 shadow-2xs">
+              <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Nama Bahan:</span>
+              <select
+                value={selectedMaterialName}
+                onChange={(e) => setSelectedMaterialName(e.target.value)}
+                className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer max-w-[200px] truncate"
+              >
+                <option value="all">Semua Bahan Baku ({allUniqueMaterialNames.length})</option>
+                {allUniqueMaterialNames.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Quick Search */}
+            <div className="relative flex-1 min-w-[200px] lg:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Input
+                type="text"
+                placeholder="Cari kode atau nama bahan..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-9 pr-7 h-9 rounded-xl border-slate-200 bg-slate-50/50 text-xs font-bold text-slate-800 focus-visible:ring-primary"
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+
+            {(selectedMaterialName !== "all" || searchTerm.trim()) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSelectedMaterialName("all");
+                  setSearchTerm("");
+                }}
+                className="h-9 px-2.5 rounded-xl text-[10px] font-black uppercase text-rose-600 hover:bg-rose-50 gap-1"
+              >
+                Reset Filter
+              </Button>
+            )}
           </div>
         </div>
 
@@ -990,10 +1055,11 @@ export default function LaporanStockRealKontainerPage() {
                                 "inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold tracking-tight border leading-none",
                                 br.id === "gdm" && "bg-emerald-50 text-emerald-800 border-emerald-200/80",
                                 br.id === "kedungreja" && "bg-cyan-50 text-cyan-800 border-cyan-200/80",
-                                br.id === "tehwarga" && "bg-amber-50 text-amber-800 border-amber-200/80"
+                                br.id === "tehwarga" && "bg-amber-50 text-amber-800 border-amber-200/80",
+                                br.id === "gembong" && "bg-indigo-50 text-indigo-800 border-indigo-200/80"
                               )}
                             >
-                              {br.id === "gdm" ? "Zona GDM" : br.id === "kedungreja" ? "Kedungreja" : "Teh Warga"}
+                              {br.id === "gdm" ? "Zona GDM" : br.id === "kedungreja" ? "Kedungreja" : br.id === "gembong" ? "Zona Gembong" : "Teh Warga"}
                             </span>
                           ))}
                         </div>
@@ -1035,7 +1101,8 @@ export default function LaporanStockRealKontainerPage() {
                             "px-1.5 py-0.5 rounded text-[8px] font-black uppercase border",
                             br.id === "gdm" && "bg-emerald-50 text-emerald-800 border-emerald-200",
                             br.id === "kedungreja" && "bg-cyan-50 text-cyan-800 border-cyan-200",
-                            br.id === "tehwarga" && "bg-amber-50 text-amber-800 border-amber-200"
+                            br.id === "tehwarga" && "bg-amber-50 text-amber-800 border-amber-200",
+                            br.id === "gembong" && "bg-indigo-50 text-indigo-800 border-indigo-200"
                           )}
                         >
                           {br.shortName}

@@ -85,7 +85,7 @@ export default function PengaturanPage() {
       // Gather any in-memory credentials loaded in state to guarantee none are missed
       const extraList: Array<{ username: string; password?: string; nama?: string; role?: "owner" | "admin" | "employee"; cabang?: BranchId }> = [];
       
-      (["gdm", "kedungreja", "tehwarga"] as BranchId[]).forEach((b) => {
+      (["gdm", "kedungreja", "tehwarga", "gembong"] as BranchId[]).forEach((b) => {
         (credentialsByBranch[b] || []).forEach((c) => {
           if (c.username) {
             extraList.push({
@@ -112,7 +112,7 @@ export default function PengaturanPage() {
       if (res.success) {
         toast({
           title: "Sinkronisasi Firebase Auth Sukses",
-          description: `${res.syncedCount} akun (Owner, Admin, Karyawan Gandrungmangu, Kedungreja, Teh Warga) berhasil disinkronkan ke Firebase Authentication.`,
+          description: `${res.syncedCount} akun (Owner, Admin, Karyawan Gandrungmangu, Kedungreja, Teh Warga, Gembong) berhasil disinkronkan ke Firebase Authentication.`,
         });
       } else {
         toast({
@@ -164,13 +164,15 @@ export default function PengaturanPage() {
     all: [],
     gdm: [],
     kedungreja: [],
-    tehwarga: []
+    tehwarga: [],
+    gembong: []
   });
   const [adminByBranch, setAdminByBranch] = useState<Record<BranchId, { username: string; password: string }>>({
     all: { username: "admin", password: "admin00" },
     gdm: { username: "adminzona", password: "admin00" },
     kedungreja: { username: "adminkedungreja", password: "admin00" },
-    tehwarga: { username: "admintehwarga", password: "admin00" }
+    tehwarga: { username: "admintehwarga", password: "admin00" },
+    gembong: { username: "admingembong", password: "admin00" }
   });
   const [newCredential, setNewCredential] = useState<EmployeeCredential>({ username: "", password: "" });
 
@@ -201,14 +203,22 @@ export default function PengaturanPage() {
           ? (tehSysSnap.data().users || []) 
           : (tehCredSnap.exists() ? (tehCredSnap.data().users || []) : []);
 
+        // 4. Fetch Gembong credentials (system_logins_gembong -> logins_gembong)
+        const gmbSysSnap = await getDoc(doc(db, "employee_credentials", "system_logins_gembong"));
+        const gmbCredSnap = await getDoc(doc(db, "employee_credentials", "logins_gembong"));
+        const gmbUsers = gmbSysSnap.exists() 
+          ? (gmbSysSnap.data().users || []) 
+          : (gmbCredSnap.exists() ? (gmbCredSnap.data().users || []) : []);
+
         setCredentialsByBranch({
-          all: [...gdmUsers, ...kdrjUsers, ...tehUsers],
+          all: [...gdmUsers, ...kdrjUsers, ...tehUsers, ...gmbUsers],
           gdm: gdmUsers,
           kedungreja: kdrjUsers,
-          tehwarga: tehUsers
+          tehwarga: tehUsers,
+          gembong: gmbUsers
         });
 
-        // 4. Fetch Admin credentials
+        // Fetch Admin credentials
         const adminGdmSnap = await getDoc(doc(db, "employee_credentials", "admin_gdm"));
         const adminGlobalSnap = await getDoc(doc(db, "employee_credentials", "admin"));
         const adminGdm = adminGdmSnap.exists() ? adminGdmSnap.data() : (adminGlobalSnap.exists() ? adminGlobalSnap.data() : null);
@@ -218,6 +228,9 @@ export default function PengaturanPage() {
 
         const adminTehSnap = await getDoc(doc(db, "employee_credentials", "admin_tehwarga"));
         const adminTeh = adminTehSnap.exists() ? adminTehSnap.data() : null;
+
+        const adminGmbSnap = await getDoc(doc(db, "employee_credentials", "admin_gembong"));
+        const adminGmb = adminGmbSnap.exists() ? adminGmbSnap.data() : null;
 
         setAdminByBranch({
           all: {
@@ -235,6 +248,10 @@ export default function PengaturanPage() {
           tehwarga: {
             username: adminTeh?.username || "admintehwarga",
             password: adminTeh?.password || "admin00"
+          },
+          gembong: {
+            username: adminGmb?.username || "admingembong",
+            password: adminGmb?.password || "admin00"
           }
         });
       } catch (err) {

@@ -96,14 +96,14 @@ function ReportHubContent() {
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-900 shadow-sm animate-in fade-in">
               <span className="h-2 w-2 rounded-full bg-indigo-600 animate-pulse" />
               <span className="text-[10px] font-black uppercase tracking-wider">
-                Mode Konsolidasi: 3 Toko Terpadu
+                Mode Konsolidasi: 4 Toko Terpadu
               </span>
             </div>
           ) : (
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-2xl bg-slate-100 border border-slate-200 text-slate-700 shadow-xs">
               <span className={cn(
                 "h-2 w-2 rounded-full",
-                activeBranch === 'tehwarga' ? "bg-amber-500" : activeBranch === 'kedungreja' ? "bg-cyan-500" : "bg-emerald-500"
+                activeBranch === 'gembong' ? "bg-indigo-600" : activeBranch === 'tehwarga' ? "bg-amber-500" : activeBranch === 'kedungreja' ? "bg-cyan-500" : "bg-emerald-500"
               )} />
               <span className="text-[10px] font-black uppercase tracking-wider">
                 Filter: {BRANCH_LIST[activeBranch]?.shortName}
@@ -125,12 +125,12 @@ function ReportHubContent() {
                 Konsolidasi Seluruh Outlet Aktif
               </p>
               <p className="text-[11px] text-slate-300 font-medium leading-tight">
-                Menampilkan hasil akumulasi dan gabungan data dari <strong>Zona Waktu GDM</strong>, <strong>Zona Kedungreja</strong>, dan <strong>Teh Warga GDM</strong>.
+                Menampilkan hasil akumulasi dan gabungan data dari <strong>Zona Waktu GDM</strong>, <strong>Zona Kedungreja</strong>, <strong>Teh Warga GDM</strong>, dan <strong>Zona Gembong</strong>.
               </p>
             </div>
           </div>
           <div className="hidden sm:flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider bg-white/10 px-3 py-1.5 rounded-xl border border-white/10 shrink-0">
-            <span>3 Outlet</span> &bull; <span>2 Gudang</span>
+            <span>4 Outlet</span> &bull; <span>3 Gudang</span>
           </div>
         </div>
       )}

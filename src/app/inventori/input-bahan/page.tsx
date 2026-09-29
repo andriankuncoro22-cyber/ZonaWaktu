@@ -108,6 +108,7 @@ interface LogItemDoc {
   qty?: number;
   qtyGdm?: number;
   qtyKedungreja?: number;
+  qtyGembong?: number;
   qtyKecilPerUnit?: number;
   unit?: string;
   satuanKecil?: string;
@@ -143,6 +144,7 @@ interface InputItem {
   qty: number;             // Total Qty Beli
   qtyGdm: number;          // Alokasi Qty ke Gudang GDM
   qtyKedungreja: number;   // Alokasi Qty ke Gudang Kedungreja
+  qtyGembong: number;      // Alokasi Qty ke Gudang Gembong
   qtyKecilPerUnit?: number; // Isi per Pack/Box/Pcs (Satuan Kecil) khusus Beli Sendiri
   price: number;
 }
@@ -162,7 +164,7 @@ export default function InputBahanBakuPage() {
   const [nomorNota, setNomorNota] = useState<string>("");
   
   const [items, setItems] = useState<InputItem[]>([
-    { materialId: "", qty: 0, qtyGdm: 0, qtyKedungreja: 0, qtyKecilPerUnit: 1, price: 0 }
+    { materialId: "", qty: 0, qtyGdm: 0, qtyKedungreja: 0, qtyGembong: 0, qtyKecilPerUnit: 1, price: 0 }
   ]);
   const [saving, setSaving] = useState(false);
   const [expandedLog, setExpandedLog] = useState<string | null>(null);
@@ -246,6 +248,7 @@ export default function InputBahanBakuPage() {
         ...(location === "gudang" ? {
           "ALOKASI GUDANG GDM": 0,
           "ALOKASI GUDANG KEDUNGREJA": 0,
+          "ALOKASI GUDANG GEMBONG": 0,
         } : {}),
         "ISI SATUAN KECIL PER UNIT": Number(m.qtyKecil || 1),
         "HARGA BELI PER SATUAN BESAR": 0,
@@ -312,13 +315,14 @@ export default function InputBahanBakuPage() {
           const qtyTotal = Number(row["TOTAL JUMLAH (SATUAN BESAR)"] || row["JUMLAH (SATUAN BESAR)"] || 0);
           let qtyGdm = Number(row["ALOKASI GUDANG GDM"] || 0);
           const qtyKedungreja = Number(row["ALOKASI GUDANG KEDUNGREJA"] || 0);
+          const qtyGembong = Number(row["ALOKASI GUDANG GEMBONG"] || 0);
           const price = Number(row["HARGA BELI PER SATUAN BESAR"] || 0);
           const qtyKecilPerUnit = Number(row["ISI SATUAN KECIL PER UNIT"] || 1);
 
           if (!code || qtyTotal <= 0) return;
 
           // If allocation was not filled, default 100% to GDM
-          if (qtyGdm === 0 && qtyKedungreja === 0) {
+          if (qtyGdm === 0 && qtyKedungreja === 0 && qtyGembong === 0) {
             qtyGdm = qtyTotal;
           }
 
@@ -329,6 +333,7 @@ export default function InputBahanBakuPage() {
               qty: qtyTotal,
               qtyGdm,
               qtyKedungreja,
+              qtyGembong,
               qtyKecilPerUnit,
               price,
             });
@@ -373,6 +378,7 @@ export default function InputBahanBakuPage() {
       qty: 0, 
       qtyGdm: 0, 
       qtyKedungreja: 0, 
+      qtyGembong: 0,
       qtyKecilPerUnit: 1, 
       price: 0 
     }]);
@@ -404,6 +410,15 @@ export default function InputBahanBakuPage() {
           qty: totalQty,
           qtyGdm: 0,
           qtyKedungreja: totalQty,
+          qtyGembong: 0,
+        };
+      } else if (selectedWarehouse === 'gembong') {
+        newItems[index] = {
+          ...currentItem,
+          qty: totalQty,
+          qtyGdm: 0,
+          qtyKedungreja: 0,
+          qtyGembong: totalQty,
         };
       } else {
         newItems[index] = {
@@ -411,32 +426,18 @@ export default function InputBahanBakuPage() {
           qty: totalQty,
           qtyGdm: totalQty,
           qtyKedungreja: 0,
+          qtyGembong: 0,
         };
       }
     } else if (field === 'qtyGdm') {
       const valGdm = Math.max(0, Number(value));
-      const totalQty = currentItem.qty || 0;
-      const safeGdm = Math.min(totalQty, valGdm);
-      // Auto calculate sisa untuk Kedungreja
-      const autoKedungreja = Math.max(0, totalQty - safeGdm);
-
-      newItems[index] = {
-        ...currentItem,
-        qtyGdm: safeGdm,
-        qtyKedungreja: autoKedungreja,
-      };
+      newItems[index] = { ...currentItem, qtyGdm: valGdm };
     } else if (field === 'qtyKedungreja') {
       const valKedungreja = Math.max(0, Number(value));
-      const totalQty = currentItem.qty || 0;
-      const safeKedungreja = Math.min(totalQty, valKedungreja);
-      // Auto calculate sisa untuk GDM
-      const autoGdm = Math.max(0, totalQty - safeKedungreja);
-
-      newItems[index] = {
-        ...currentItem,
-        qtyKedungreja: safeKedungreja,
-        qtyGdm: autoGdm,
-      };
+      newItems[index] = { ...currentItem, qtyKedungreja: valKedungreja };
+    } else if (field === 'qtyGembong') {
+      const valGembong = Math.max(0, Number(value));
+      newItems[index] = { ...currentItem, qtyGembong: valGembong };
     } else {
       newItems[index] = { ...currentItem, [field]: value };
     }
@@ -453,6 +454,7 @@ export default function InputBahanBakuPage() {
         ...it,
         qtyGdm: wId === 'gdm' ? total : 0,
         qtyKedungreja: wId === 'kedungreja' ? total : 0,
+        qtyGembong: wId === 'gembong' ? total : 0,
       };
     }));
     toast({
@@ -462,18 +464,27 @@ export default function InputBahanBakuPage() {
   };
 
   // Quick Action per row: Preset Cepat
-  const handleRowPreset = (index: number, mode: 'gdm_all' | 'kdrj_all' | 'split') => {
+  const handleRowPreset = (index: number, mode: 'gdm_all' | 'kdrj_all' | 'gmb_all' | 'split') => {
     const newItems = [...items];
     const total = newItems[index].qty || 0;
     if (mode === 'gdm_all') {
       newItems[index].qtyGdm = total;
       newItems[index].qtyKedungreja = 0;
+      newItems[index].qtyGembong = 0;
     } else if (mode === 'kdrj_all') {
       newItems[index].qtyGdm = 0;
       newItems[index].qtyKedungreja = total;
+      newItems[index].qtyGembong = 0;
+    } else if (mode === 'gmb_all') {
+      newItems[index].qtyGdm = 0;
+      newItems[index].qtyKedungreja = 0;
+      newItems[index].qtyGembong = total;
     } else if (mode === 'split') {
-      newItems[index].qtyGdm = Math.ceil(total / 2);
-      newItems[index].qtyKedungreja = Math.floor(total / 2);
+      const third = Math.floor(total / 3);
+      const rem = total % 3;
+      newItems[index].qtyGdm = third + (rem > 0 ? 1 : 0);
+      newItems[index].qtyKedungreja = third + (rem > 1 ? 1 : 0);
+      newItems[index].qtyGembong = third;
     }
     setItems(newItems);
   };
@@ -566,6 +577,7 @@ export default function InputBahanBakuPage() {
         if (isTargetGudang) {
           const qtyGdm = Number(item.qtyGdm || 0);
           const qtyKedungreja = Number(item.qtyKedungreja || 0);
+          const qtyGembong = Number(item.qtyGembong || 0);
 
           totalGdmUnits += qtyGdm;
           totalKdrjUnits += qtyKedungreja;
@@ -601,6 +613,22 @@ export default function InputBahanBakuPage() {
             if (kdrjRemSmall > 0) kdrjPayload.qtyGudangKecil = increment(kdrjRemSmall);
             batch.update(kdrjRef, kdrjPayload);
           }
+
+          // 3. Eksekusi Porsi Gudang Gembong jika ada
+          if (qtyGembong > 0) {
+            const gmbRef = warehouseDoc(db, "bahan-baku", item.materialId, "gembong");
+            const gmbSmallUnits = qtyGembong * actualConversion;
+            const gmbBulkUnits = Math.floor(gmbSmallUnits / (standardConversion || 1));
+            const gmbRemSmall = Math.round((gmbSmallUnits - (gmbBulkUnits * standardConversion)) * 100) / 100;
+
+            const gmbPayload: Record<string, unknown> = {
+              currentPrice: item.price,
+              hargaSatuanKecil: pricePerKecil,
+            };
+            if (gmbBulkUnits > 0) gmbPayload.qtyBesar = increment(gmbBulkUnits);
+            if (gmbRemSmall > 0) gmbPayload.qtyGudangKecil = increment(gmbRemSmall);
+            batch.update(gmbRef, gmbPayload);
+          }
         } else {
           // Eksekusi Target Kontainer Toko
           const containerRef = branchDoc(db, "bahan-baku", item.materialId, selectedTargetBranch);
@@ -623,6 +651,7 @@ export default function InputBahanBakuPage() {
           qty: item.qty,
           qtyGdm: isTargetGudang ? Number(item.qtyGdm || 0) : undefined,
           qtyKedungreja: isTargetGudang ? Number(item.qtyKedungreja || 0) : undefined,
+          qtyGembong: isTargetGudang ? Number(item.qtyGembong || 0) : undefined,
           addedBulkQty: fullBulkUnits,
           addedSmallUnits: remainderSmallUnits,
           unit: material?.satuanBesar || "-",
@@ -703,6 +732,7 @@ export default function InputBahanBakuPage() {
         qty: 0, 
         qtyGdm: 0, 
         qtyKedungreja: 0, 
+        qtyGembong: 0,
         qtyKecilPerUnit: 1, 
         price: 0 
       }]);
@@ -740,8 +770,9 @@ export default function InputBahanBakuPage() {
           const actualConversion = Number(item.qtyKecilPerUnit || standardConversion);
 
           if (isTargetGudang) {
-            const qtyGdm = Number(item.qtyGdm ?? (item.targetWarehouse === 'kedungreja' ? 0 : item.qty));
+            const qtyGdm = Number(item.qtyGdm ?? (item.targetWarehouse === 'kedungreja' ? 0 : item.targetWarehouse === 'gembong' ? 0 : item.qty));
             const qtyKedungreja = Number(item.qtyKedungreja ?? (item.targetWarehouse === 'kedungreja' ? item.qty : 0));
+            const qtyGembong = Number(item.qtyGembong ?? (item.targetWarehouse === 'gembong' ? item.qty : 0));
 
             // Kembalikan dari GDM
             if (qtyGdm > 0) {
@@ -765,6 +796,18 @@ export default function InputBahanBakuPage() {
               if (kdrjBulk > 0) kdrjPayload.qtyBesar = increment(-kdrjBulk);
               if (kdrjRem > 0) kdrjPayload.qtyGudangKecil = increment(-kdrjRem);
               if (Object.keys(kdrjPayload).length > 0) batch.update(kdrjRef, kdrjPayload);
+            }
+
+            // Kembalikan dari Gembong
+            if (qtyGembong > 0) {
+              const gmbRef = warehouseDoc(db, "bahan-baku", item.materialId, "gembong");
+              const gmbSmall = qtyGembong * actualConversion;
+              const gmbBulk = Math.floor(gmbSmall / (standardConversion || 1));
+              const gmbRem = Math.round((gmbSmall - (gmbBulk * standardConversion)) * 100) / 100;
+              const gmbPayload: Record<string, unknown> = {};
+              if (gmbBulk > 0) gmbPayload.qtyBesar = increment(-gmbBulk);
+              if (gmbRem > 0) gmbPayload.qtyGudangKecil = increment(-gmbRem);
+              if (Object.keys(gmbPayload).length > 0) batch.update(gmbRef, gmbPayload);
             }
           } else {
             // Kembalikan dari Kontainer
@@ -931,10 +974,23 @@ export default function InputBahanBakuPage() {
                           <span className="h-1.5 w-1.5 rounded-full bg-cyan-500" />
                           Semua Kedungreja
                         </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleApplyAllWarehouse('gembong')}
+                          className={cn(
+                            "h-6 rounded-lg text-[8px] font-black uppercase px-2 gap-1",
+                            selectedWarehouse === 'gembong' ? "border-violet-500 bg-violet-50 text-violet-700" : "bg-white text-slate-600"
+                          )}
+                        >
+                          <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
+                          Semua Gembong
+                        </Button>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <button
                         type="button"
                         onClick={() => handleApplyAllWarehouse('gdm')}
@@ -947,13 +1003,13 @@ export default function InputBahanBakuPage() {
                       >
                         <div className="flex items-center gap-2">
                           <span className="h-2 w-2 rounded-full bg-emerald-400 shrink-0" />
-                          <span className="text-xs font-black uppercase">Gudang Gandrungmangu (GDM)</span>
+                          <span className="text-xs font-black uppercase">Gudang GDM</span>
                         </div>
                         <span className={cn(
                           "text-[9px] font-bold mt-1",
                           selectedWarehouse === 'gdm' ? "text-slate-300" : "text-slate-500"
                         )}>
-                          Gudang Terpadu Zona Waktu & Teh Warga
+                          Terpadu ZW & TW
                         </span>
                       </button>
 
@@ -975,7 +1031,29 @@ export default function InputBahanBakuPage() {
                           "text-[9px] font-bold mt-1",
                           selectedWarehouse === 'kedungreja' ? "text-slate-300" : "text-slate-500"
                         )}>
-                          Gudang Utama Zona Waktu Kedungreja
+                          Gudang Kedungreja
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleApplyAllWarehouse('gembong')}
+                        className={cn(
+                          "p-3 rounded-xl border text-left transition-all flex flex-col justify-between",
+                          selectedWarehouse === 'gembong'
+                            ? "bg-violet-950 border-violet-900 text-white shadow-sm scale-[1.01]"
+                            : "bg-white border-slate-200 text-slate-700 hover:bg-slate-100"
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="h-2 w-2 rounded-full bg-violet-400 shrink-0" />
+                          <span className="text-xs font-black uppercase">Gudang Gembong</span>
+                        </div>
+                        <span className={cn(
+                          "text-[9px] font-bold mt-1",
+                          selectedWarehouse === 'gembong' ? "text-violet-300" : "text-slate-500"
+                        )}>
+                          Mandiri / Berdiri Sendiri
                         </span>
                       </button>
                     </div>
@@ -983,7 +1061,7 @@ export default function InputBahanBakuPage() {
                     <div className="flex items-center gap-1.5 text-[9px] font-medium text-slate-600 bg-emerald-50/60 p-2.5 rounded-xl border border-emerald-100">
                       <Split className="h-4 w-4 text-emerald-600 shrink-0" />
                       <span>
-                        <strong>Fitur Pembagian Qty Otomatis:</strong> Anda dapat langsung membagi kuantitas bahan pada setiap baris item (misal: Total 5 $ightarrow$ isi GDM 3, maka Kedungreja otomatis terisi 2).
+                        <strong>Fitur Pembagian Qty Otomatis:</strong> Anda dapat langsung membagi kuantitas bahan pada setiap baris item ke Gudang GDM, Kedungreja, atau Gembong.
                       </span>
                     </div>
                   </div>
@@ -991,9 +1069,9 @@ export default function InputBahanBakuPage() {
                   /* 3 TOMBOL SWITCHER KONTAINER TOKO */
                   <div className="space-y-2 p-4 bg-slate-50/80 rounded-2xl border border-slate-200/80">
                     <Label className="text-[10px] font-black uppercase tracking-wider text-slate-600 block">
-                      Pilih Kontainer Toko Tujuan (3 Outlet):
+                      Pilih Kontainer Toko Tujuan (4 Outlet):
                     </Label>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       <button
                         type="button"
                         onClick={() => setSelectedTargetBranch('gdm')}
@@ -1006,10 +1084,10 @@ export default function InputBahanBakuPage() {
                       >
                         <div className="flex items-center gap-2">
                           <span className="h-2 w-2 rounded-full bg-emerald-400 shrink-0" />
-                          <span className="text-xs font-black uppercase">Zona Waktu GDM</span>
+                          <span className="text-xs font-black uppercase">ZW GDM</span>
                         </div>
                         <span className={cn("text-[8px] font-bold block mt-0.5", selectedTargetBranch === 'gdm' ? "text-slate-300" : "text-slate-400")}>
-                          Kontainer Gandrungmangu
+                          Gandrungmangu
                         </span>
                       </button>
 
@@ -1025,10 +1103,10 @@ export default function InputBahanBakuPage() {
                       >
                         <div className="flex items-center gap-2">
                           <span className="h-2 w-2 rounded-full bg-cyan-400 shrink-0" />
-                          <span className="text-xs font-black uppercase">Zona Kedungreja</span>
+                          <span className="text-xs font-black uppercase">Kedungreja</span>
                         </div>
                         <span className={cn("text-[8px] font-bold block mt-0.5", selectedTargetBranch === 'kedungreja' ? "text-slate-300" : "text-slate-400")}>
-                          Kontainer Kedungreja
+                          ZW Kedungreja
                         </span>
                       </button>
 
@@ -1044,10 +1122,29 @@ export default function InputBahanBakuPage() {
                       >
                         <div className="flex items-center gap-2">
                           <span className="h-2 w-2 rounded-full bg-amber-400 shrink-0" />
-                          <span className="text-xs font-black uppercase">Teh Warga GDM</span>
+                          <span className="text-xs font-black uppercase">Teh Warga</span>
                         </div>
                         <span className={cn("text-[8px] font-bold block mt-0.5", selectedTargetBranch === 'tehwarga' ? "text-slate-300" : "text-slate-400")}>
-                          Kontainer Teh Warga
+                          Teh Warga GDM
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTargetBranch('gembong')}
+                        className={cn(
+                          "p-3 rounded-xl border text-left transition-all",
+                          selectedTargetBranch === 'gembong'
+                            ? "bg-violet-950 border-violet-900 text-white shadow-sm scale-[1.01]"
+                            : "bg-white border-slate-200 text-slate-700 hover:bg-slate-100"
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="h-2 w-2 rounded-full bg-violet-400 shrink-0" />
+                          <span className="text-xs font-black uppercase">ZW Gembong</span>
+                        </div>
+                        <span className={cn("text-[8px] font-bold block mt-0.5", selectedTargetBranch === 'gembong' ? "text-violet-300" : "text-slate-400")}>
+                          Cabang Gembong
                         </span>
                       </button>
                     </div>
@@ -1197,7 +1294,8 @@ export default function InputBahanBakuPage() {
                       const isBeliSendiri = selectedMat?.metodePembelian === "Beli Sendiri" || purchaseType === "belanja";
                       const qtyGdm = item.qtyGdm || 0;
                       const qtyKdrj = item.qtyKedungreja || 0;
-                      const totalAllocated = qtyGdm + qtyKdrj;
+                      const qtyGmb = item.qtyGembong || 0;
+                      const totalAllocated = qtyGdm + qtyKdrj + qtyGmb;
                       const isAllocationMatch = totalAllocated === (item.qty || 0);
                       
                       return (
@@ -1281,7 +1379,7 @@ export default function InputBahanBakuPage() {
                             </div>
                           </div>
 
-                          {/* KOTAK PEMBAGIAN GUDANG GDM & KEDUNGREJA (KHUSUS MODE GUDANG UTAMA) */}
+                          {/* KOTAK PEMBAGIAN GUDANG (KHUSUS MODE GUDANG UTAMA) */}
                           {targetLocation === "gudang" && (item.qty > 0) && (
                             <div className="p-3 bg-white rounded-xl border border-slate-200/80 space-y-2">
                               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-[9px]">
@@ -1308,34 +1406,40 @@ export default function InputBahanBakuPage() {
                                   </button>
                                   <button
                                     type="button"
+                                    onClick={() => handleRowPreset(index, 'gmb_all')}
+                                    className="px-2 py-0.5 rounded bg-violet-100 hover:bg-violet-200 text-[8px] font-black uppercase text-violet-700"
+                                  >
+                                    100% Gembong
+                                  </button>
+                                  <button
+                                    type="button"
                                     onClick={() => handleRowPreset(index, 'split')}
                                     className="px-2 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 text-[8px] font-black uppercase text-indigo-700"
                                   >
-                                    Bagi 2
+                                    Bagi Rata
                                   </button>
                                 </div>
                               </div>
 
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
                                 {/* Alokasi Gudang GDM */}
                                 <div className="flex items-center gap-2 p-2 rounded-lg bg-emerald-50/50 border border-emerald-200/60">
                                   <div className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
-                                  <div className="flex-1">
-                                    <span className="text-[8.5px] font-black uppercase text-emerald-800 block leading-tight">
-                                      Gudang GDM:
+                                  <div className="flex-1 min-w-0">
+                                    <span className="text-[8.5px] font-black uppercase text-emerald-800 block leading-tight truncate">
+                                      GDM:
                                     </span>
-                                    <span className="text-[7.5px] text-emerald-600 font-bold">Zona Waktu & Teh Warga</span>
                                   </div>
-                                  <div className="relative w-24">
+                                  <div className="relative w-20">
                                     <Input
                                       type="number"
                                       min="0"
                                       max={item.qty}
                                       value={item.qtyGdm ?? 0}
                                       onChange={(e) => handleItemChange(index, 'qtyGdm', Number(e.target.value))}
-                                      className="h-8 rounded-lg bg-white border-emerald-300 text-center font-black text-xs text-emerald-900 pr-6"
+                                      className="h-8 rounded-lg bg-white border-emerald-300 text-center font-black text-xs text-emerald-900 pr-5"
                                     />
-                                    <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[7.5px] font-bold text-slate-400">
+                                    <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[7px] font-bold text-slate-400">
                                       {selectedMat?.satuanBesar || "U"}
                                     </span>
                                   </div>
@@ -1344,22 +1448,44 @@ export default function InputBahanBakuPage() {
                                 {/* Alokasi Gudang Kedungreja */}
                                 <div className="flex items-center gap-2 p-2 rounded-lg bg-cyan-50/50 border border-cyan-200/60">
                                   <div className="h-2 w-2 rounded-full bg-cyan-500 shrink-0" />
-                                  <div className="flex-1">
-                                    <span className="text-[8.5px] font-black uppercase text-cyan-800 block leading-tight">
-                                      Gudang Kedungreja:
+                                  <div className="flex-1 min-w-0">
+                                    <span className="text-[8.5px] font-black uppercase text-cyan-800 block leading-tight truncate">
+                                      Kedungreja:
                                     </span>
-                                    <span className="text-[7.5px] text-cyan-600 font-bold">Zona Waktu Kedungreja</span>
                                   </div>
-                                  <div className="relative w-24">
+                                  <div className="relative w-20">
                                     <Input
                                       type="number"
                                       min="0"
                                       max={item.qty}
                                       value={item.qtyKedungreja ?? 0}
                                       onChange={(e) => handleItemChange(index, 'qtyKedungreja', Number(e.target.value))}
-                                      className="h-8 rounded-lg bg-white border-cyan-300 text-center font-black text-xs text-cyan-900 pr-6"
+                                      className="h-8 rounded-lg bg-white border-cyan-300 text-center font-black text-xs text-cyan-900 pr-5"
                                     />
-                                    <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[7.5px] font-bold text-slate-400">
+                                    <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[7px] font-bold text-slate-400">
+                                      {selectedMat?.satuanBesar || "U"}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Alokasi Gudang Gembong */}
+                                <div className="flex items-center gap-2 p-2 rounded-lg bg-violet-50/50 border border-violet-200/60">
+                                  <div className="h-2 w-2 rounded-full bg-violet-500 shrink-0" />
+                                  <div className="flex-1 min-w-0">
+                                    <span className="text-[8.5px] font-black uppercase text-violet-800 block leading-tight truncate">
+                                      Gembong:
+                                    </span>
+                                  </div>
+                                  <div className="relative w-20">
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      max={item.qty}
+                                      value={item.qtyGembong ?? 0}
+                                      onChange={(e) => handleItemChange(index, 'qtyGembong', Number(e.target.value))}
+                                      className="h-8 rounded-lg bg-white border-violet-300 text-center font-black text-xs text-violet-900 pr-5"
+                                    />
+                                    <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[7px] font-bold text-slate-400">
                                       {selectedMat?.satuanBesar || "U"}
                                     </span>
                                   </div>
@@ -1380,10 +1506,13 @@ export default function InputBahanBakuPage() {
                             <span>
                               {targetLocation === "gudang" && (
                                 <span className="mr-2 text-[8.5px] font-black uppercase bg-slate-200 px-1.5 py-0.5 rounded text-slate-700">
-                                  GDM: {qtyGdm} | Kedungreja: {qtyKdrj}
+                                  GDM: {qtyGdm} | Kedungreja: {qtyKdrj} | Gembong: {qtyGmb}
                                 </span>
                               )}
                               Total: {item.qty} {selectedMat?.satuanBesar || "Unit"} x Rp {(item.price || 0).toLocaleString('id-ID')}
+                            </span>
+                            <span className="font-black text-slate-900 text-xs">
+                              Rp {(item.qty * item.price).toLocaleString('id-ID')}
                             </span>
                             <span className="font-black text-slate-900 text-xs">
                               Rp {(item.qty * item.price).toLocaleString('id-ID')}

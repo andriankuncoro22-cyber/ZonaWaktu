@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useState, useMemo } from "react";
 import { 
@@ -35,6 +35,7 @@ import { useFirestore, useCollection, useMemoFirebase, collection, doc } from "@
 import { addDoc, serverTimestamp, query, orderBy, deleteDoc, updateDoc, getDocs, where } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { useActiveBranch, BRANCH_LIST, getBranchTheme } from "@/lib/branch-helper";
 
 interface FreeItemInput {
   productId: string;
@@ -47,6 +48,9 @@ const formatCurrency = (value: number) =>
 export default function EmployeeInputFreePage() {
   const db = useFirestore();
   const { toast } = useToast();
+  const activeBranch = useActiveBranch();
+  const branchInfo = BRANCH_LIST[activeBranch] || BRANCH_LIST.gdm;
+  const theme = getBranchTheme(activeBranch);
 
   // Active Tab: "input" | "riwayat"
   const [activeTab, setActiveTab] = useState<"input" | "riwayat">("input");
@@ -377,18 +381,18 @@ export default function EmployeeInputFreePage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-slate-200/80 pb-5">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">
-              Operasional Karyawan • Zona Waktu
-            </p>
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className={cn("px-2.5 py-0.5 rounded-full text-[8px] font-black uppercase border", theme.badgeClass)}>
+              <span className={cn("inline-block h-1.5 w-1.5 rounded-full mr-1", theme.dotColor)} />
+              {branchInfo.shortName}
+            </span>
           </div>
           <h1 className="text-3xl sm:text-4xl font-black uppercase italic tracking-tight text-slate-900 flex items-center gap-3">
-            <Gift className="h-8 w-8 text-primary" />
-            Input Free Produk
+            <Gift className={cn("h-8 w-8", theme.accentTextClass)} />
+            Input Free Produk &bull; {branchInfo.shortName}
           </h1>
           <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mt-1">
-            Pencatatan & Riwayat Kuota Klaim Produk Gratis Karyawan
+            Pencatatan & Riwayat Kuota Klaim Produk Gratis Karyawan &bull; {branchInfo.name}
           </p>
         </div>
 
@@ -697,7 +701,7 @@ export default function EmployeeInputFreePage() {
                       "h-14 rounded-2xl px-8 font-black uppercase tracking-widest text-xs shadow-xl transition-all w-full sm:w-auto text-white",
                       isQuotaAlreadyFull || isExceedingQuota
                         ? "bg-slate-300 cursor-not-allowed text-slate-500"
-                        : "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-200"
+                        : cn(theme.buttonGradient, "shadow-md")
                     )}
                   >
                     {saving ? (
@@ -718,7 +722,7 @@ export default function EmployeeInputFreePage() {
           <Card className="rounded-[2.5rem] border border-slate-200/80 bg-white p-6 sm:p-8 shadow-sm">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4 mb-4">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+                <div className={cn("flex h-10 w-10 items-center justify-center rounded-2xl", theme.accentBgClass)}>
                   <Coffee className="h-5 w-5" />
                 </div>
                 <div>

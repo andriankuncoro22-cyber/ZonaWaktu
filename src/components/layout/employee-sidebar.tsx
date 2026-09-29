@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { logoutWithFirebaseAuth } from "@/lib/auth-service";
+import { useActiveBranch, BRANCH_LIST, getBranchTheme } from "@/lib/branch-helper";
 
 const menuGroups = [
   {
@@ -46,6 +47,9 @@ export function EmployeeSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [employeeName, setEmployeeName] = useState<string>("");
+  const activeBranch = useActiveBranch();
+  const branchInfo = BRANCH_LIST[activeBranch] || BRANCH_LIST.gdm;
+  const theme = getBranchTheme(activeBranch);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -65,7 +69,9 @@ export function EmployeeSidebar() {
   const handleLogout = async () => {
     const branch = localStorage.getItem("current_branch");
     await logoutWithFirebaseAuth();
-    if (branch === "kedungreja") {
+    if (branch === "gembong") {
+      router.push("/zona_gembong/employee-login");
+    } else if (branch === "kedungreja") {
       router.push("/zona_kedungreja/employee-login");
     } else if (branch === "tehwarga") {
       router.push("/teh_warga_gdm/employee-login");
@@ -77,11 +83,16 @@ export function EmployeeSidebar() {
   return (
     <div className="flex h-full flex-col bg-white border-r border-slate-100 shadow-sm py-5 sm:py-8">
       <div className="mb-6 px-5 sm:px-8">
-        <span className="block text-sm font-black uppercase italic leading-none tracking-[0.2em] text-slate-900">
-          SISTEM
-        </span>
-        <span className="mt-1 block text-[9px] font-bold uppercase tracking-[0.1em] text-primary">
-          Karyawan Zona Waktu
+        <div className="flex items-center gap-2">
+          <span className="block text-sm font-black uppercase italic leading-none tracking-[0.2em] text-slate-900">
+            SISTEM
+          </span>
+          <span className={cn("px-2 py-0.5 rounded-full text-[8px] font-black uppercase border", theme.badgeClass)}>
+            {branchInfo.shortName}
+          </span>
+        </div>
+        <span className={cn("mt-1.5 block text-[9px] font-bold uppercase tracking-[0.1em]", theme.accentTextClass)}>
+          Karyawan {branchInfo.name}
         </span>
         {employeeName && (
           <p className="mt-2 text-[10px] font-black uppercase text-slate-500 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100 w-fit truncate max-w-full">
@@ -107,14 +118,14 @@ export function EmployeeSidebar() {
                       className={cn(
                         "group flex items-center justify-between rounded-2xl px-3.5 py-3 text-xs font-black transition-all duration-300 uppercase tracking-wider min-h-11",
                         isActive 
-                          ? "bg-primary text-white shadow-lg shadow-primary/20 scale-[1.02]" 
+                          ? cn("text-white scale-[1.02]", theme.activeSidebarClass) 
                           : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
                       )}
                     >
                       <div className="flex items-center gap-4">
                         <item.icon className={cn(
                           "h-5 w-5 transition-transform group-hover:scale-110",
-                          isActive ? "text-white" : "text-slate-500 group-hover:text-primary"
+                          isActive ? "text-white" : cn("text-slate-500", theme.groupHoverTextClass)
                         )} />
                         {item.name}
                       </div>

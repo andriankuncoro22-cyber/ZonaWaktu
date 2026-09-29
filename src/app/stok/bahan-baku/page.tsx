@@ -169,33 +169,38 @@ export default function StokBahanBakuPage() {
   ]);
   const [executingMigration, setExecutingMigration] = useState(false);
 
-  // Pre-fetch all 5 inventories for the Migration Hub
+  // Pre-fetch all inventories for the Migration Hub
   const qWhGdm = useMemoFirebase(() => query(warehouseCollection(db, "bahan-baku", "gdm"), orderBy("nama", "asc")), [db]);
   const qWhKdrj = useMemoFirebase(() => query(warehouseCollection(db, "bahan-baku", "kedungreja"), orderBy("nama", "asc")), [db]);
+  const qWhGmb = useMemoFirebase(() => query(warehouseCollection(db, "bahan-baku", "gembong"), orderBy("nama", "asc")), [db]);
   const qBrGdm = useMemoFirebase(() => query(branchCollection(db, "bahan-baku", "gdm"), orderBy("nama", "asc")), [db]);
   const qBrTw = useMemoFirebase(() => query(branchCollection(db, "bahan-baku", "tehwarga"), orderBy("nama", "asc")), [db]);
   const qBrKdrj = useMemoFirebase(() => query(branchCollection(db, "bahan-baku", "kedungreja"), orderBy("nama", "asc")), [db]);
+  const qBrGmb = useMemoFirebase(() => query(branchCollection(db, "bahan-baku", "gembong"), orderBy("nama", "asc")), [db]);
 
   const { data: rawWhGdm } = useCollection(qWhGdm);
   const { data: rawWhKdrj } = useCollection(qWhKdrj);
+  const { data: rawWhGmb } = useCollection(qWhGmb);
   const { data: rawBrGdm } = useCollection(qBrGdm);
   const { data: rawBrTw } = useCollection(qBrTw);
   const { data: rawBrKdrj } = useCollection(qBrKdrj);
+  const { data: rawBrGmb } = useCollection(qBrGmb);
 
   // Get active source inventory list based on selected mode and source location
   const currentSourceMaterials = useMemo((): BahanBaku[] => {
     let list: BahanBaku[] = [];
     if (migrationMode === "gudang_ke_kontainer" || migrationMode === "antar_gudang") {
-      list = (sourceWarehouse === "gdm" ? rawWhGdm : rawWhKdrj) as BahanBaku[] || [];
+      list = (sourceWarehouse === "gdm" ? rawWhGdm : sourceWarehouse === "kedungreja" ? rawWhKdrj : rawWhGmb) as BahanBaku[] || [];
       return list.filter(m => m.metodePembelian !== "Pembuatan Sendiri");
     } else {
       // Source is container
       if (sourceBranch === "gdm") list = (rawBrGdm as BahanBaku[]) || [];
       else if (sourceBranch === "tehwarga") list = (rawBrTw as BahanBaku[]) || [];
-      else list = (rawBrKdrj as BahanBaku[]) || [];
+      else if (sourceBranch === "kedungreja") list = (rawBrKdrj as BahanBaku[]) || [];
+      else list = (rawBrGmb as BahanBaku[]) || [];
       return list;
     }
-  }, [migrationMode, sourceWarehouse, sourceBranch, rawWhGdm, rawWhKdrj, rawBrGdm, rawBrTw, rawBrKdrj]);
+  }, [migrationMode, sourceWarehouse, sourceBranch, rawWhGdm, rawWhKdrj, rawWhGmb, rawBrGdm, rawBrTw, rawBrKdrj, rawBrGmb]);
 
   // Auto-generate reference number when migration modal opens
   const openMigrationHub = (initialMode?: MigrationMode) => {
@@ -302,11 +307,12 @@ export default function StokBahanBakuPage() {
       // Target collection materials list for smart mapping
       let targetMaterialsList: BahanBaku[] = [];
       if (targetIsGudang) {
-        targetMaterialsList = (targetWarehouse === "gdm" ? rawWhGdm : rawWhKdrj) as BahanBaku[] || [];
+        targetMaterialsList = (targetWarehouse === "gdm" ? rawWhGdm : targetWarehouse === "kedungreja" ? rawWhKdrj : rawWhGmb) as BahanBaku[] || [];
       } else {
         if (targetBranch === "gdm") targetMaterialsList = (rawBrGdm as BahanBaku[]) || [];
         else if (targetBranch === "tehwarga") targetMaterialsList = (rawBrTw as BahanBaku[]) || [];
-        else targetMaterialsList = (rawBrKdrj as BahanBaku[]) || [];
+        else if (targetBranch === "kedungreja") targetMaterialsList = (rawBrKdrj as BahanBaku[]) || [];
+        else targetMaterialsList = (rawBrGmb as BahanBaku[]) || [];
       }
 
       const logItemsPayload: Array<Record<string, unknown>> = [];
@@ -1072,6 +1078,7 @@ export default function StokBahanBakuPage() {
                     <SelectContent className="rounded-2xl font-bold">
                       <SelectItem value="gdm">Gudang Gandrungmangu (GDM)</SelectItem>
                       <SelectItem value="kedungreja">Gudang Kedungreja</SelectItem>
+                      <SelectItem value="gembong">Gudang Gembong (Mandiri)</SelectItem>
                     </SelectContent>
                   </Select>
                 ) : (
@@ -1091,6 +1098,7 @@ export default function StokBahanBakuPage() {
                       <SelectItem value="gdm">Zona Waktu - Gandrungmangu</SelectItem>
                       <SelectItem value="tehwarga">Teh Warga - Gandrungmangu</SelectItem>
                       <SelectItem value="kedungreja">Zona Waktu - Kedungreja</SelectItem>
+                      <SelectItem value="gembong">Zona Waktu - Gembong</SelectItem>
                     </SelectContent>
                   </Select>
                 )}
@@ -1113,6 +1121,7 @@ export default function StokBahanBakuPage() {
                     <SelectContent className="rounded-2xl font-bold">
                       <SelectItem value="gdm">Gudang Gandrungmangu (GDM)</SelectItem>
                       <SelectItem value="kedungreja">Gudang Kedungreja</SelectItem>
+                      <SelectItem value="gembong">Gudang Gembong (Mandiri)</SelectItem>
                     </SelectContent>
                   </Select>
                 ) : (
@@ -1132,6 +1141,9 @@ export default function StokBahanBakuPage() {
                       </SelectItem>
                       <SelectItem value="kedungreja" disabled={migrationMode === "antar_kontainer" && sourceBranch === "kedungreja"}>
                         Zona Waktu - Kedungreja
+                      </SelectItem>
+                      <SelectItem value="gembong" disabled={migrationMode === "antar_kontainer" && sourceBranch === "gembong"}>
+                        Zona Waktu - Gembong
                       </SelectItem>
                     </SelectContent>
                   </Select>
@@ -1432,6 +1444,16 @@ export default function StokBahanBakuPage() {
               >
                 Gudang Kedungreja
               </button>
+              <button
+                type="button"
+                onClick={() => setSelectedWarehouse("gembong")}
+                className={cn(
+                  "px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
+                  selectedWarehouse === "gembong" ? "bg-indigo-900 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+                )}
+              >
+                Gudang Gembong (Mandiri)
+              </button>
             </div>
           ) : (
             <div className="flex items-center gap-1 bg-white p-1 rounded-xl shadow-xs border border-slate-200/60">
@@ -1440,7 +1462,7 @@ export default function StokBahanBakuPage() {
                 onClick={() => setActiveBranch("gdm")}
                 className={cn(
                   "px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
-                  activeBranch === "gdm" ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+                  activeBranch === "gdm" ? "bg-emerald-600 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
                 )}
               >
                 ZW GDM
@@ -1450,7 +1472,7 @@ export default function StokBahanBakuPage() {
                 onClick={() => setActiveBranch("tehwarga")}
                 className={cn(
                   "px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
-                  activeBranch === "tehwarga" ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+                  activeBranch === "tehwarga" ? "bg-amber-600 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
                 )}
               >
                 Teh Warga GDM
@@ -1460,10 +1482,20 @@ export default function StokBahanBakuPage() {
                 onClick={() => setActiveBranch("kedungreja")}
                 className={cn(
                   "px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
-                  activeBranch === "kedungreja" ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
+                  activeBranch === "kedungreja" ? "bg-cyan-600 text-white shadow-xs" : "text-slate-600 hover:text-slate-900"
                 )}
               >
                 ZW Kedungreja
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveBranch("gembong")}
+                className={cn(
+                  "px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all",
+                  activeBranch === "gembong" ? "bg-indigo-600 text-white shadow-xs shadow-indigo-600/30" : "text-slate-600 hover:text-slate-900"
+                )}
+              >
+                ZW Gembong
               </button>
             </div>
           )}

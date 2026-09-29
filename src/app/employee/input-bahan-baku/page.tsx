@@ -55,7 +55,8 @@ import {
   BranchId, 
   branchCollection, 
   branchDoc,
-  filterContainerMaterials
+  filterContainerMaterials,
+  getBranchTheme
 } from "@/lib/branch-helper";
 
 interface InputItem {
@@ -225,6 +226,8 @@ export default function EmployeeInputBahanBakuPage() {
   const db = useFirestore();
   const { toast } = useToast();
   const activeBranch = useActiveBranch();
+  const branchInfo = BRANCH_LIST[activeBranch] || BRANCH_LIST.gdm;
+  const theme = getBranchTheme(activeBranch);
   
   const [activeTab, setActiveTab] = useState<ActiveTab>("pembelian");
   const [nomorNota, setNomorNota] = useState<string>("");
@@ -240,7 +243,7 @@ export default function EmployeeInputBahanBakuPage() {
 
   // States for Inter-Container Transfer
   const availableOtherBranches = useMemo(() => {
-    const list: BranchId[] = ['gdm', 'kedungreja', 'tehwarga'];
+    const list: BranchId[] = ['gdm', 'kedungreja', 'tehwarga', 'gembong'];
     return list.filter(b => b !== activeBranch);
   }, [activeBranch]);
 
@@ -1300,10 +1303,15 @@ export default function EmployeeInputBahanBakuPage() {
           <h1 className="text-3xl sm:text-4xl font-black tracking-tighter text-slate-900 uppercase italic leading-none">
             INPUT BAHAN BAKU
           </h1>
-          <p className="text-[10px] text-slate-600 font-black uppercase tracking-[0.2em] mt-2 flex items-center gap-2">
-            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            OUTLET: {BRANCH_LIST[activeBranch]?.name || "ZONA WAKTU"}
-          </p>
+          <div className="flex items-center gap-2 mt-2">
+            <span className={cn("px-2.5 py-0.5 rounded-full text-[8px] font-black uppercase border", theme.badgeClass)}>
+              <span className={cn("inline-block h-1.5 w-1.5 rounded-full mr-1", theme.dotColor)} />
+              {branchInfo.shortName}
+            </span>
+            <span className="text-[10px] text-slate-600 font-black uppercase tracking-[0.2em]">
+              OUTLET: {branchInfo.name}
+            </span>
+          </div>
         </div>
 
         {/* Pending Approval Badge Indicator */}

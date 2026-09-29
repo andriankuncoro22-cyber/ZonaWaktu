@@ -52,7 +52,7 @@ import { cn } from "@/lib/utils";
 
 // --- Types ---
 interface BranchPill {
-  id: 'gdm' | 'kedungreja' | 'tehwarga';
+  id: 'gdm' | 'kedungreja' | 'tehwarga' | 'gembong';
   shortName: string;
   badgeColor: string;
 }
@@ -60,7 +60,7 @@ interface BranchPill {
 interface MultiBranchEditBranchItem {
   entryId: string;
   branchId: BranchId;
-  warehouseId?: 'gdm' | 'kedungreja';
+  warehouseId?: 'gdm' | 'kedungreja' | 'gembong';
   branchName: string;
   badgeColor: string;
   materialId?: string;
@@ -98,6 +98,8 @@ interface ConsolidatedContainerRow {
   kdrjAktif: number;
   tehwargaBulk: number;
   tehwargaAktif: number;
+  gembongBulk: number;
+  gembongAktif: number;
   totalBulk: number;
   totalAktif: number;
   targetBranches: BranchPill[];
@@ -110,6 +112,7 @@ interface ConsolidatedWarehouseRow {
   unitBesar: string;
   gdmQty: number;
   kdrjQty: number;
+  gembongQty: number;
   totalQty: number;
 }
 interface FirestoreTimestamp {
@@ -271,6 +274,10 @@ export default function LaporanStockOpnamePage() {
   const [selectedMonth, setSelectedMonth] = useState("");
   const [opnameSource, setOpnameSource] = useState<"karyawan" | "admin">("karyawan");
 
+  // Material filter states
+  const [selectedMaterialName, setSelectedMaterialName] = useState<string>("all");
+  const [searchMaterial, setSearchMaterial] = useState<string>("");
+
   const [isUpdateStockOpen, setIsUpdateStockOpen] = useState(false);
   const [isUpdatingStock, setIsUpdatingStock] = useState(false);
   const [updateSearchTerm, setUpdateSearchTerm] = useState("");
@@ -328,39 +335,42 @@ export default function LaporanStockOpnamePage() {
 
   // Map to determine which store/branch uses each material
   const materialStoreUsageMap = useMemo(() => {
-    const map: Record<string, Set<'gdm' | 'kedungreja' | 'tehwarga'>> = {};
+    const map: Record<string, Set<'gdm' | 'kedungreja' | 'tehwarga' | 'gembong'>> = {};
 
-    const addUsage = (key: string, branch: 'gdm' | 'kedungreja' | 'tehwarga') => {
+    const addUsage = (key: string, branch: 'gdm' | 'kedungreja' | 'tehwarga' | 'gembong') => {
       const k = key.trim().toLowerCase();
       if (!k) return;
       if (!map[k]) map[k] = new Set();
       map[k].add(branch);
     };
 
-    // 1. From master materials in all 3 branch collections
+    // 1. From master materials in all branch collections
     (materials as BahanBaku[])?.forEach((mat) => {
-      const bId = (mat._branchId || 'gdm') as 'gdm' | 'kedungreja' | 'tehwarga';
-      // For GDM, exclude Teh Warga imported documents
-      if (bId === 'gdm' && (mat.isFromTehWarga || mat.originalTwCode || /^BB-0(0[1-9]|[1-4][0-9])$/i.test(mat.code || ''))) {
+      const bId = (mat._branchId || 'gdm') as 'gdm' | 'kedungreja' | 'tehwarga' | 'gembong';
+      // For GDM and Gembong, exclude Teh Warga imported documents
+      if ((bId === 'gdm' || bId === 'gembong') && (mat.isFromTehWarga || mat.originalTwCode || /^BB-0(0[1-9]|[1-4][0-9])$/i.test(mat.code || ''))) {
         return;
       }
       if (mat.nama) addUsage(mat.nama, bId);
       if (mat.code) addUsage(mat.code, bId);
     });
 
-    // 2. From SHARED_MATERIAL_ALIASES (physical items shared across all 3 outlets)
+    // 2. From SHARED_MATERIAL_ALIASES (physical items shared across all outlets)
     SHARED_MATERIAL_ALIASES.forEach((alias) => {
       addUsage(alias.canonicalName, 'gdm');
       addUsage(alias.canonicalName, 'kedungreja');
       addUsage(alias.canonicalName, 'tehwarga');
+      addUsage(alias.canonicalName, 'gembong');
       alias.aliases.forEach((a) => {
         addUsage(a, 'gdm');
         addUsage(a, 'kedungreja');
         addUsage(a, 'tehwarga');
+        addUsage(a, 'gembong');
       });
       if (alias.gdmCode) {
         addUsage(alias.gdmCode, 'gdm');
         addUsage(alias.gdmCode, 'kedungreja');
+        addUsage(alias.gdmCode, 'gembong');
       }
       if (alias.twCode) {
         addUsage(alias.twCode, 'tehwarga');
@@ -572,6 +582,8 @@ export default function LaporanStockOpnamePage() {
             kdrjAktif: 0,
             tehwargaBulk: 0,
             tehwargaAktif: 0,
+            gembongBulk: 0,
+            gembongAktif: 0,
             totalBulk: 0,
             totalAktif: 0,
             targetBranches: [],
@@ -594,17 +606,20 @@ export default function LaporanStockOpnamePage() {
         } else if (bId === "tehwarga") {
           map[key].tehwargaBulk += bulkVal;
           map[key].tehwargaAktif += aktifVal;
+        } else if (bId === "gembong") {
+          map[key].gembongBulk += bulkVal;
+          map[key].gembongAktif += aktifVal;
         }
       });
     });
 
     const rows = Object.values(map);
     rows.forEach((r) => {
-      r.totalBulk = r.gdmBulk + r.kdrjBulk + r.tehwargaBulk;
-      r.totalAktif = r.gdmAktif + r.kdrjAktif + r.tehwargaAktif;
+      r.totalBulk = r.gdmBulk + r.kdrjBulk + r.tehwargaBulk + r.gembongBulk;
+      r.totalAktif = r.gdmAktif + r.kdrjAktif + r.tehwargaAktif + r.gembongAktif;
 
       // Determine Target Stores / Peruntukan Toko
-      const storeSet = new Set<'gdm' | 'kedungreja' | 'tehwarga'>();
+      const storeSet = new Set<'gdm' | 'kedungreja' | 'tehwarga' | 'gembong'>();
       const normName = r.nama.trim().toLowerCase();
       const normCode = r.code.trim().toLowerCase();
       const normKey = r.key.trim().toLowerCase();
@@ -621,6 +636,7 @@ export default function LaporanStockOpnamePage() {
       if (r.gdmBulk > 0 || r.gdmAktif > 0) storeSet.add('gdm');
       if (r.kdrjBulk > 0 || r.kdrjAktif > 0) storeSet.add('kedungreja');
       if (r.tehwargaBulk > 0 || r.tehwargaAktif > 0) storeSet.add('tehwarga');
+      if (r.gembongBulk > 0 || r.gembongAktif > 0) storeSet.add('gembong');
 
       // Fallback based on code pattern
       if (storeSet.size === 0) {
@@ -629,15 +645,16 @@ export default function LaporanStockOpnamePage() {
         } else {
           storeSet.add('gdm');
           storeSet.add('kedungreja');
+          storeSet.add('gembong');
         }
       }
 
-      const branchOrder: Array<'gdm' | 'kedungreja' | 'tehwarga'> = ['gdm', 'kedungreja', 'tehwarga'];
+      const branchOrder: Array<'gdm' | 'kedungreja' | 'tehwarga' | 'gembong'> = ['gdm', 'kedungreja', 'tehwarga', 'gembong'];
       r.targetBranches = branchOrder
         .filter((b) => storeSet.has(b))
         .map((b) => ({
           id: b,
-          shortName: b === 'gdm' ? 'Zona GDM' : b === 'kedungreja' ? 'Zona Kedungreja' : 'Teh Warga',
+          shortName: b === 'gdm' ? 'Zona GDM' : b === 'kedungreja' ? 'Zona Kedungreja' : b === 'gembong' ? 'Zona Gembong' : 'Teh Warga',
           badgeColor: BRANCH_LIST[b]?.badgeColor || ''
         }));
     });
@@ -680,6 +697,7 @@ export default function LaporanStockOpnamePage() {
             unitBesar: item.unitBesar || "",
             gdmQty: 0,
             kdrjQty: 0,
+            gembongQty: 0,
             totalQty: 0,
           };
         }
@@ -693,22 +711,96 @@ export default function LaporanStockOpnamePage() {
           map[key].gdmQty += qtyVal;
         } else if (wId === "kedungreja") {
           map[key].kdrjQty += qtyVal;
+        } else if (wId === "gembong") {
+          map[key].gembongQty += qtyVal;
         }
       });
     });
 
     const rows = Object.values(map);
     rows.forEach((r) => {
-      r.totalQty = r.gdmQty + r.kdrjQty;
+      r.totalQty = r.gdmQty + r.kdrjQty + r.gembongQty;
     });
 
     // Urutkan bahan baku terkecil ke terbesar secara natural
     return rows.sort((a, b) => compareMaterialCode(a.code, b.code, a.nama, b.nama));
   }, [activeBranch, effectiveWarehouseEntries]);
 
+  // Unique material names for dropdown filter
+  const availableMaterialNames = useMemo(() => {
+    const set = new Set<string>();
+    (materials as BahanBaku[])?.forEach((m) => {
+      if (m.nama && m.nama !== "-") set.add(m.nama);
+    });
+    allContainerEntries.forEach((entry) => {
+      entry.items?.forEach((item) => {
+        if (item.nama && item.nama !== "-") set.add(item.nama);
+      });
+    });
+    allWarehouseEntries.forEach((entry) => {
+      entry.items?.forEach((item) => {
+        if (item.nama && item.nama !== "-") set.add(item.nama);
+      });
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [materials, allContainerEntries, allWarehouseEntries]);
+
+  const matchesMaterialFilter = (name?: string, code?: string) => {
+    const n = (name || "").trim().toLowerCase();
+    const c = (code || "").trim().toLowerCase();
+    if (selectedMaterialName !== "all" && n !== selectedMaterialName.toLowerCase()) {
+      return false;
+    }
+    if (searchMaterial.trim()) {
+      const q = searchMaterial.trim().toLowerCase();
+      return n.includes(q) || c.includes(q);
+    }
+    return true;
+  };
+
+  const displayConsolidatedContainerMatrix = useMemo(() => {
+    if (selectedMaterialName === "all" && !searchMaterial.trim()) {
+      return consolidatedContainerMatrix;
+    }
+    return consolidatedContainerMatrix.filter((item) => matchesMaterialFilter(item.nama, item.code));
+  }, [consolidatedContainerMatrix, selectedMaterialName, searchMaterial]);
+
+  const displayConsolidatedWarehouseMatrix = useMemo(() => {
+    if (selectedMaterialName === "all" && !searchMaterial.trim()) {
+      return consolidatedWarehouseMatrix;
+    }
+    return consolidatedWarehouseMatrix.filter((item) => matchesMaterialFilter(item.nama, item.code));
+  }, [consolidatedWarehouseMatrix, selectedMaterialName, searchMaterial]);
+
+  const displayContainerEntries = useMemo(() => {
+    if (selectedMaterialName === "all" && !searchMaterial.trim()) {
+      return filteredContainerEntries;
+    }
+    return filteredContainerEntries
+      .map((entry) => ({
+        ...entry,
+        items: (entry.items || []).filter((item) => matchesMaterialFilter(item.nama, item.code)),
+      }))
+      .filter((entry) => entry.items.length > 0);
+  }, [filteredContainerEntries, selectedMaterialName, searchMaterial]);
+
+  const displayWarehouseEntries = useMemo(() => {
+    if (selectedMaterialName === "all" && !searchMaterial.trim()) {
+      return filteredWarehouseEntries;
+    }
+    return filteredWarehouseEntries
+      .map((entry) => ({
+        ...entry,
+        items: (entry.items || []).filter((item) => matchesMaterialFilter(item.nama, item.code)),
+      }))
+      .filter((entry) => entry.items.length > 0);
+  }, [filteredWarehouseEntries, selectedMaterialName, searchMaterial]);
+
   const resetFilters = () => {
     setSelectedDate("");
     setSelectedMonth("");
+    setSelectedMaterialName("all");
+    setSearchMaterial("");
   };
 
   // Latest Opname entries for syncing Master Bahan Baku
@@ -900,7 +992,7 @@ export default function LaporanStockOpnamePage() {
   };
 
   const handleOpenEditContainerMatrix = (row: ConsolidatedContainerRow) => {
-    const targetBranches: Array<'gdm' | 'kedungreja' | 'tehwarga'> = ['gdm', 'kedungreja', 'tehwarga'];
+    const targetBranches: Array<'gdm' | 'kedungreja' | 'tehwarga' | 'gembong'> = ['gdm', 'kedungreja', 'tehwarga', 'gembong'];
     const branchList: MultiBranchEditBranchItem[] = [];
 
     targetBranches.forEach((bId) => {
@@ -953,7 +1045,8 @@ export default function LaporanStockOpnamePage() {
   };
 
   const handleOpenEditWarehouseSingle = (entry: EnrichedWarehouseEntry, item: EnrichedWarehouseItem) => {
-    const wId = ((entry._warehouseId || 'gdm') === 'kedungreja' ? 'kedungreja' : 'gdm') as 'gdm' | 'kedungreja';
+    const rawWId = entry._warehouseId || 'gdm';
+    const wId = (rawWId === 'kedungreja' ? 'kedungreja' : rawWId === 'gembong' ? 'gembong' : 'gdm') as 'gdm' | 'kedungreja' | 'gembong';
     const whName = WAREHOUSE_LIST[wId]?.name || "Gudang Utama";
     const badgeColor = WAREHOUSE_LIST[wId]?.badgeColor || "";
 
@@ -968,7 +1061,7 @@ export default function LaporanStockOpnamePage() {
       branches: [
         {
           entryId: entry.id,
-          branchId: 'gdm',
+          branchId: wId === 'gembong' ? 'gembong' : 'gdm',
           warehouseId: wId,
           branchName: whName,
           badgeColor: badgeColor,
@@ -984,7 +1077,7 @@ export default function LaporanStockOpnamePage() {
   };
 
   const handleOpenEditWarehouseMatrix = (row: ConsolidatedWarehouseRow) => {
-    const targetWarehouses: Array<'gdm' | 'kedungreja'> = ['gdm', 'kedungreja'];
+    const targetWarehouses: Array<'gdm' | 'kedungreja' | 'gembong'> = ['gdm', 'kedungreja', 'gembong'];
     const branchList: MultiBranchEditBranchItem[] = [];
 
     targetWarehouses.forEach((wId) => {
@@ -1000,7 +1093,7 @@ export default function LaporanStockOpnamePage() {
       if (matchItem) {
         branchList.push({
           entryId: entry.id,
-          branchId: 'gdm',
+          branchId: wId === 'gembong' ? 'gembong' : 'gdm',
           warehouseId: wId,
           branchName: WAREHOUSE_LIST[wId]?.name || wId,
           badgeColor: WAREHOUSE_LIST[wId]?.badgeColor || "",
@@ -1139,7 +1232,7 @@ export default function LaporanStockOpnamePage() {
 
   const handleExportExcel = () => {
     if (activeBranch === "all") {
-      const containerRowsExport = consolidatedContainerMatrix.map((item, idx) => ({
+      const containerRowsExport = displayConsolidatedContainerMatrix.map((item, idx) => ({
         "No": idx + 1,
         "Kode": item.code,
         "Nama Bahan": item.nama,
@@ -1150,16 +1243,19 @@ export default function LaporanStockOpnamePage() {
         "Zona Kedungreja - Aktif (Opname)": `${item.kdrjAktif} ${item.unitAktif || ""}`.trim(),
         "Teh Warga GDM - Bulk (Opname)": `${item.tehwargaBulk} ${item.unitBulk || ""}`.trim(),
         "Teh Warga GDM - Aktif (Opname)": `${item.tehwargaAktif} ${item.unitAktif || ""}`.trim(),
+        "Zona Gembong - Bulk (Opname)": `${item.gembongBulk} ${item.unitBulk || ""}`.trim(),
+        "Zona Gembong - Aktif (Opname)": `${item.gembongAktif} ${item.unitAktif || ""}`.trim(),
         "Total - Bulk (Opname)": `${item.totalBulk} ${item.unitBulk || ""}`.trim(),
         "Total - Aktif (Opname)": `${item.totalAktif} ${item.unitAktif || ""}`.trim(),
       }));
 
-      const warehouseRowsExport = consolidatedWarehouseMatrix.map((item, idx) => ({
+      const warehouseRowsExport = displayConsolidatedWarehouseMatrix.map((item, idx) => ({
         "No": idx + 1,
         "Kode": item.code,
         "Nama Bahan": item.nama,
         "Gudang GDM (Opname)": `${item.gdmQty} ${item.unitBesar || ""}`.trim(),
         "Gudang Kedungreja (Opname)": `${item.kdrjQty} ${item.unitBesar || ""}`.trim(),
+        "Gudang Gembong (Opname)": `${item.gembongQty} ${item.unitBesar || ""}`.trim(),
         "Total Gudang (Opname)": `${item.totalQty} ${item.unitBesar || ""}`.trim(),
       }));
 
@@ -1170,7 +1266,7 @@ export default function LaporanStockOpnamePage() {
       return;
     }
 
-    const warehouseRowsExport = filteredWarehouseEntries.flatMap((entry) =>
+    const warehouseRowsExport = displayWarehouseEntries.flatMap((entry) =>
       (entry.items || []).map((item, idx) => ({
         "No": idx + 1,
         "Tanggal": formatDateLabel(entry.entryDate),
@@ -1182,7 +1278,7 @@ export default function LaporanStockOpnamePage() {
       }))
     );
 
-    const containerRowsExport = filteredContainerEntries.flatMap((entry) =>
+    const containerRowsExport = displayContainerEntries.flatMap((entry) =>
       (entry.items || []).map((item, idx) => ({
         "No": idx + 1,
         "Tanggal": formatDateLabel(entry.entryDate),
@@ -1258,12 +1354,14 @@ export default function LaporanStockOpnamePage() {
             "Kedungreja\nAktif",
             "Teh Warga\nBulk",
             "Teh Warga\nAktif",
+            "Gembong\nBulk",
+            "Gembong\nAktif",
             "TOTAL\nBulk",
             "TOTAL\nAktif",
             "Peruntukan Toko",
           ],
         ],
-        body: consolidatedContainerMatrix.map((item, idx) => [
+        body: displayConsolidatedContainerMatrix.map((item, idx) => [
           idx + 1,
           item.code,
           item.nama,
@@ -1273,27 +1371,31 @@ export default function LaporanStockOpnamePage() {
           `${formatNumber(item.kdrjAktif)} ${item.unitAktif || ""}`.trim(),
           `${formatNumber(item.tehwargaBulk)} ${item.unitBulk || ""}`.trim(),
           `${formatNumber(item.tehwargaAktif)} ${item.unitAktif || ""}`.trim(),
+          `${formatNumber(item.gembongBulk)} ${item.unitBulk || ""}`.trim(),
+          `${formatNumber(item.gembongAktif)} ${item.unitAktif || ""}`.trim(),
           `${formatNumber(item.totalBulk)} ${item.unitBulk || ""}`.trim(),
           `${formatNumber(item.totalAktif)} ${item.unitAktif || ""}`.trim(),
           item.targetBranches.map(b => b.shortName).join(", "),
         ]),
         startY: startY + 4,
         theme: "grid",
-        styles: { fontSize: 7, cellPadding: 2 },
+        styles: { fontSize: 6.5, cellPadding: 1.5 },
         headStyles: { fillColor: [15, 23, 42], halign: "center", fontStyle: "bold" },
         columnStyles: {
-          0: { cellWidth: 8, halign: "center" },
-          1: { cellWidth: 16, fontStyle: "bold" },
-          2: { cellWidth: 38 },
+          0: { cellWidth: 7, halign: "center" },
+          1: { cellWidth: 15, fontStyle: "bold" },
+          2: { cellWidth: 32 },
           3: { halign: "right" },
           4: { halign: "right" },
           5: { halign: "right" },
           6: { halign: "right" },
           7: { halign: "right" },
           8: { halign: "right" },
-          9: { halign: "right", fontStyle: "bold" },
-          10: { halign: "right", fontStyle: "bold" },
-          11: { cellWidth: 35 },
+          9: { halign: "right" },
+          10: { halign: "right" },
+          11: { halign: "right", fontStyle: "bold" },
+          12: { halign: "right", fontStyle: "bold" },
+          13: { cellWidth: 30 },
         },
       });
 
@@ -1311,13 +1413,14 @@ export default function LaporanStockOpnamePage() {
       docPDF.text("Stock Opname Gudang (Konsolidasi Semua Gudang)", 15, startY);
 
       autoTable(docPDF, {
-        head: [["No", "Kode", "Nama Bahan", "Gudang GDM", "Gudang Kedungreja", "Total Gudang"]],
-        body: consolidatedWarehouseMatrix.map((item, idx) => [
+        head: [["No", "Kode", "Nama Bahan", "Gudang GDM", "Gudang Kedungreja", "Gudang Gembong", "Total Gudang"]],
+        body: displayConsolidatedWarehouseMatrix.map((item, idx) => [
           idx + 1,
           item.code,
           item.nama,
           `${formatNumber(item.gdmQty)} ${item.unitBesar || ""}`.trim(),
           `${formatNumber(item.kdrjQty)} ${item.unitBesar || ""}`.trim(),
+          `${formatNumber(item.gembongQty)} ${item.unitBesar || ""}`.trim(),
           `${formatNumber(item.totalQty)} ${item.unitBesar || ""}`.trim(),
         ]),
         startY: startY + 4,
@@ -1329,7 +1432,8 @@ export default function LaporanStockOpnamePage() {
           1: { cellWidth: 25, fontStyle: "bold" },
           3: { halign: "right" },
           4: { halign: "right" },
-          5: { halign: "right", fontStyle: "bold" },
+          5: { halign: "right" },
+          6: { halign: "right", fontStyle: "bold" },
         },
       });
 
@@ -1344,7 +1448,7 @@ export default function LaporanStockOpnamePage() {
 
     autoTable(docPDF, {
       head: [["No", "Tanggal", "Kode", "Nama Bahan", "Bulk (Sistem)", "Aktif (Sistem)", "Bulk (Opname)", "Aktif (Opname)", "Selisih"]],
-      body: filteredContainerEntries.flatMap((entry) =>
+      body: displayContainerEntries.flatMap((entry) =>
         (entry.items || []).map((item, idx) => [
           idx + 1,
           formatDateLabel(entry.entryDate),
@@ -1383,7 +1487,7 @@ export default function LaporanStockOpnamePage() {
     docPDF.setTextColor(15, 23, 42);
     docPDF.text("Stock Opname Gudang", 15, startY);
 
-    const warehouseRowsPDF = filteredWarehouseEntries.flatMap((entry) =>
+    const warehouseRowsPDF = displayWarehouseEntries.flatMap((entry) =>
       (entry.items || []).map((item, idx) => [
         idx + 1,
         formatDateLabel(entry.entryDate),
@@ -1487,7 +1591,7 @@ export default function LaporanStockOpnamePage() {
             </button>
           </div>
 
-          {/* Date & Month Filters */}
+          {/* Date, Month & Material Filters */}
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200/80 rounded-xl px-2.5 py-1 text-xs">
               <Calendar className="h-3.5 w-3.5 text-slate-400 shrink-0" />
@@ -1517,7 +1621,44 @@ export default function LaporanStockOpnamePage() {
               />
             </div>
 
-            {(selectedDate || selectedMonth) && (
+            {/* Filter Nama Bahan */}
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200/80 rounded-xl px-2.5 py-1 text-xs">
+              <Search className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+              <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Bahan:</span>
+              <select
+                value={selectedMaterialName}
+                onChange={(e) => setSelectedMaterialName(e.target.value)}
+                className="bg-transparent text-[11px] font-bold text-slate-800 outline-none cursor-pointer max-w-[160px] sm:max-w-[200px] truncate"
+              >
+                <option value="all">Semua Bahan ({availableMaterialNames.length})</option>
+                {availableMaterialNames.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Quick Search Input */}
+            <div className="relative min-w-[140px] sm:min-w-[180px]">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+              <Input
+                type="text"
+                placeholder="Cari kode/nama..."
+                value={searchMaterial}
+                onChange={(e) => setSearchMaterial(e.target.value)}
+                className="pl-8 pr-7 h-8 rounded-xl border-slate-200 bg-slate-50/70 text-xs font-bold text-slate-800"
+              />
+              {searchMaterial && (
+                <button
+                  type="button"
+                  onClick={() => setSearchMaterial("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+
+            {(selectedDate || selectedMonth || selectedMaterialName !== "all" || searchMaterial.trim()) && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -1587,7 +1728,7 @@ export default function LaporanStockOpnamePage() {
                 Memuat data opname kontainer...
               </div>
             ) : activeBranch === 'all' ? (
-              consolidatedContainerMatrix.length === 0 ? (
+              displayConsolidatedContainerMatrix.length === 0 ? (
                 <div className="px-6 py-16 text-center text-sm text-slate-500">
                   Tidak ada data stock opname kontainer untuk filter ini.
                 </div>
@@ -1609,7 +1750,7 @@ export default function LaporanStockOpnamePage() {
                         </p>
                       </div>
                       <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">
-                        Total {consolidatedContainerMatrix.length} Bahan Baku
+                        Total {displayConsolidatedContainerMatrix.length} Bahan Baku
                       </span>
                     </div>
 
@@ -1637,6 +1778,9 @@ export default function LaporanStockOpnamePage() {
                             <th colSpan={2} className="px-2 py-1.5 text-center border-r border-slate-200 bg-amber-50 text-amber-800 text-[9px]">
                               Teh Warga GDM
                             </th>
+                            <th colSpan={2} className="px-2 py-1.5 text-center border-r border-slate-200 bg-indigo-50 text-indigo-800 text-[9px]">
+                              Zona Gembong
+                            </th>
                             <th colSpan={2} className="px-2 py-1.5 text-center border-r border-slate-200 bg-slate-900 text-white font-black text-[9px]">
                               TOTAL (Semua Toko)
                             </th>
@@ -1655,12 +1799,14 @@ export default function LaporanStockOpnamePage() {
                             <th className="px-1.5 py-1 text-right border-r border-slate-200 bg-cyan-50/50">Aktif</th>
                             <th className="px-1.5 py-1 text-right bg-amber-50/50">Bulk</th>
                             <th className="px-1.5 py-1 text-right border-r border-slate-200 bg-amber-50/50">Aktif</th>
+                            <th className="px-1.5 py-1 text-right bg-indigo-50/50">Bulk</th>
+                            <th className="px-1.5 py-1 text-right border-r border-slate-200 bg-indigo-50/50">Aktif</th>
                             <th className="px-1.5 py-1 text-right bg-slate-100 text-slate-900 font-black">Bulk</th>
                             <th className="px-1.5 py-1 text-right border-r border-slate-200 bg-slate-100 text-slate-900 font-black">Aktif</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 text-[11px]">
-                          {consolidatedContainerMatrix.map((item, idx) => (
+                          {displayConsolidatedContainerMatrix.map((item, idx) => (
                             <tr key={item.key} className="hover:bg-slate-50/80 transition-colors">
                               {/* No Column */}
                               <td className="px-1.5 py-2 text-center font-bold text-slate-500 border-r border-slate-100 bg-slate-50/30 text-[10px]">
@@ -1717,6 +1863,21 @@ export default function LaporanStockOpnamePage() {
                                   <span className="text-slate-300">-</span>
                                 )}
                               </td>
+                              {/* Zona Gembong */}
+                              <td className="px-1.5 py-2 text-right font-medium text-slate-700 bg-indigo-50/20 whitespace-nowrap">
+                                {item.gembongBulk > 0 ? (
+                                  <span>{formatNumber(item.gembongBulk)} <span className="text-[9px] text-slate-400">{item.unitBulk}</span></span>
+                                ) : (
+                                  <span className="text-slate-300">-</span>
+                                )}
+                              </td>
+                              <td className="px-1.5 py-2 text-right font-medium text-slate-700 border-r border-slate-100 bg-indigo-50/20 whitespace-nowrap">
+                                {item.gembongAktif > 0 ? (
+                                  <span>{formatNumber(item.gembongAktif)} <span className="text-[9px] text-slate-400">{item.unitAktif}</span></span>
+                                ) : (
+                                  <span className="text-slate-300">-</span>
+                                )}
+                              </td>
                               {/* Total */}
                               <td className="px-1.5 py-2 text-right font-bold text-slate-950 bg-slate-50 whitespace-nowrap">
                                 {formatNumber(item.totalBulk)} <span className="text-[9px] text-slate-500 font-medium">{item.unitBulk}</span>
@@ -1734,10 +1895,11 @@ export default function LaporanStockOpnamePage() {
                                         "inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold tracking-tight border leading-none",
                                         br.id === "gdm" && "bg-emerald-50 text-emerald-800 border-emerald-200/80",
                                         br.id === "kedungreja" && "bg-cyan-50 text-cyan-800 border-cyan-200/80",
-                                        br.id === "tehwarga" && "bg-amber-50 text-amber-800 border-amber-200/80"
+                                        br.id === "tehwarga" && "bg-amber-50 text-amber-800 border-amber-200/80",
+                                        br.id === "gembong" && "bg-indigo-50 text-indigo-800 border-indigo-200/80"
                                       )}
                                     >
-                                      {br.id === "gdm" ? "Zona GDM" : br.id === "kedungreja" ? "Kedungreja" : "Teh Warga"}
+                                      {br.id === "gdm" ? "Zona GDM" : br.id === "kedungreja" ? "Kedungreja" : br.id === "gembong" ? "Zona Gembong" : "Teh Warga"}
                                     </span>
                                   ))}
                                 </div>
@@ -1764,7 +1926,7 @@ export default function LaporanStockOpnamePage() {
 
                     {/* Mobile Cards for SEMUA TOKO */}
                     <div className="md:hidden space-y-3">
-                      {consolidatedContainerMatrix.map((item, idx) => (
+                      {displayConsolidatedContainerMatrix.map((item, idx) => (
                         <div key={item.key} className="rounded-2xl bg-white border border-slate-200/80 p-3.5 shadow-sm space-y-2.5">
                           <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-2">
                             <div className="flex items-center gap-2">
@@ -1803,7 +1965,8 @@ export default function LaporanStockOpnamePage() {
                                     "px-1.5 py-0.5 rounded text-[8px] font-black uppercase border",
                                     br.id === "gdm" && "bg-emerald-50 text-emerald-800 border-emerald-200",
                                     br.id === "kedungreja" && "bg-cyan-50 text-cyan-800 border-cyan-200",
-                                    br.id === "tehwarga" && "bg-amber-50 text-amber-800 border-amber-200"
+                                    br.id === "tehwarga" && "bg-amber-50 text-amber-800 border-amber-200",
+                                    br.id === "gembong" && "bg-indigo-50 text-indigo-800 border-indigo-200"
                                   )}
                                 >
                                   {br.shortName}
@@ -1834,6 +1997,13 @@ export default function LaporanStockOpnamePage() {
                                 {formatNumber(item.tehwargaBulk)} {item.unitBulk} / {formatNumber(item.tehwargaAktif)} {item.unitAktif}
                               </span>
                             </div>
+                            {/* Gembong */}
+                            <div className="p-2 rounded-xl bg-indigo-50/70 border border-indigo-100 flex items-center justify-between">
+                              <span className="font-bold text-indigo-800">Zona Gembong:</span>
+                              <span className="font-black text-indigo-950">
+                                {formatNumber(item.gembongBulk)} {item.unitBulk} / {formatNumber(item.gembongAktif)} {item.unitAktif}
+                              </span>
+                            </div>
                           </div>
 
                           {/* Total Row */}
@@ -1849,13 +2019,13 @@ export default function LaporanStockOpnamePage() {
                   </div>
                 </div>
               )
-            ) : filteredContainerEntries.length === 0 ? (
+            ) : displayContainerEntries.length === 0 ? (
               <div className="px-6 py-16 text-center text-sm text-slate-500">
                 Tidak ada data stock opname kontainer untuk filter ini.
               </div>
             ) : (
               <div className="space-y-4 p-3 sm:p-4 md:p-6">
-                {filteredContainerEntries.map((entry) => (
+                {displayContainerEntries.map((entry) => (
                   <div key={entry.id} className="rounded-[1.25rem] sm:rounded-[1.5rem] border border-slate-100 bg-slate-50/60 p-3.5 sm:p-4">
                     <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -2024,7 +2194,7 @@ export default function LaporanStockOpnamePage() {
                 Memuat data opname gudang...
               </div>
             ) : activeBranch === 'all' ? (
-              consolidatedWarehouseMatrix.length === 0 ? (
+              displayConsolidatedWarehouseMatrix.length === 0 ? (
                 <div className="px-6 py-16 text-center text-sm text-slate-500">
                   Tidak ada data stock opname gudang untuk filter ini.
                 </div>
@@ -2046,7 +2216,7 @@ export default function LaporanStockOpnamePage() {
                         </p>
                       </div>
                       <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">
-                        Total {consolidatedWarehouseMatrix.length} Bahan Baku
+                        Total {displayConsolidatedWarehouseMatrix.length} Bahan Baku
                       </span>
                     </div>
 
@@ -2064,6 +2234,9 @@ export default function LaporanStockOpnamePage() {
                             <th className="px-3 py-3 text-right border-r border-slate-200 bg-cyan-50 text-cyan-800">
                               Gudang Kedungreja (Opname)
                             </th>
+                            <th className="px-3 py-3 text-right border-r border-slate-200 bg-indigo-50 text-indigo-800">
+                              Gudang Gembong (Opname)
+                            </th>
                             <th className="px-3 py-3 text-right bg-slate-900 text-white font-black border-r border-slate-200">
                               Total Gudang
                             </th>
@@ -2073,7 +2246,7 @@ export default function LaporanStockOpnamePage() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 text-xs">
-                          {consolidatedWarehouseMatrix.map((item, idx) => (
+                          {displayConsolidatedWarehouseMatrix.map((item, idx) => (
                             <tr key={item.key} className="hover:bg-slate-50/80 transition-colors">
                               <td className="px-3 py-2.5 text-center font-black text-slate-500 border-r border-slate-100 bg-slate-50/30">
                                 {idx + 1}
@@ -2092,6 +2265,14 @@ export default function LaporanStockOpnamePage() {
                               <td className="px-3 py-2.5 text-right font-medium text-slate-700 border-r border-slate-100 bg-cyan-50/20">
                                 {item.kdrjQty > 0 ? (
                                   <span>{formatNumber(item.kdrjQty)} <span className="text-[10px] text-slate-400">{item.unitBesar}</span></span>
+                                ) : (
+                                  <span className="text-slate-300">-</span>
+                                )}
+                              </td>
+                              {/* Gudang Gembong */}
+                              <td className="px-3 py-2.5 text-right font-medium text-slate-700 border-r border-slate-100 bg-indigo-50/20">
+                                {item.gembongQty > 0 ? (
+                                  <span>{formatNumber(item.gembongQty)} <span className="text-[10px] text-slate-400">{item.unitBesar}</span></span>
                                 ) : (
                                   <span className="text-slate-300">-</span>
                                 )}
@@ -2122,7 +2303,7 @@ export default function LaporanStockOpnamePage() {
 
                     {/* Mobile Cards for SEMUA GUDANG */}
                     <div className="md:hidden space-y-3">
-                      {consolidatedWarehouseMatrix.map((item, idx) => (
+                      {displayConsolidatedWarehouseMatrix.map((item, idx) => (
                         <div key={item.key} className="rounded-2xl bg-white border border-slate-200/80 p-3.5 shadow-sm space-y-2.5">
                           <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-2">
                             <div className="flex items-center gap-2">
@@ -2150,7 +2331,7 @@ export default function LaporanStockOpnamePage() {
                             </Button>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-2 text-[10px]">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[10px]">
                             <div className="p-2 rounded-xl bg-emerald-50/70 border border-emerald-100 flex flex-col justify-between">
                               <span className="font-bold text-emerald-800 text-[9px] uppercase">Gudang GDM</span>
                               <span className="font-black text-emerald-950 text-xs mt-0.5">
@@ -2161,6 +2342,12 @@ export default function LaporanStockOpnamePage() {
                               <span className="font-bold text-cyan-800 text-[9px] uppercase">Gudang Kedungreja</span>
                               <span className="font-black text-cyan-950 text-xs mt-0.5">
                                 {formatNumber(item.kdrjQty)} {item.unitBesar}
+                              </span>
+                            </div>
+                            <div className="p-2 rounded-xl bg-indigo-50/70 border border-indigo-100 flex flex-col justify-between">
+                              <span className="font-bold text-indigo-800 text-[9px] uppercase">Gudang Gembong</span>
+                              <span className="font-black text-indigo-950 text-xs mt-0.5">
+                                {formatNumber(item.gembongQty)} {item.unitBesar}
                               </span>
                             </div>
                           </div>
@@ -2177,13 +2364,13 @@ export default function LaporanStockOpnamePage() {
                   </div>
                 </div>
               )
-            ) : filteredWarehouseEntries.length === 0 ? (
+            ) : displayWarehouseEntries.length === 0 ? (
               <div className="px-6 py-16 text-center text-sm text-slate-500">
                 Tidak ada data stock opname gudang untuk filter ini.
               </div>
             ) : (
               <div className="space-y-4 p-3 sm:p-4 md:p-6">
-                {filteredWarehouseEntries.map((entry) => (
+                {displayWarehouseEntries.map((entry) => (
                   <div key={entry.id} className="rounded-[1.25rem] sm:rounded-[1.5rem] border border-slate-100 bg-slate-50/60 p-3.5 sm:p-4">
                     <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                       <div className="flex items-center gap-2 flex-wrap">

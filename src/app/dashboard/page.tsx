@@ -35,10 +35,15 @@ import { useFirestore, useCollection, useMemoFirebase, collection } from "@/fire
 import { query, orderBy, limit, where } from "firebase/firestore";
 import Link from "next/link";
 import { getTotalAvailableQty, getAverageCost, calculateRecipeIngredientCost } from "@/lib/hpp";
+import { useActiveBranch, BRANCH_LIST, getBranchTheme } from "@/lib/branch-helper";
 
 export default function DashboardPage() {
   const db = useFirestore();
   const mounted = true; // client component — always mounted
+  const activeBranch = useActiveBranch();
+  const branchInfo = BRANCH_LIST[activeBranch] || BRANCH_LIST.gdm;
+  const theme = getBranchTheme(activeBranch);
+  const isGembong = activeBranch === 'gembong';
 
   const [finPeriod, setFinPeriod] = useState<"month" | "yesterday">("month");
   const [pemakaianPeriod, setPemakaianPeriod] = useState<"today" | "month">("today");
@@ -390,17 +395,60 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-1000 pb-10">
-      {/* Welcome Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-black tracking-tighter text-slate-900 uppercase italic leading-none">Dashboard</h1>
-          <p className="text-[10px] md:text-xs text-slate-600 font-black uppercase tracking-[0.2em] mt-1">Welcome back to Zona Waktu System</p>
+      {/* Dynamic Store Header */}
+      <div className={cn(
+        "rounded-2xl md:rounded-[2rem] p-5 md:p-7 relative overflow-hidden transition-all duration-500 shadow-lg border",
+        isGembong
+          ? "bg-gradient-to-br from-[#070d19] via-[#0f172a] to-[#1e1b4b] border-indigo-500/30 text-white shadow-indigo-950/20"
+          : "bg-white border-slate-100 text-slate-900 shadow-slate-200/50"
+      )}>
+        {/* Ambient glow decoration */}
+        <div className={cn(
+          "absolute -right-16 -top-16 w-56 h-56 rounded-full blur-3xl pointer-events-none opacity-40",
+          isGembong ? "bg-indigo-500/40" : "bg-emerald-500/20"
+        )} />
+        
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <span className={cn(
+                "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border",
+                isGembong
+                  ? "bg-indigo-950/80 border-indigo-400/40 text-indigo-300"
+                  : theme.badgeClass
+              )}>
+                <span className={cn("w-1.5 h-1.5 rounded-full animate-pulse", theme.dotColor)} />
+                {branchInfo.code} • {branchInfo.name}
+              </span>
+              <span className={cn("text-[9px] font-black uppercase tracking-wider", isGembong ? "text-indigo-300/80" : "text-slate-400")}>
+                Outlet Aktif
+              </span>
+            </div>
+            <h1 className={cn(
+              "text-2xl md:text-3xl font-black tracking-tight uppercase italic leading-none",
+              isGembong ? "text-white" : "text-slate-900"
+            )}>
+              Dashboard Utama
+            </h1>
+            <p className={cn(
+              "text-[10px] md:text-xs font-bold uppercase tracking-wider mt-1",
+              isGembong ? "text-slate-300" : "text-slate-500"
+            )}>
+              Ringkasan operasional, performa omset & stok {branchInfo.name}
+            </p>
+          </div>
+          
+          <Link href="/penjualan/kasir" className="w-full md:w-auto">
+            <Button className={cn(
+              "w-full md:w-auto rounded-xl md:rounded-2xl px-6 md:px-8 font-black shadow-xl h-12 uppercase tracking-widest text-[10px] text-white transition-all hover:scale-[1.02] active:scale-95",
+              isGembong
+                ? "bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 shadow-indigo-600/30"
+                : `${theme.buttonGradient} shadow-primary/20`
+            )}>
+              Input Closing Harian
+            </Button>
+          </Link>
         </div>
-        <Link href="/penjualan/kasir" className="w-full md:w-auto">
-          <Button className="w-full md:w-auto rounded-xl md:rounded-2xl bg-primary hover:bg-primary/90 px-8 font-black shadow-xl shadow-primary/20 h-12 uppercase tracking-widest text-[10px]">
-            Input Closing Harian
-          </Button>
-        </Link>
       </div>
 
       {/* Stats Bento Box */}
@@ -411,7 +459,7 @@ export default function DashboardPage() {
             value: `Rp ${(stats.totalSalesMonth).toLocaleString('id-ID')}`, 
             change: "Real-time", 
             icon: TrendingUp, 
-            color: "bg-red-50 text-primary" 
+            color: isGembong ? "bg-indigo-50 text-indigo-600" : `${theme.accentBgClass} ${theme.accentTextClass}`
           },
           { 
             label: "Pesanan Hari Ini", 
@@ -459,10 +507,10 @@ export default function DashboardPage() {
         <Card className="lg:col-span-8 border-none shadow-sm rounded-[2rem] bg-white p-6 md:p-8">
           <div>
             <h3 className="text-base md:text-lg font-black text-slate-900 flex items-center gap-3 uppercase italic">
-              <TrendingUp className="h-5 w-5 text-primary" />
+              <TrendingUp className={cn("h-5 w-5", isGembong ? "text-indigo-600" : theme.accentTextClass)} />
               Tren Penjualan Harian
             </h3>
-            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-1">Performa Omset 7 Hari Terakhir</p>
+            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-1">Performa Omset 7 Hari Terakhir • {branchInfo.shortName}</p>
           </div>
           
           <div className="h-[250px] md:h-[300px] w-full mt-6">
@@ -471,8 +519,8 @@ export default function DashboardPage() {
                 <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#8b1a1a" stopOpacity={0.2}/>
-                      <stop offset="95%" stopColor="#8b1a1a" stopOpacity={0}/>
+                      <stop offset="5%" stopColor={isGembong ? "#4f46e5" : theme.chartBarColor} stopOpacity={0.25}/>
+                      <stop offset="95%" stopColor={isGembong ? "#4f46e5" : theme.chartBarColor} stopOpacity={0}/>
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
@@ -495,7 +543,7 @@ export default function DashboardPage() {
                   <Area 
                     type="monotone" 
                     dataKey="value" 
-                    stroke="#8b1a1a" 
+                    stroke={isGembong ? "#4f46e5" : theme.chartBarColor} 
                     strokeWidth={3} 
                     fillOpacity={1} 
                     fill="url(#colorSales)" 
@@ -823,7 +871,12 @@ export default function DashboardPage() {
           </div>
 
           <Link href="/stok/bahan-baku">
-            <Button variant="ghost" className="w-full text-[9px] font-black text-primary hover:bg-primary/5 rounded-xl h-11 uppercase tracking-[0.2em] border border-primary/10 gap-2">
+            <Button variant="ghost" className={cn(
+              "w-full text-[9px] font-black rounded-xl h-11 uppercase tracking-[0.2em] border gap-2 transition-all",
+              isGembong
+                ? "text-indigo-600 hover:bg-indigo-50 border-indigo-200"
+                : `${theme.accentTextClass} hover:bg-slate-50 border-slate-200`
+            )}>
               Cek Detail Logistik <ArrowRight className="h-3 w-3" />
             </Button>
           </Link>

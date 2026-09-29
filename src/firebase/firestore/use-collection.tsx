@@ -17,7 +17,8 @@ import {
   branchCollection, 
   warehouseCollection, 
   getWarehouseForBranch,
-  BranchId 
+  BranchId,
+  WarehouseId 
 } from '@/lib/branch-helper';
 
 export const useCollection = <T = DocumentData>(query: Query<T> | null) => {
@@ -71,7 +72,7 @@ export const useCollection = <T = DocumentData>(query: Query<T> | null) => {
 
 /**
  * Hook untuk melakukan query reaktif yang otomatis mendukung mode konsolidasi 'Semua Toko' (all).
- * - Saat activeBranch === 'all': Menggabungkan data dari ketiga toko ('gdm', 'kedungreja', 'tehwarga').
+ * - Saat activeBranch === 'all': Menggabungkan data dari keempat toko ('gdm', 'kedungreja', 'tehwarga', 'gembong').
  * - Saat activeBranch !== 'all': Mengambil data khusus toko yang dipilih.
  */
 export function useConsolidatedCollection<T = DocumentData>(
@@ -104,12 +105,23 @@ export function useConsolidatedCollection<T = DocumentData>(
     // eslint-disable-next-line react-hooks/use-memo, react-hooks/exhaustive-deps
   }, [firestore, collectionName, isAll, activeBranch, ...deps]);
 
+  const qGmb = useMemo(() => {
+    if (!firestore || (!isAll && activeBranch !== 'gembong')) return null;
+    const col = branchCollection(firestore, collectionName, 'gembong');
+    return queryBuilder ? queryBuilder(col, 'gembong') : col;
+    // eslint-disable-next-line react-hooks/use-memo, react-hooks/exhaustive-deps
+  }, [firestore, collectionName, isAll, activeBranch, ...deps]);
+
   const resGdm = useCollection((isAll || activeBranch === 'gdm') ? qGdm : null);
   const resKdrj = useCollection((isAll || activeBranch === 'kedungreja') ? qKdrj : null);
   const resTeh = useCollection((isAll || activeBranch === 'tehwarga') ? qTeh : null);
+  const resGmb = useCollection((isAll || activeBranch === 'gembong') ? qGmb : null);
 
   const data = useMemo(() => {
     if (!isAll) {
+      if (activeBranch === 'gembong') {
+        return (resGmb.data || []).map(it => ({ ...it, _branchId: 'gembong', _branchName: 'Zona Gembong' }));
+      }
       if (activeBranch === 'kedungreja') {
         return (resKdrj.data || []).map(it => ({ ...it, _branchId: 'kedungreja', _branchName: 'Zona Kedungreja' }));
       }
@@ -122,28 +134,29 @@ export function useConsolidatedCollection<T = DocumentData>(
     const itemsGdm = (resGdm.data || []).map(it => ({ ...it, _branchId: 'gdm', _branchName: 'Zona Waktu GDM' }));
     const itemsKdrj = (resKdrj.data || []).map(it => ({ ...it, _branchId: 'kedungreja', _branchName: 'Zona Kedungreja' }));
     const itemsTeh = (resTeh.data || []).map(it => ({ ...it, _branchId: 'tehwarga', _branchName: 'Teh Warga GDM' }));
+    const itemsGmb = (resGmb.data || []).map(it => ({ ...it, _branchId: 'gembong', _branchName: 'Zona Gembong' }));
 
-    return [...itemsGdm, ...itemsKdrj, ...itemsTeh];
-  }, [isAll, activeBranch, resGdm.data, resKdrj.data, resTeh.data]);
+    return [...itemsGdm, ...itemsKdrj, ...itemsTeh, ...itemsGmb];
+  }, [isAll, activeBranch, resGdm.data, resKdrj.data, resTeh.data, resGmb.data]);
 
   const loading = isAll 
-    ? (resGdm.loading || resKdrj.loading || resTeh.loading) 
-    : (activeBranch === 'kedungreja' ? resKdrj.loading : activeBranch === 'tehwarga' ? resTeh.loading : resGdm.loading);
+    ? (resGdm.loading || resKdrj.loading || resTeh.loading || resGmb.loading) 
+    : (activeBranch === 'gembong' ? resGmb.loading : activeBranch === 'kedungreja' ? resKdrj.loading : activeBranch === 'tehwarga' ? resTeh.loading : resGdm.loading);
 
-  const error = resGdm.error || resKdrj.error || resTeh.error;
+  const error = resGdm.error || resKdrj.error || resTeh.error || resGmb.error;
 
   return { data: data as T[], loading, error };
 }
 
 /**
  * Hook untuk melakukan query reaktif ke Gudang Utama yang otomatis mendukung mode konsolidasi 'Semua Toko' (all).
- * - Saat activeBranch === 'all': Menggabungkan data dari 2 Gudang Utama ('gdm' dan 'kedungreja').
+ * - Saat activeBranch === 'all': Menggabungkan data dari 3 Gudang Utama ('gdm', 'kedungreja', dan 'gembong').
  * - Saat activeBranch !== 'all': Mengambil data gudang induk toko tersebut.
  */
 export function useConsolidatedWarehouseCollection<T = DocumentData>(
   firestore: Firestore,
   collectionName: string,
-  queryBuilder?: (col: CollectionReference<DocumentData>, whId: 'gdm' | 'kedungreja') => Query<DocumentData> | CollectionReference<DocumentData>,
+  queryBuilder?: (col: CollectionReference<DocumentData>, whId: WarehouseId) => Query<DocumentData> | CollectionReference<DocumentData>,
   deps: DependencyList = []
 ) {
   const activeBranch = useActiveBranch();
@@ -164,25 +177,36 @@ export function useConsolidatedWarehouseCollection<T = DocumentData>(
     // eslint-disable-next-line react-hooks/use-memo, react-hooks/exhaustive-deps
   }, [firestore, collectionName, isAll, targetWarehouse, ...deps]);
 
+  const qWhGmb = useMemo(() => {
+    if (!firestore || (!isAll && targetWarehouse !== 'gembong')) return null;
+    const col = warehouseCollection(firestore, collectionName, 'gembong');
+    return queryBuilder ? queryBuilder(col, 'gembong') : col;
+    // eslint-disable-next-line react-hooks/use-memo, react-hooks/exhaustive-deps
+  }, [firestore, collectionName, isAll, targetWarehouse, ...deps]);
+
   const resWhGdm = useCollection((isAll || targetWarehouse === 'gdm') ? qWhGdm : null);
   const resWhKdrj = useCollection((isAll || targetWarehouse === 'kedungreja') ? qWhKdrj : null);
+  const resWhGmb = useCollection((isAll || targetWarehouse === 'gembong') ? qWhGmb : null);
 
   const data = useMemo(() => {
     if (!isAll) {
-      return targetWarehouse === 'kedungreja' ? (resWhKdrj.data || []) : (resWhGdm.data || []);
+      if (targetWarehouse === 'gembong') return (resWhGmb.data || []);
+      if (targetWarehouse === 'kedungreja') return (resWhKdrj.data || []);
+      return (resWhGdm.data || []);
     }
 
     const itemsGdm = (resWhGdm.data || []).map(it => ({ ...it, _warehouseId: 'gdm', _warehouseName: 'Gudang Utama GDM' }));
     const itemsKdrj = (resWhKdrj.data || []).map(it => ({ ...it, _warehouseId: 'kedungreja', _warehouseName: 'Gudang Utama Kedungreja' }));
+    const itemsGmb = (resWhGmb.data || []).map(it => ({ ...it, _warehouseId: 'gembong', _warehouseName: 'Gudang Utama Gembong' }));
 
-    return [...itemsGdm, ...itemsKdrj];
-  }, [isAll, targetWarehouse, resWhGdm.data, resWhKdrj.data]);
+    return [...itemsGdm, ...itemsKdrj, ...itemsGmb];
+  }, [isAll, targetWarehouse, resWhGdm.data, resWhKdrj.data, resWhGmb.data]);
 
   const loading = isAll 
-    ? (resWhGdm.loading || resWhKdrj.loading) 
-    : (targetWarehouse === 'kedungreja' ? resWhKdrj.loading : resWhGdm.loading);
+    ? (resWhGdm.loading || resWhKdrj.loading || resWhGmb.loading) 
+    : (targetWarehouse === 'gembong' ? resWhGmb.loading : targetWarehouse === 'kedungreja' ? resWhKdrj.loading : resWhGdm.loading);
 
-  const error = resWhGdm.error || resWhKdrj.error;
+  const error = resWhGdm.error || resWhKdrj.error || resWhGmb.error;
 
   return { data: data as T[], loading, error };
 }

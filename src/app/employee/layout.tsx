@@ -6,11 +6,15 @@ import { Menu, X, Loader2 } from "lucide-react";
 import { EmployeeSidebar } from "@/components/layout/employee-sidebar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useActiveBranch, BRANCH_LIST, getBranchTheme } from "@/lib/branch-helper";
 
 export default function EmployeeLayout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [authorized, setAuthorized] = useState<boolean | null>(null);
   const router = useRouter();
+  const activeBranch = useActiveBranch();
+  const branchInfo = BRANCH_LIST[activeBranch] || BRANCH_LIST.gdm;
+  const theme = getBranchTheme(activeBranch);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -23,7 +27,9 @@ export default function EmployeeLayout({ children }: { children: React.ReactNode
           setAuthorized(true);
         } else {
           setAuthorized(false);
-          if (currentBranch === "kedungreja") {
+          if (currentBranch === "gembong") {
+            router.replace("/zona_gembong/employee-login");
+          } else if (currentBranch === "kedungreja") {
             router.replace("/zona_kedungreja/employee-login");
           } else if (currentBranch === "tehwarga") {
             router.replace("/teh_warga_gdm/employee-login");
@@ -60,8 +66,13 @@ export default function EmployeeLayout({ children }: { children: React.ReactNode
       <div className="flex flex-1 flex-col overflow-hidden relative">
         <header className="flex items-center justify-between border-b border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur sm:px-6 lg:hidden">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Zona Waktu</p>
-            <p className="text-sm font-black uppercase italic text-slate-900">Employee Panel</p>
+            <div className="flex items-center gap-2">
+              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Zona Waktu</p>
+              <span className={cn("px-2 py-0.5 rounded-full text-[8px] font-black uppercase border", theme.badgeClass)}>
+                {branchInfo.shortName}
+              </span>
+            </div>
+            <p className="text-sm font-black uppercase italic text-slate-900">Panel Karyawan</p>
           </div>
           <Button
             variant="ghost"
