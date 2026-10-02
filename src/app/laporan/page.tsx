@@ -32,6 +32,8 @@ import LaporanStockLossPage from "@/app/laporan/stock-loss/page";
 import LaporanBahanRusakPage from "@/app/laporan/laporan-bahan-rusak/page";
 import LaporanFreeProdukPage from "@/app/laporan/free-produk/page";
 import LaporanStockRealKontainerPage from "@/app/laporan/stock-real-kontainer/page";
+import LaporanTitipJualPage from "@/app/laporan/titip-jual/page";
+import { Store } from "lucide-react";
 
 import { useActiveBranch, BRANCH_LIST } from "@/firebase";
 import { cn } from "@/lib/utils";
@@ -71,6 +73,7 @@ function ReportHubContent() {
     { id: "bahan-rusak", name: "11. Laporan Bahan Rusak", icon: PackageX },
     { id: "free-produk", name: "12. Laporan Free Produk", icon: Gift },
     { id: "stock-real-kontainer", name: "13. Stock Real Kontainer", icon: Layers },
+    { id: "titip-jual", name: "14. Barang Titip Jual", icon: Store },
   ];
 
   return (
@@ -202,6 +205,10 @@ function ReportHubContent() {
 
           <TabsContent value="stock-real-kontainer" className="m-0">
             <LaporanStockRealKontainerPage />
+          </TabsContent>
+
+          <TabsContent value="titip-jual" className="m-0">
+            <LaporanTitipJualPage />
           </TabsContent>
         </div>
       </Tabs>

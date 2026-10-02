@@ -488,7 +488,7 @@ export function warehouseDoc(
  * - 'all': All items
  */
 export function isMaterialForBranchContainer(
-  item: { code?: string; isFromTehWarga?: boolean; originalTwCode?: string; [key: string]: any },
+  item: { code?: string; isFromTehWarga?: boolean; originalTwCode?: string; _branchId?: string; [key: string]: unknown },
   branch?: BranchId
 ): boolean {
   const targetBranch = branch || getActiveBranch();
@@ -499,16 +499,19 @@ export function isMaterialForBranchContainer(
   const isTwItem = Boolean(
     item.isFromTehWarga ||
     item.originalTwCode ||
+    item._branchId === 'tehwarga' ||
     /^BB-0(0[1-9]|[1-4][0-9])$/i.test((item.code || '').trim())
   );
 
   if (targetBranch === 'tehwarga') {
-    // If querying bahan-baku_tehwarga, all items belong to TW.
-    // If inspecting a combined list (like bahan-baku in GDM), only accept TW items.
-    return isTwItem;
+    // If an item explicitly belongs to another branch, exclude it
+    if (item._branchId && item._branchId !== 'tehwarga') return false;
+    // Otherwise, all items in Teh Warga belong to Teh Warga
+    return true;
   }
 
   // targetBranch === 'gdm' (Zona Waktu Gandrungmangu container)
+  if (item._branchId && item._branchId !== 'gdm') return false;
   return !isTwItem;
 }
 

@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { 
   useFirestore, 
   useConsolidatedCollection, 
+  useConsolidatedWarehouseCollection,
   useDoc, 
   useMemoFirebase, 
   doc 
@@ -33,7 +34,7 @@ import {
   getStoreConfigDocId,
   BranchId
 } from "@/lib/branch-helper";
-import { SHARED_MATERIAL_ALIASES } from "@/lib/material-mapping";
+import { SHARED_MATERIAL_ALIASES, normalizeMaterialName } from "@/lib/material-mapping";
 import { query, orderBy } from "firebase/firestore";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
@@ -47,6 +48,7 @@ interface BahanBaku {
   satuanBesar?: string;
   satuanKecil?: string;
   qtyBesar?: number | string;
+  qtyGudangKecil?: number | string;
   qtyKecil?: number | string;
   qtyKontainerBesar?: number | string;
   qtyKontainerKecil?: number | string;
@@ -54,8 +56,11 @@ interface BahanBaku {
   hargaBeliSatuanBesar?: number | string;
   _branchId?: string;
   _branchName?: string;
+  _warehouseId?: string;
+  _warehouseName?: string;
   isFromTehWarga?: boolean;
   originalTwCode?: string;
+  metodePembelian?: string;
   [key: string]: unknown;
 }
 
@@ -72,6 +77,7 @@ interface StockRealRow {
   nama: string;
   satuanBesar: string;
   satuanKecil: string;
+  konversi: number;
   // Col 3: Opname Hari Sebelumnya
   opnamePrevBulk: number;
   opnamePrevAktif: number;
@@ -84,15 +90,35 @@ interface StockRealRow {
   belanjaRuteBulk: number;
   belanjaRuteAktif: number;
   belanjaRuteNotaCount: number;
-  // Real-Time Total
+  // Real-Time Total (Kontainer)
   estimasiBulk: number;
   estimasiAktif: number;
   // Current Master Stock
   currentMasterBulk: number;
   currentMasterAktif: number;
+  // Stok Gudang Utama
+  gudangBulk: number;
+  gudangKecil: number;
+  // Total Gudang + Container
+  totalBulk: number;
+  totalKecil: number;
   // Target branches
   targetBranches: BranchPill[];
 }
+
+const adjustNegativeSmallStock = (qtyBulk: number, qtyKecilVal: number, konversi: number) => {
+  if (qtyKecilVal < 0 && qtyBulk > 0) {
+    const totalKecilEquivalent = (qtyBulk * konversi) + qtyKecilVal;
+    if (totalKecilEquivalent >= 0) {
+      const adjustedBulk = Math.floor(totalKecilEquivalent / konversi);
+      const adjustedKecil = Math.round((totalKecilEquivalent - (adjustedBulk * konversi)) * 100) / 100;
+      return { bulk: adjustedBulk, kecil: adjustedKecil };
+    } else {
+      return { bulk: 0, kecil: Math.round(totalKecilEquivalent * 100) / 100 };
+    }
+  }
+  return { bulk: qtyBulk, kecil: qtyKecilVal };
+};
 
 interface RawOpnameItem {
   id?: string;
@@ -111,6 +137,9 @@ interface RawOpnameDoc {
   items?: RawOpnameItem[];
   _branchId?: string;
   _branchName?: string;
+  branch?: string;
+  branchId?: string;
+  cabang?: string;
 }
 
 interface RawLogItem {
@@ -213,8 +242,55 @@ export default function LaporanStockRealKontainerPage() {
     (ref) => query(ref, orderBy("createdAt", "desc"))
   );
 
+  // 4. Fetch Gudang Utama Materials (data /stok/bahan-baku - Gudang Utama)
+  const { data: rawWarehouseMaterials, loading: loadingWarehouse } = useConsolidatedWarehouseCollection<BahanBaku>(
+    db,
+    "bahan-baku",
+    (ref) => query(ref, orderBy("code", "asc"))
+  );
+
   const settingsRef = useMemoFirebase(() => doc(db, "settings", getStoreConfigDocId()), [db]);
   const { data: settings } = useDoc(settingsRef);
+
+  // Gudang Utama Stock Mapping
+  const warehouseStockMap = useMemo(() => {
+    const map: Record<string, { bulk: number; kecil: number; konversi: number }> = {};
+    if (!rawWarehouseMaterials) return map;
+
+    (rawWarehouseMaterials as BahanBaku[]).forEach((mat) => {
+      const konversi = Number(mat.qtyKecil || 1);
+      const rawBulk = Number(mat.qtyBesar || 0);
+      const rawKecil = Number(mat.qtyGudangKecil || 0);
+
+      const adjusted = adjustNegativeSmallStock(rawBulk, rawKecil, konversi);
+      const bulk = adjusted.bulk;
+      const kecil = adjusted.kecil;
+
+      const idKey = String(mat.id || "").trim().toLowerCase();
+      const codeKey = String(mat.code || "").trim().toLowerCase();
+      const nameKey = normalizeMaterialName(mat.nama || "");
+
+      const addStock = (k: string) => {
+        if (!k) return;
+        if (!map[k]) {
+          map[k] = { bulk, kecil, konversi };
+        } else {
+          if (activeBranch === "all") {
+            map[k].bulk += bulk;
+            map[k].kecil += kecil;
+          } else {
+            map[k] = { bulk, kecil, konversi };
+          }
+        }
+      };
+
+      if (idKey) addStock(idKey);
+      if (codeKey && codeKey !== "-") addStock(codeKey);
+      if (nameKey && nameKey !== "-") addStock(nameKey);
+    });
+
+    return map;
+  }, [rawWarehouseMaterials, activeBranch]);
 
   // Store Usage Map (Peruntukan Toko)
   const materialStoreUsageMap = useMemo(() => {
@@ -295,7 +371,7 @@ export default function LaporanStockRealKontainerPage() {
     (rawOpnames as RawOpnameDoc[]).forEach((opDoc) => {
       const opDate = parseDateString(opDoc.date);
       if (!opDate || opDate >= selectedDate) return;
-      const bId = normalizeBranchId(opDoc._branchId || 'gdm');
+      const bId = normalizeBranchId(opDoc._branchId || opDoc.branch || opDoc.branchId || opDoc.cabang || 'gdm');
 
       if (activeBranch !== 'all' && bId !== activeBranch) return;
 
@@ -317,7 +393,7 @@ export default function LaporanStockRealKontainerPage() {
 
     targetBranchesToInspect.forEach((bId) => {
       if (!latestPriorOpnamePerBranch[bId]) {
-        const fallback = (rawOpnames as RawOpnameDoc[]).find((opDoc) => normalizeBranchId(opDoc._branchId || 'gdm') === bId);
+        const fallback = (rawOpnames as RawOpnameDoc[]).find((opDoc) => normalizeBranchId(opDoc._branchId || opDoc.branch || opDoc.branchId || opDoc.cabang || 'gdm') === bId);
         if (fallback) {
           latestPriorOpnamePerBranch[bId] = fallback;
         }
@@ -487,6 +563,31 @@ export default function LaporanStockRealKontainerPage() {
       const curBulk = cleanNumber(mat.qtyKontainerBesar);
       const curAktif = cleanNumber(mat.qtyKontainerKecil);
 
+      // Look up Gudang Utama Stock (/stok/bahan-baku - Gudang Utama)
+      const normMatName = normalizeMaterialName(mat.nama || "");
+      const matCodeLower = (mat.code || "").trim().toLowerCase();
+      const matIdLower = (mat.id || "").trim().toLowerCase();
+
+      const alias = SHARED_MATERIAL_ALIASES.find(a => 
+        normalizeMaterialName(a.canonicalName) === normMatName ||
+        a.aliases.some(al => normalizeMaterialName(al) === normMatName) ||
+        (a.twCode && a.twCode.toLowerCase() === matCodeLower) ||
+        (a.gdmCode && a.gdmCode.toLowerCase() === matCodeLower)
+      );
+
+      let whStock = warehouseStockMap[matIdLower] 
+        || (matCodeLower && matCodeLower !== "-" ? warehouseStockMap[matCodeLower] : undefined)
+        || (normMatName ? warehouseStockMap[normMatName] : undefined);
+
+      if (!whStock && alias) {
+        whStock = warehouseStockMap[normalizeMaterialName(alias.canonicalName)]
+          || (alias.gdmCode ? warehouseStockMap[alias.gdmCode.toLowerCase()] : undefined);
+      }
+
+      const gdBulk = whStock ? whStock.bulk : 0;
+      const gdKecil = whStock ? whStock.kecil : 0;
+      const konversi = Number(mat.qtyKecil || whStock?.konversi || 1);
+
       if (!groupedMap[key]) {
         groupedMap[key] = {
           key,
@@ -495,6 +596,7 @@ export default function LaporanStockRealKontainerPage() {
           nama: mat.nama || "-",
           satuanBesar: mat.satuanBesar || "",
           satuanKecil: mat.satuanKecil || "",
+          konversi,
           opnamePrevBulk: prevOpname.bulk,
           opnamePrevAktif: prevOpname.aktif,
           opnamePrevDateStr: prevOpname.dateStr,
@@ -508,6 +610,10 @@ export default function LaporanStockRealKontainerPage() {
           estimasiAktif: 0,
           currentMasterBulk: curBulk,
           currentMasterAktif: curAktif,
+          gudangBulk: gdBulk,
+          gudangKecil: gdKecil,
+          totalBulk: 0,
+          totalKecil: 0,
           targetBranches: [],
         };
       } else {
@@ -520,14 +626,40 @@ export default function LaporanStockRealKontainerPage() {
         groupedMap[key].belanjaRuteAktif += belanjaRute.aktif;
         groupedMap[key].currentMasterBulk += curBulk;
         groupedMap[key].currentMasterAktif += curAktif;
+        if (groupedMap[key].gudangBulk === 0 && gdBulk > 0) {
+          groupedMap[key].gudangBulk = gdBulk;
+          groupedMap[key].gudangKecil = gdKecil;
+        }
+        if (konversi > 1 && groupedMap[key].konversi <= 1) {
+          groupedMap[key].konversi = konversi;
+        }
       }
     });
 
     let result = Object.values(groupedMap);
     result.forEach((r) => {
-      // Calculate real-time estimated stock
+      // Calculate real-time estimated stock (container)
       r.estimasiBulk = r.opnamePrevBulk + r.ambilGudangBulk + r.belanjaRuteBulk;
       r.estimasiAktif = r.opnamePrevAktif + r.belanjaRuteAktif;
+
+      // Calculate Total Gudang + Container (Estimasi Stok Real-Time + Stok Gudang Utama)
+      const konv = r.konversi > 0 ? r.konversi : 1;
+      const rawBulk = r.estimasiBulk + r.gudangBulk;
+      const rawKecil = r.estimasiAktif + r.gudangKecil;
+
+      if (konv > 1) {
+        const totalKecilEquivalent = (rawBulk * konv) + rawKecil;
+        if (totalKecilEquivalent >= 0) {
+          r.totalBulk = Math.floor(totalKecilEquivalent / konv);
+          r.totalKecil = Math.round((totalKecilEquivalent % konv) * 100) / 100;
+        } else {
+          r.totalBulk = 0;
+          r.totalKecil = Math.round(totalKecilEquivalent * 100) / 100;
+        }
+      } else {
+        r.totalBulk = rawBulk;
+        r.totalKecil = rawKecil;
+      }
 
       // Determine Target Stores / Peruntukan Toko
       const storeSet = new Set<'gdm' | 'kedungreja' | 'tehwarga' | 'gembong'>();
@@ -585,6 +717,7 @@ export default function LaporanStockRealKontainerPage() {
     previousOpnameMap, 
     pengambilanGudangMap, 
     belanjaRuteMap, 
+    warehouseStockMap,
     materialStoreUsageMap, 
     selectedMaterialName,
     searchTerm,
@@ -605,6 +738,8 @@ export default function LaporanStockRealKontainerPage() {
       "Estimasi Stok Real-Time (Bulk)": `${r.estimasiBulk} ${r.satuanBesar || ""}`.trim(),
       "Estimasi Stok Real-Time (Aktif)": `${r.estimasiAktif} ${r.satuanKecil || ""}`.trim(),
       "Stok Master Sistem Saat Ini": `${r.currentMasterBulk} ${r.satuanBesar} / ${r.currentMasterAktif} ${r.satuanKecil}`,
+      "Stok Gudang Utama": `${r.gudangBulk} ${r.satuanBesar}${r.gudangKecil > 0 ? ` / ${r.gudangKecil} ${r.satuanKecil}` : ""}`,
+      "Total Gudang + Container": `${r.totalBulk} ${r.satuanBesar}${r.totalKecil > 0 ? ` / ${r.totalKecil} ${r.satuanKecil}` : ""}`,
       "Peruntukan Toko": r.targetBranches.map((b) => b.shortName).join(", "),
     }));
 
@@ -662,6 +797,8 @@ export default function LaporanStockRealKontainerPage() {
           "Belanja Rute\n(Bulk / Aktif)",
           "Estimasi Real-Time\n(Bulk / Aktif)",
           "Stok Sistem\n(Master)",
+          "Stok Gudang\n(Utama)",
+          "Total Gudang\n+ Kontainer",
           "Peruntukan",
         ],
       ],
@@ -676,6 +813,8 @@ export default function LaporanStockRealKontainerPage() {
           : "-",
         `${formatNumber(r.estimasiBulk)} ${r.satuanBesar} / ${formatNumber(r.estimasiAktif)} ${r.satuanKecil}`,
         `${formatNumber(r.currentMasterBulk)} ${r.satuanBesar} / ${formatNumber(r.currentMasterAktif)} ${r.satuanKecil}`,
+        `${formatNumber(r.gudangBulk)} ${r.satuanBesar}${r.gudangKecil > 0 ? ` / ${formatNumber(r.gudangKecil)} ${r.satuanKecil}` : ""}`,
+        `${formatNumber(r.totalBulk)} ${r.satuanBesar}${r.totalKecil > 0 ? ` / ${formatNumber(r.totalKecil)} ${r.satuanKecil}` : ""}`,
         r.targetBranches.map((b) => b.shortName).join(", "),
       ]),
       startY: 34,
@@ -683,22 +822,24 @@ export default function LaporanStockRealKontainerPage() {
       styles: { fontSize: 7, cellPadding: 2 },
       headStyles: { fillColor: [15, 23, 42], halign: "center", fontStyle: "bold" },
       columnStyles: {
-        0: { cellWidth: 8, halign: "center" },
-        1: { cellWidth: 16, fontStyle: "bold" },
-        2: { cellWidth: 42 },
-        3: { halign: "right" },
-        4: { halign: "right" },
-        5: { halign: "right" },
-        6: { halign: "right", fontStyle: "bold" },
-        7: { halign: "right" },
-        8: { cellWidth: 32 },
+        0: { cellWidth: 7, halign: "center" },
+        1: { cellWidth: 14, fontStyle: "bold" },
+        2: { cellWidth: 36 },
+        3: { cellWidth: 24, halign: "right" },
+        4: { cellWidth: 20, halign: "right" },
+        5: { cellWidth: 24, halign: "right" },
+        6: { cellWidth: 26, halign: "right", fontStyle: "bold" },
+        7: { cellWidth: 24, halign: "right" },
+        8: { cellWidth: 24, halign: "right" },
+        9: { cellWidth: 26, halign: "right", fontStyle: "bold" },
+        10: { cellWidth: 26 },
       },
     });
 
     docPDF.save(`Laporan_Stock_Real_Kontainer_${BRANCH_LIST[activeBranch]?.shortName || "Semua_Toko"}_${selectedDate}.pdf`);
   };
 
-  const isLoading = loadingMaterials || loadingOpnames || loadingLogs;
+  const isLoading = loadingMaterials || loadingOpnames || loadingLogs || loadingWarehouse;
 
   return (
     <div className="space-y-4 md:space-y-6 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -839,7 +980,7 @@ export default function LaporanStockRealKontainerPage() {
           <div className="flex items-center gap-2">
             <Info className="h-4 w-4 text-primary shrink-0" />
             <span>
-              Perhitungan Stok Real-Time: <strong>Opname Kemarin</strong> + <strong>Ambil Gudang Hari Ini</strong> + <strong>Belanja Rute (Karyawan & Owner) Hari Ini</strong>.
+              Stok Real-Time: <strong>Opname Kemarin</strong> + <strong>Ambil Gudang</strong> + <strong>Belanja Rute</strong> • <strong>Total Gudang + Kontainer</strong> = <strong>Estimasi Real-Time + Stok Gudang Utama</strong>.
             </span>
           </div>
           <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 hidden sm:inline-block">
@@ -928,125 +1069,161 @@ export default function LaporanStockRealKontainerPage() {
               <table className="w-full text-left border-collapse table-auto">
                 <thead>
                   {/* Row 1: Header Grouping */}
-                  <tr className="border-b border-slate-200 bg-slate-100/90 text-[9.5px] font-black uppercase tracking-wider text-slate-700">
-                    <th rowSpan={2} className="px-2 py-2 border-r border-slate-200 w-8 text-center bg-slate-200/70 text-slate-800">
+                  <tr className="border-b border-slate-200 bg-slate-100/90 text-[9px] font-black uppercase tracking-wider text-slate-700">
+                    <th rowSpan={2} className="px-1.5 py-1.5 border-r border-slate-200 w-7 text-center align-middle bg-slate-200/70 text-slate-800">
                       No
                     </th>
-                    <th rowSpan={2} className="px-2 py-2 border-r border-slate-200 w-20">
+                    <th rowSpan={2} className="px-1.5 py-1.5 border-r border-slate-200 w-14 text-center align-middle">
                       Kode
                     </th>
-                    <th rowSpan={2} className="px-2.5 py-2 border-r border-slate-200 min-w-[150px]">
-                      Nama Bahan
+                    <th rowSpan={2} className="px-2 py-1.5 border-r border-slate-200 min-w-[120px] max-w-[150px] leading-tight align-middle text-left">
+                      Nama<br />Bahan
                     </th>
-                    <th colSpan={2} className="px-2 py-1.5 text-center border-r border-slate-200 bg-blue-50 text-blue-900 text-[9px]">
-                      Opname Kemarin (Sebelumnya)
+                    <th colSpan={2} className="px-1.5 py-1.5 text-center border-r border-slate-200 bg-blue-50 text-blue-900 text-[8.5px] leading-tight">
+                      Opname<br />Kemarin
                     </th>
-                    <th rowSpan={2} className="px-2 py-2 text-right border-r border-slate-200 bg-indigo-50 text-indigo-900 font-black text-[9px] w-28">
-                      Ambil Gudang Utama
+                    <th rowSpan={2} className="px-1.5 py-1.5 text-center align-middle border-r border-slate-200 bg-indigo-50 text-indigo-900 font-black text-[8.5px] w-20 leading-tight">
+                      Ambil<br />Gudang
                     </th>
-                    <th colSpan={2} className="px-2 py-1.5 text-center border-r border-slate-200 bg-amber-50 text-amber-900 text-[9px]">
-                      Belanja Rute (Karyawan & Owner)
+                    <th colSpan={2} className="px-1.5 py-1.5 text-center border-r border-slate-200 bg-amber-50 text-amber-900 text-[8.5px] leading-tight">
+                      Belanja<br />Rute
                     </th>
-                    <th colSpan={2} className="px-2 py-1.5 text-center border-r border-slate-200 bg-emerald-900 text-white font-black text-[9px]">
-                      Estimasi Stok Real-Time
+                    <th colSpan={2} className="px-1.5 py-1.5 text-center border-r border-slate-200 bg-emerald-900 text-white font-black text-[8.5px] leading-tight">
+                      Estimasi<br />Real-Time
                     </th>
-                    <th rowSpan={2} className="px-2 py-2 text-right border-r border-slate-200 bg-slate-100 text-slate-800 font-black text-[9px] w-28">
-                      Stok Sistem (Master)
+                    <th rowSpan={2} className="px-1.5 py-1.5 text-center align-middle border-r border-slate-200 bg-slate-100 text-slate-800 font-black text-[8.5px] w-18 leading-tight">
+                      Stok<br />Sistem
                     </th>
-                    <th rowSpan={2} className="px-2 py-2 w-[140px] text-center bg-slate-100 text-slate-800 font-black text-[9px]">
-                      Peruntukan Toko
+                    <th rowSpan={2} className="px-1.5 py-1.5 text-center align-middle border-r border-slate-200 bg-cyan-100/90 text-cyan-950 font-black text-[8.5px] w-20 leading-tight">
+                      Stok Gudang<br />Utama
+                    </th>
+                    <th rowSpan={2} className="px-1.5 py-1.5 text-center align-middle border-r border-slate-200 bg-emerald-100 text-emerald-950 font-black text-[8.5px] w-22 leading-tight">
+                      Total Gudang<br />+ Container
+                    </th>
+                    <th rowSpan={2} className="px-1.5 py-1.5 w-[90px] text-center align-middle bg-slate-100 text-slate-800 font-black text-[8.5px] leading-tight">
+                      Peruntukan<br />Toko
                     </th>
                   </tr>
                   {/* Row 2: Sub Columns */}
-                  <tr className="border-b border-slate-200 bg-slate-50 text-[8px] font-black uppercase tracking-wider text-slate-500">
-                    <th className="px-1.5 py-1 text-right bg-blue-50/50">Bulk</th>
-                    <th className="px-1.5 py-1 text-right border-r border-slate-200 bg-blue-50/50">Aktif</th>
-                    <th className="px-1.5 py-1 text-right bg-amber-50/50">Bulk</th>
-                    <th className="px-1.5 py-1 text-right border-r border-slate-200 bg-amber-50/50">Aktif</th>
-                    <th className="px-1.5 py-1 text-right bg-emerald-800 text-white">Bulk</th>
-                    <th className="px-1.5 py-1 text-right border-r border-slate-200 bg-emerald-800 text-white">Aktif</th>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-[7.5px] font-black uppercase tracking-wider text-slate-500">
+                    <th className="px-1 py-1 text-right bg-blue-50/50">Bulk</th>
+                    <th className="px-1 py-1 text-right border-r border-slate-200 bg-blue-50/50">Aktif</th>
+                    <th className="px-1 py-1 text-right bg-amber-50/50">Bulk</th>
+                    <th className="px-1 py-1 text-right border-r border-slate-200 bg-amber-50/50">Aktif</th>
+                    <th className="px-1 py-1 text-right bg-emerald-800 text-white">Bulk</th>
+                    <th className="px-1 py-1 text-right border-r border-slate-200 bg-emerald-800 text-white">Aktif</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 text-[11px]">
+                <tbody className="divide-y divide-slate-100 text-[10.5px]">
                   {tableRows.map((r, idx) => (
                     <tr key={r.key} className="hover:bg-slate-50/80 transition-colors">
                       {/* No Column */}
-                      <td className="px-1.5 py-2 text-center font-bold text-slate-500 border-r border-slate-100 bg-slate-50/30 text-[10px]">
+                      <td className="px-1.5 py-1.5 text-center font-bold text-slate-500 border-r border-slate-100 bg-slate-50/30 text-[9.5px]">
                         {idx + 1}
                       </td>
                       {/* Kode */}
-                      <td className="px-2 py-2 font-mono font-bold text-indigo-600 border-r border-slate-100 text-[10px] whitespace-nowrap">
+                      <td className="px-1.5 py-1.5 text-center font-mono font-bold text-indigo-600 border-r border-slate-100 text-[9.5px] whitespace-nowrap">
                         {r.code}
                       </td>
                       {/* Nama Bahan */}
-                      <td className="px-2.5 py-2 font-bold text-slate-900 uppercase border-r border-slate-100 text-[10.5px]">
+                      <td className="px-2 py-1.5 font-bold text-slate-900 uppercase border-r border-slate-100 text-[10px] max-w-[160px] truncate" title={r.nama}>
                         {r.nama}
                       </td>
                       {/* Opname Kemarin: Bulk */}
-                      <td className="px-1.5 py-2 text-right font-medium text-slate-700 bg-blue-50/20 whitespace-nowrap">
+                      <td className="px-1 py-1.5 text-right font-medium text-slate-700 bg-blue-50/20 whitespace-nowrap">
                         {r.opnamePrevBulk > 0 ? (
-                          <span>{formatNumber(r.opnamePrevBulk)} <span className="text-[9px] text-slate-400">{r.satuanBesar}</span></span>
+                          <span>{formatNumber(r.opnamePrevBulk)} <span className="text-[8.5px] text-slate-400">{r.satuanBesar}</span></span>
                         ) : (
                           <span className="text-slate-300">-</span>
                         )}
                       </td>
                       {/* Opname Kemarin: Aktif */}
-                      <td className="px-1.5 py-2 text-right font-medium text-slate-700 border-r border-slate-100 bg-blue-50/20 whitespace-nowrap">
+                      <td className="px-1 py-1.5 text-right font-medium text-slate-700 border-r border-slate-100 bg-blue-50/20 whitespace-nowrap">
                         {r.opnamePrevAktif > 0 ? (
-                          <span>{formatNumber(r.opnamePrevAktif)} <span className="text-[9px] text-slate-400">{r.satuanKecil}</span></span>
+                          <span>{formatNumber(r.opnamePrevAktif)} <span className="text-[8.5px] text-slate-400">{r.satuanKecil}</span></span>
                         ) : (
                           <span className="text-slate-300">-</span>
                         )}
                       </td>
                       {/* Ambil Gudang Utama */}
-                      <td className="px-2 py-2 text-right font-bold text-indigo-900 border-r border-slate-100 bg-indigo-50/20 whitespace-nowrap">
+                      <td className="px-1.5 py-1.5 text-right font-bold text-indigo-900 border-r border-slate-100 bg-indigo-50/20 whitespace-nowrap">
                         {r.ambilGudangBulk > 0 ? (
-                          <span className="inline-flex items-center gap-1 text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">
-                            +{formatNumber(r.ambilGudangBulk)} <span className="text-[9px] text-indigo-400 font-normal">{r.satuanBesar}</span>
+                          <span className="inline-flex items-center gap-1 text-indigo-700 bg-indigo-50 px-1 py-0.5 rounded text-[9.5px]">
+                            +{formatNumber(r.ambilGudangBulk)} <span className="text-[8.5px] text-indigo-400 font-normal">{r.satuanBesar}</span>
                           </span>
                         ) : (
                           <span className="text-slate-300">-</span>
                         )}
                       </td>
                       {/* Belanja Rute: Bulk */}
-                      <td className="px-1.5 py-2 text-right font-medium text-amber-900 bg-amber-50/20 whitespace-nowrap">
+                      <td className="px-1 py-1.5 text-right font-medium text-amber-900 bg-amber-50/20 whitespace-nowrap">
                         {r.belanjaRuteBulk > 0 ? (
                           <span className="text-amber-700 font-bold">
-                            +{formatNumber(r.belanjaRuteBulk)} <span className="text-[9px] text-amber-500 font-normal">{r.satuanBesar}</span>
+                            +{formatNumber(r.belanjaRuteBulk)} <span className="text-[8.5px] text-amber-500 font-normal">{r.satuanBesar}</span>
                           </span>
                         ) : (
                           <span className="text-slate-300">-</span>
                         )}
                       </td>
                       {/* Belanja Rute: Aktif */}
-                      <td className="px-1.5 py-2 text-right font-medium text-amber-900 border-r border-slate-100 bg-amber-50/20 whitespace-nowrap">
+                      <td className="px-1 py-1.5 text-right font-medium text-amber-900 border-r border-slate-100 bg-amber-50/20 whitespace-nowrap">
                         {r.belanjaRuteAktif > 0 ? (
                           <span className="text-amber-700 font-bold">
-                            +{formatNumber(r.belanjaRuteAktif)} <span className="text-[9px] text-amber-500 font-normal">{r.satuanKecil}</span>
+                            +{formatNumber(r.belanjaRuteAktif)} <span className="text-[8.5px] text-amber-500 font-normal">{r.satuanKecil}</span>
                           </span>
                         ) : (
                           <span className="text-slate-300">-</span>
                         )}
                       </td>
                       {/* Estimasi Stok Real-Time: Bulk */}
-                      <td className="px-1.5 py-2 text-right font-black text-emerald-950 bg-emerald-50/40 whitespace-nowrap">
-                        {formatNumber(r.estimasiBulk)} <span className="text-[9px] text-emerald-600 font-medium">{r.satuanBesar}</span>
+                      <td className="px-1.5 py-1.5 text-right font-black text-emerald-950 bg-emerald-50/40 whitespace-nowrap">
+                        {formatNumber(r.estimasiBulk)} <span className="text-[8.5px] text-emerald-600 font-medium">{r.satuanBesar}</span>
                       </td>
                       {/* Estimasi Stok Real-Time: Aktif */}
-                      <td className="px-1.5 py-2 text-right font-black text-emerald-950 border-r border-slate-100 bg-emerald-50/40 whitespace-nowrap">
-                        {formatNumber(r.estimasiAktif)} <span className="text-[9px] text-emerald-600 font-medium">{r.satuanKecil}</span>
+                      <td className="px-1.5 py-1.5 text-right font-black text-emerald-950 border-r border-slate-100 bg-emerald-50/40 whitespace-nowrap">
+                        {formatNumber(r.estimasiAktif)} <span className="text-[8.5px] text-emerald-600 font-medium">{r.satuanKecil}</span>
                       </td>
                       {/* Stok Master Sistem */}
-                      <td className="px-2 py-2 text-right font-semibold text-slate-700 border-r border-slate-100 bg-slate-50/50 whitespace-nowrap">
-                        <span>{formatNumber(r.currentMasterBulk)} <span className="text-[9px] text-slate-400">{r.satuanBesar}</span></span>
+                      <td className="px-1.5 py-1.5 text-right font-semibold text-slate-700 border-r border-slate-100 bg-slate-50/50 whitespace-nowrap">
+                        <span>{formatNumber(r.currentMasterBulk)} <span className="text-[8.5px] text-slate-400">{r.satuanBesar}</span></span>
                         {r.currentMasterAktif > 0 && (
-                          <span className="text-[9.5px] text-slate-500 block">
+                          <span className="text-[8.5px] text-slate-500 block leading-tight">
                             {formatNumber(r.currentMasterAktif)} {r.satuanKecil}
                           </span>
                         )}
                       </td>
+                      {/* Stok Gudang Utama */}
+                      <td className="px-2 py-1.5 text-right font-bold text-cyan-950 border-r border-slate-100 bg-cyan-50/30 whitespace-nowrap">
+                        {r.gudangBulk > 0 || r.gudangKecil > 0 ? (
+                          <div>
+                            <span className="text-[10px]">{formatNumber(r.gudangBulk)} <span className="text-[8.5px] text-cyan-700 font-normal">{r.satuanBesar}</span></span>
+                            {r.gudangKecil > 0 && (
+                              <span className="text-[8.5px] text-cyan-700 block leading-tight font-semibold">
+                                +{formatNumber(r.gudangKecil)} {r.satuanKecil}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-300">-</span>
+                        )}
+                      </td>
+                      {/* Total Gudang + Container */}
+                      <td className="px-2 py-1.5 text-right font-black text-emerald-950 border-r border-slate-100 bg-emerald-50/40 whitespace-nowrap">
+                        {r.totalBulk > 0 || r.totalKecil > 0 ? (
+                          <div>
+                            <span className="text-[10.5px]">{formatNumber(r.totalBulk)} <span className="text-[8.5px] text-emerald-700 font-semibold">{r.satuanBesar}</span></span>
+                            {r.totalKecil > 0 && (
+                              <span className="text-[8.5px] text-emerald-800 block leading-tight font-black">
+                                +{formatNumber(r.totalKecil)} {r.satuanKecil}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-300">0 {r.satuanBesar}</span>
+                        )}
+                      </td>
                       {/* Peruntukan Toko */}
-                      <td className="px-2 py-1.5 text-left bg-slate-50/40">
+                      <td className="px-1.5 py-1.5 text-left bg-slate-50/40">
                         <div className="flex flex-wrap items-center gap-1">
                           {r.targetBranches.map((br) => (
                             <span
@@ -1146,6 +1323,25 @@ export default function LaporanStockRealKontainerPage() {
                     <span className="font-black">
                       {formatNumber(r.estimasiBulk)} {r.satuanBesar} | {formatNumber(r.estimasiAktif)} {r.satuanKecil}
                     </span>
+                  </div>
+
+                  {/* Stok Gudang Utama & Total Gudang + Container */}
+                  <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                    <div className="p-2 rounded-xl bg-cyan-50/70 border border-cyan-100 flex flex-col justify-between">
+                      <span className="font-bold text-cyan-800 text-[8.5px] uppercase">Stok Gudang Utama</span>
+                      <span className="font-bold text-cyan-950 mt-0.5">
+                        {formatNumber(r.gudangBulk)} {r.satuanBesar}
+                        {r.gudangKecil > 0 && ` +${formatNumber(r.gudangKecil)} ${r.satuanKecil}`}
+                      </span>
+                    </div>
+
+                    <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-200 flex flex-col justify-between">
+                      <span className="font-bold text-emerald-800 text-[8.5px] uppercase">Total Gudang + Kontainer</span>
+                      <span className="font-black text-emerald-950 mt-0.5">
+                        {formatNumber(r.totalBulk)} {r.satuanBesar}
+                        {r.totalKecil > 0 && ` +${formatNumber(r.totalKecil)} ${r.satuanKecil}`}
+                      </span>
+                    </div>
                   </div>
                 </div>
               ))}

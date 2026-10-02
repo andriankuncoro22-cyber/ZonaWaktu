@@ -1,6 +1,6 @@
 "use client";
 
-import { getStoreConfigDocId, useActiveBranch, filterContainerMaterials, BRANCH_LIST, getBranchTheme } from "@/lib/branch-helper";
+import { getStoreConfigDocId, useActiveBranch, filterContainerMaterials, BRANCH_LIST, getBranchTheme, branchCollection, branchDoc } from "@/lib/branch-helper";
 import { cn } from "@/lib/utils";
 
 import React, { useState, useMemo } from "react";
@@ -21,8 +21,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { useCollection, useDoc, useFirestore, useMemoFirebase, collection, doc } from "@/firebase";
-import { orderBy, query, addDoc, serverTimestamp } from "firebase/firestore";
+import { useCollection, useDoc, useFirestore, useMemoFirebase } from "@/firebase";
+import { orderBy, query, addDoc, serverTimestamp, writeBatch } from "firebase/firestore";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
@@ -59,8 +59,8 @@ export function StockContainerOpnameView({
   const [searchTerm, setSearchTerm] = useState("");
 
   const materialsQuery = useMemoFirebase(
-    () => query(collection(db, "bahan-baku"), orderBy("code", "asc")),
-    [db]
+    () => query(branchCollection(db, "bahan-baku", activeBranch), orderBy("code", "asc")),
+    [db, activeBranch]
   );
 
   const { data: rawMaterials, loading } = useCollection(materialsQuery);
@@ -68,10 +68,10 @@ export function StockContainerOpnameView({
     return filterContainerMaterials(rawMaterials as BahanBaku[], activeBranch);
   }, [rawMaterials, activeBranch]);
 
-  const settingsRef = useMemoFirebase(() => doc(db, "settings", getStoreConfigDocId()), [db]);
+  const settingsRef = useMemoFirebase(() => branchDoc(db, "settings", getStoreConfigDocId(activeBranch)), [db, activeBranch]);
   const { data: settings } = useDoc(settingsRef);
 
-  const cleanNumber = (val: any): number => {
+  const cleanNumber = (val: unknown): number => {
     if (val === undefined || val === null) return 0;
     if (typeof val === "number") return isNaN(val) ? 0 : val;
     const str = String(val).replace(/[^0-9.-]/g, "");
@@ -79,36 +79,24 @@ export function StockContainerOpnameView({
     return isNaN(num) ? 0 : num;
   };
 
-  const getUnitWeight = (item: any) => {
-    const gramPerBesar = cleanNumber(item?.gramPerBesar);
-    const konversi = cleanNumber(item?.qtyKecil) || 1;
-    const res = konversi > 0 ? gramPerBesar / konversi : 0;
-    return isNaN(res) ? 0 : res;
-  };
-
-  const getAktifFromGrams = (item: any, gramsValue: any) => {
-    const beratBungkus = cleanNumber(item?.beratBungkusProduk);
-    const netGrams = Math.max(0, cleanNumber(gramsValue) - beratBungkus);
-    const unitWeight = getUnitWeight(item);
-    const res = unitWeight > 0 ? netGrams / unitWeight : 0;
-    return isNaN(res) ? 0 : res;
-  };
-
-  const [kontainerInputs, setKontainerInputs] = useState<Record<string, { aktif: number; grams: number }>>({});
-  const [bulkInputs, setBulkInputs] = useState<Record<string, number>>({});
+  const [kontainerInputs, setKontainerInputs] = useState<Record<string, string>>({});
+  const [bulkInputs, setBulkInputs] = useState<Record<string, string>>({});
   const [processing, setProcessing] = useState(false);
   const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
 
   const historyQuery = useMemoFirebase(
-    () => query(collection(db, "opnam_harian"), orderBy("date", "desc")),
-    [db]
+    () => query(branchCollection(db, "opnam_harian", activeBranch), orderBy("date", "desc")),
+    [db, activeBranch]
   );
   const { data: histories, loading: historyLoading } = useCollection(historyQuery);
 
-  const formatDateOnly = (timestamp: any) => {
+  const formatDateOnly = (timestamp: unknown) => {
     if (!timestamp) return "-";
     try {
-      const date = timestamp?.toDate ? timestamp.toDate() : new Date(timestamp);
+      const ts = timestamp as { toDate?: () => Date } | string | number | Date;
+      const date = typeof ts === "object" && ts !== null && "toDate" in ts && typeof ts.toDate === "function"
+        ? ts.toDate()
+        : new Date(ts as string | number | Date);
       return new Intl.DateTimeFormat("id-ID", {
         day: "numeric",
         month: "long",
@@ -119,10 +107,13 @@ export function StockContainerOpnameView({
     }
   };
 
-  const formatTimeOnly = (timestamp: any) => {
+  const formatTimeOnly = (timestamp: unknown) => {
     if (!timestamp) return "-";
     try {
-      const date = timestamp?.toDate ? timestamp.toDate() : new Date(timestamp);
+      const ts = timestamp as { toDate?: () => Date } | string | number | Date;
+      const date = typeof ts === "object" && ts !== null && "toDate" in ts && typeof ts.toDate === "function"
+        ? ts.toDate()
+        : new Date(ts as string | number | Date);
       return new Intl.DateTimeFormat("id-ID", {
         hour: "2-digit",
         minute: "2-digit",
@@ -152,22 +143,22 @@ export function StockContainerOpnameView({
         const wb = XLSX.read(bstr, { type: "binary" });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
-        const excelData = XLSX.utils.sheet_to_json(ws) as any[];
+        const excelData = XLSX.utils.sheet_to_json(ws) as Record<string, unknown>[];
 
         if (!excelData || excelData.length === 0) {
           window.alert("Berkas Excel kosong atau format tidak sesuai.");
           return;
         }
 
-        const newBulkInputs: Record<string, number> = { ...bulkInputs };
-        const newKontainerInputs: Record<string, { aktif: number; grams: number }> = { ...kontainerInputs };
+        const newBulkInputs: Record<string, string> = { ...bulkInputs };
+        const newKontainerInputs: Record<string, string> = { ...kontainerInputs };
         const allMaterials = (materials as BahanBaku[]) || [];
 
         let matchedCount = 0;
 
-        const cleanStr = (s: any) => String(s ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+        const cleanStr = (s: unknown) => String(s ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 
-        const getRowVal = (row: any, primaryKeywords: string[], secondaryKeywords: string[] = []) => {
+        const getRowVal = (row: Record<string, unknown>, primaryKeywords: string[], secondaryKeywords: string[] = []): unknown => {
           const keys = Object.keys(row);
           // First pass: exact matches, ignoring headers that contain "satuan" or "unit"
           for (const k of keys) {
@@ -200,7 +191,7 @@ export function StockContainerOpnameView({
           return undefined;
         };
 
-        excelData.forEach((row: any) => {
+        excelData.forEach((row: Record<string, unknown>) => {
           const codeVal = getRowVal(row, ["code", "kode", "kd", "sku", "barcode"]);
           const namaVal = getRowVal(row, ["nama", "name", "bahan", "barang", "item"]);
 
@@ -219,7 +210,7 @@ export function StockContainerOpnameView({
             ["bulk", "kontainerbesar"]
           );
           if (bulkValRaw !== undefined) {
-            newBulkInputs[mat.id] = cleanNumber(bulkValRaw);
+            newBulkInputs[mat.id] = String(bulkValRaw);
           }
 
           const gramsValRaw = getRowVal(
@@ -235,17 +226,9 @@ export function StockContainerOpnameView({
           );
 
           if (gramsValRaw !== undefined) {
-            const gramsNum = cleanNumber(gramsValRaw);
-            newKontainerInputs[mat.id] = {
-              grams: gramsNum,
-              aktif: gramsNum
-            };
+            newKontainerInputs[mat.id] = String(gramsValRaw);
           } else if (aktifValRaw !== undefined) {
-            const numVal = cleanNumber(aktifValRaw);
-            newKontainerInputs[mat.id] = {
-              grams: numVal,
-              aktif: numVal
-            };
+            newKontainerInputs[mat.id] = String(aktifValRaw);
           }
 
           matchedCount++;
@@ -295,21 +278,31 @@ export function StockContainerOpnameView({
   };
 
   const handleExportExcel = () => {
-    const wsData = filteredMaterials?.map((item) => ({
-      Kode: item.code,
-      "Nama Bahan": item.nama,
-      "Stok Gudang (Sistem)": item.qtyBesar || 0,
-      "Satuan Besar": item.satuanBesar,
-      "Bulk Kontainer (Sistem)": item.qtyKontainerBesar || 0,
-      "Aktif Kontainer (Sistem)": item.qtyKontainerKecil || 0,
-      "Satuan Kecil": item.satuanKecil,
-      "Total Keseluruhan": formatTotalStock(item),
-    }));
+    const wsData = filteredMaterials?.map((item) => {
+      const hasBulk = item.id in bulkInputs && String(bulkInputs[item.id]).trim() !== "";
+      const hasAktif = item.id in kontainerInputs && String(kontainerInputs[item.id]).trim() !== "";
+
+      const realBulk = hasBulk ? Math.max(0, cleanNumber(bulkInputs[item.id])) : 0;
+      const realAktif = hasAktif ? Math.max(0, cleanNumber(kontainerInputs[item.id])) : 0;
+
+      return {
+        Kode: item.code,
+        "Nama Bahan": item.nama,
+        "Stok Gudang (Sistem)": item.qtyBesar || 0,
+        "Satuan Besar": item.satuanBesar,
+        "Bulk Kontainer (Sistem)": item.qtyKontainerBesar || 0,
+        "Aktif Kontainer (Sistem)": item.qtyKontainerKecil || 0,
+        "Hasil Opnam Bulk (Real)": realBulk,
+        "Hasil Opnam Aktif (Real)": realAktif,
+        "Satuan Kecil": item.satuanKecil,
+        "Total Keseluruhan": formatTotalStock(item),
+      };
+    });
 
     const ws = XLSX.utils.json_to_sheet(wsData || []);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Laporan Opname");
-    XLSX.writeFile(wb, `Stock_Opname_${new Date().toLocaleDateString()}.xlsx`);
+    XLSX.writeFile(wb, `Stock_Opname_${branchInfo.shortName}_${new Date().toLocaleDateString()}.xlsx`);
   };
 
   const handleExportPDF = async () => {
@@ -332,97 +325,123 @@ export function StockContainerOpnameView({
 
     docPDF.setFontSize(18);
     docPDF.setTextColor(139, 26, 26);
-    docPDF.text(settings?.name?.toUpperCase() || "ZONA WAKTU", 148, 15, { align: "center" });
+    docPDF.text(settings?.name?.toUpperCase() || `ZONA WAKTU • ${branchInfo.shortName.toUpperCase()}`, 148, 15, { align: "center" });
     docPDF.setFontSize(9);
     docPDF.setTextColor(100);
-    docPDF.text(settings?.tagline || "Coffee & Teh Bakar Autentik", 148, 21, { align: "center" });
+    docPDF.text(settings?.tagline || `Outlet ${branchInfo.name}`, 148, 21, { align: "center" });
     docPDF.setDrawColor(139, 26, 26);
     docPDF.line(15, 28, 282, 28);
 
     docPDF.setFontSize(14);
     docPDF.setTextColor(0);
-    docPDF.text("LAPORAN STOCK OPNAME", 148, 40, { align: "center" });
+    docPDF.text(`LAPORAN STOCK OPNAME • ${branchInfo.shortName.toUpperCase()}`, 148, 40, { align: "center" });
     docPDF.setFontSize(10);
     docPDF.text(`Tanggal: ${new Date().toLocaleDateString("id-ID")}`, 148, 46, { align: "center" });
 
-    const tableData = filteredMaterials?.map((item) => [
-      item.code,
-      item.nama.toUpperCase(),
-      `${item.qtyBesar || 0} ${item.satuanBesar}`,
-      `${item.qtyKontainerBesar || 0} ${item.satuanBesar}`,
-      `${Math.round(item.qtyKontainerKecil || 0)} ${item.satuanKecil}`,
-      formatTotalStock(item),
-    ]);
+    const tableData = filteredMaterials?.map((item) => {
+      const hasBulk = item.id in bulkInputs && String(bulkInputs[item.id]).trim() !== "";
+      const hasAktif = item.id in kontainerInputs && String(kontainerInputs[item.id]).trim() !== "";
+
+      const realBulk = hasBulk ? Math.max(0, cleanNumber(bulkInputs[item.id])) : 0;
+      const realAktif = hasAktif ? Math.max(0, cleanNumber(kontainerInputs[item.id])) : 0;
+
+      return [
+        item.code,
+        item.nama.toUpperCase(),
+        `${item.qtyBesar || 0} ${item.satuanBesar}`,
+        `${item.qtyKontainerBesar || 0} ${item.satuanBesar}`,
+        `${Math.round(item.qtyKontainerKecil || 0)} ${item.satuanKecil}`,
+        `${realBulk} ${item.satuanBesar}`,
+        `${Math.round(realAktif)} ${item.satuanKecil}`,
+        formatTotalStock(item),
+      ];
+    });
 
     autoTable(docPDF, {
-      head: [["KODE", "NAMA BAHAN", "GUDANG", "KONT. BULK", "KONT. AKTIF", "TOTAL GABUNGAN"]],
+      head: [["KODE", "NAMA BAHAN", "GUDANG", "KONT. BULK (SIS)", "KONT. AKTIF (SIS)", "OPNAM BULK (REAL)", "OPNAM AKTIF (REAL)", "TOTAL SISTEM"]],
       body: tableData || [],
       startY: 55,
       theme: "grid",
       headStyles: { fillColor: [139, 26, 26] },
-      styles: { fontSize: 8 },
+      styles: { fontSize: 7.5 },
     });
 
-    docPDF.save(`Stock_Opname_${new Date().toISOString().split("T")[0]}.pdf`);
+    docPDF.save(`Stock_Opname_${branchInfo.shortName}_${new Date().toISOString().split("T")[0]}.pdf`);
   };
 
   const finalizeAll = async () => {
     if (processing) return;
     setProcessing(true);
     try {
-      interface HistoryItem {
+      const batch = writeBatch(db);
+      const historyItems: Array<{
         id: string;
-        code?: string;
-        nama?: string;
+        code: string;
+        nama: string;
+        unitBesar: string;
+        unitKecil: string;
         before: { qtyKontainerBesar: number; qtyKontainerKecil: number };
-        after: { qtyKontainerBesar: number; qtyKontainerKecil: number };
-      }
+        after: { qtyKontainerBesar: number; qtyKontainerKecil: number; grams: number };
+        afterBulk: number;
+        afterAktif: number;
+        diffBulk: number;
+        diffAktif: number;
+        grams: number;
+      }> = [];
 
-      const latestHistory = histories && (histories as any[]).length > 0 ? (histories as any[])[0] : null;
-      const prevItemsMap: Record<string, { qtyKontainerBesar?: number; qtyKontainerKecil?: number }> = {};
-      if (latestHistory && Array.isArray(latestHistory.items)) {
-        latestHistory.items.forEach((it: any) => {
-          if (it.id) prevItemsMap[it.id] = { qtyKontainerBesar: it.after?.qtyKontainerBesar, qtyKontainerKecil: it.after?.qtyKontainerKecil };
-          if (it.code) prevItemsMap[it.code] = { qtyKontainerBesar: it.after?.qtyKontainerBesar, qtyKontainerKecil: it.after?.qtyKontainerKecil };
-        });
-      }
-
-      const historyItems: HistoryItem[] = [];
       (materials as BahanBaku[])?.forEach((it) => {
-        // Snapshot stok bahan baku sistem tepat pada saat opname disimpan
         const beforeBulk = Number(it.qtyKontainerBesar ?? 0);
         const beforeAktif = Number(it.qtyKontainerKecil ?? 0);
-        const afterBulk = Math.max(0, cleanNumber(bulkInputs[it.id] ?? beforeBulk));
-        const inputGrams = kontainerInputs[it.id]?.grams;
-        const inputAktif = kontainerInputs[it.id]?.aktif;
-        const afterAktif = Math.max(0, cleanNumber(
-          (inputGrams !== undefined && inputGrams !== null && String(inputGrams) !== "")
-            ? inputGrams
-            : ((inputAktif !== undefined && inputAktif !== null && String(inputAktif) !== "")
-                ? inputAktif
-                : beforeAktif)
-        ));
 
+        const hasBulkInput = it.id in bulkInputs && String(bulkInputs[it.id]).trim() !== "";
+        const hasAktifInput = it.id in kontainerInputs && String(kontainerInputs[it.id]).trim() !== "";
+
+        // Ketika bahan tidak di-input di stock opname harian, hasilnya pasti 0 untuk Bulk Fisik maupun Aktif Fisik
+        const afterBulk = hasBulkInput ? Math.max(0, cleanNumber(bulkInputs[it.id])) : 0;
+        const afterAktif = hasAktifInput ? Math.max(0, cleanNumber(kontainerInputs[it.id])) : 0;
+
+        // 1. UPDATE REAL STOK KE MASTER BAHAN BAKU FIRESTORE
+        const ref = branchDoc(db, "bahan-baku", it.id, activeBranch);
+        batch.update(ref, {
+          qtyKontainerBesar: afterBulk,
+          qtyKontainerKecil: afterAktif,
+        });
+
+        // 2. CATAT KE HISTORI OPNAM HARIAN DENGAN DETAIL LENGKAP
         historyItems.push({
           id: it.id,
-          code: it.code,
-          nama: it.nama,
-          grams: afterAktif,
+          code: it.code || "-",
+          nama: it.nama || "-",
+          unitBesar: it.satuanBesar || "Bulk",
+          unitKecil: it.satuanKecil || (it.satuanKalibrasi === "Pcs" ? "pcs" : "g"),
           before: { qtyKontainerBesar: beforeBulk, qtyKontainerKecil: beforeAktif },
-          after: { qtyKontainerBesar: afterBulk, qtyKontainerKecil: afterAktif, grams: afterAktif } as any,
-        } as any);
+          after: { qtyKontainerBesar: afterBulk, qtyKontainerKecil: afterAktif, grams: afterAktif },
+          afterBulk,
+          afterAktif,
+          diffBulk: afterBulk - beforeBulk,
+          diffAktif: afterAktif - beforeAktif,
+          grams: afterAktif,
+        });
       });
 
-      await addDoc(collection(db, "opnam_harian"), {
+      // Commit update stok bahan baku
+      await batch.commit();
+
+      // Simpan catatan opnam harian ke koleksi opnam_harian cabang aktif
+      await addDoc(branchCollection(db, "opnam_harian", activeBranch), {
         date: serverTimestamp(),
-        note: "Finalisasi Opnam Harian",
+        branch: activeBranch,
+        _branchId: activeBranch,
+        branchName: branchInfo.name,
+        note: `Opnam Harian Kontainer (${branchInfo.shortName})`,
         items: historyItems,
       });
+
       resetInputs();
-      window.alert("Opnam harian berhasil disimpan.");
+      window.alert(`Opnam harian ${branchInfo.shortName} berhasil difinalisasi dan stok sistem telah diperbarui sesuai hasil input real.`);
     } catch (err) {
       console.error(err);
-      window.alert("Terjadi kesalahan saat finalisasi. Cek console.");
+      window.alert("Terjadi kesalahan saat finalisasi opnam harian. Cek console.");
     } finally {
       setProcessing(false);
     }
@@ -555,10 +574,10 @@ export function StockContainerOpnameView({
                   <div className="relative">
                     <Input
                       type="number"
-                      value={bulkInputs[item.id] !== undefined && bulkInputs[item.id] !== null && !isNaN(Number(bulkInputs[item.id])) ? String(bulkInputs[item.id]) : ""}
+                      value={bulkInputs[item.id] ?? ""}
                       onChange={(e) => {
-                        const val = cleanNumber(e.target.value);
-                        setBulkInputs((prev) => ({ ...prev, [item.id]: val }));
+                        const raw = e.target.value;
+                        setBulkInputs((prev) => ({ ...prev, [item.id]: raw }));
                       }}
                       placeholder="0"
                       inputMode="decimal"
@@ -573,16 +592,10 @@ export function StockContainerOpnameView({
                   <div className="relative">
                     <Input
                       type="number"
-                      value={kontainerInputs[item.id]?.grams !== undefined && kontainerInputs[item.id]?.grams !== null && !isNaN(Number(kontainerInputs[item.id]?.grams)) ? String(kontainerInputs[item.id]?.grams) : ""}
+                      value={kontainerInputs[item.id] ?? ""}
                       onChange={(e) => {
-                        const gramsVal = cleanNumber(e.target.value);
-                        setKontainerInputs((prev) => ({
-                          ...prev,
-                          [item.id]: {
-                            grams: gramsVal,
-                            aktif: gramsVal,
-                          },
-                        }));
+                        const raw = e.target.value;
+                        setKontainerInputs((prev) => ({ ...prev, [item.id]: raw }));
                       }}
                       placeholder="0"
                       inputMode="decimal"
@@ -654,12 +667,13 @@ export function StockContainerOpnameView({
               Belum ada riwayat penyimpanan opnam harian.
             </div>
           ) : (
-            (histories as any[]).slice(0, 10).map((h: any) => {
-              const isExpanded = expandedHistoryId === h.id;
-              const itemCount = Array.isArray(h.items) ? h.items.length : 0;
+            (histories as Array<Record<string, unknown>>).slice(0, 10).map((h) => {
+              const isExpanded = expandedHistoryId === (h.id as string);
+              const itemsList = Array.isArray(h.items) ? (h.items as Array<Record<string, unknown>>) : [];
+              const itemCount = itemsList.length;
               return (
                 <div
-                  key={h.id || String(h.date?.seconds)}
+                  key={(h.id as string) || String((h.date as { seconds?: number })?.seconds)}
                   className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4 transition-all hover:bg-slate-50"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -679,14 +693,14 @@ export function StockContainerOpnameView({
                         </span>
                       </div>
                       <p className="text-[11px] font-bold text-slate-500">
-                        {h.note || "Finalisasi Opnam Harian"} â€¢ <span className="text-slate-700 font-black">{itemCount} Bahan Baku</span>
+                        {String(h.note || "Finalisasi Opnam Harian")} • <span className="text-slate-700 font-black">{itemCount} Bahan Baku</span>
                       </p>
                     </div>
 
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => setExpandedHistoryId(isExpanded ? null : h.id)}
+                      onClick={() => setExpandedHistoryId(isExpanded ? null : (h.id as string))}
                       className="h-8 rounded-xl text-[10px] font-black uppercase tracking-wider text-indigo-600 hover:bg-indigo-50 self-start sm:self-auto"
                     >
                       {isExpanded ? (
@@ -697,7 +711,7 @@ export function StockContainerOpnameView({
                     </Button>
                   </div>
 
-                  {isExpanded && Array.isArray(h.items) && (
+                  {isExpanded && itemsList.length > 0 && (
                     <div className="mt-3 overflow-x-auto rounded-xl border border-slate-200 bg-white p-2">
                       <table className="w-full text-left text-[10px]">
                         <thead>
@@ -709,14 +723,34 @@ export function StockContainerOpnameView({
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50 font-bold text-slate-700">
-                          {h.items.map((it: any, idx: number) => (
-                            <tr key={idx} className="hover:bg-slate-50/80">
-                              <td className="p-2 text-indigo-600 font-mono">{it.code || "-"}</td>
-                              <td className="p-2 uppercase">{it.nama || "-"}</td>
-                              <td className="p-2 text-right text-indigo-600">{it.after?.qtyKontainerBesar ?? "-"}</td>
-                              <td className="p-2 text-right text-emerald-600">{it.after?.qtyKontainerKecil ?? "-"}</td>
-                            </tr>
-                          ))}
+                          {itemsList.map((it, idx: number) => {
+                            const afterObj = it.after as Record<string, unknown> | undefined;
+                            const bulkVal = afterObj?.qtyKontainerBesar !== undefined
+                              ? Number(afterObj.qtyKontainerBesar)
+                              : it.afterBulk !== undefined
+                              ? Number(it.afterBulk)
+                              : null;
+                            const aktifVal = afterObj?.qtyKontainerKecil !== undefined
+                              ? Number(afterObj.qtyKontainerKecil)
+                              : it.grams !== undefined
+                              ? Number(it.grams)
+                              : it.afterAktif !== undefined
+                              ? Number(it.afterAktif)
+                              : null;
+
+                            return (
+                              <tr key={idx} className="hover:bg-slate-50/80">
+                                <td className="p-2 text-indigo-600 font-mono">{String(it.code || "-")}</td>
+                                <td className="p-2 uppercase">{String(it.nama || "-")}</td>
+                                <td className="p-2 text-right text-indigo-600">
+                                  {bulkVal !== null ? `${bulkVal} ${String(it.unitBesar || "")}`.trim() : "-"}
+                                </td>
+                                <td className="p-2 text-right text-emerald-600">
+                                  {aktifVal !== null ? `${aktifVal} ${String(it.unitKecil || "")}`.trim() : "-"}
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>

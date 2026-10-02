@@ -12,6 +12,7 @@ import {
   Wallet,
   Gift,
   AlertTriangle,
+  Store,
   LogOut
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ const menuGroups = [
     title: "Operasional",
     items: [
       { name: "Operasional Kontainer", icon: ClipboardList, href: "/employee/operasional-kontainer" },
+      { name: "Titip Jual (Konsinyasi)", icon: Store, href: "/employee/titip-jual" },
       { name: "Input Free", icon: Gift, href: "/employee/input-free" },
       { name: "Keuangan Kontainer", icon: Wallet, href: "/employee/keuangan-kontainer" },
     ]

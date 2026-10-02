@@ -31,6 +31,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+import { isKonsinyasiProduct } from "@/lib/konsinyasi-helper";
+
 interface Product {
   id: string;
   code: string;
@@ -38,6 +40,8 @@ interface Product {
   kategori: string;
   hargaJual: number;
   hargaDasar: number;
+  isKonsinyasi?: boolean;
+  namaPenitip?: string;
 }
 
 import { getStoreConfigDocId } from "@/lib/branch-helper";
@@ -221,12 +225,15 @@ export default function ProdukPage() {
   const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const data = {
+    const isKonsinyasi = formData.get("isKonsinyasi") === "on";
+    const data: Record<string, unknown> = {
       code: String(formData.get("code") || "").trim(),
       nama: String(formData.get("nama") || "").trim(),
       kategori: String(formData.get("kategori") || "").trim(),
       hargaJual: formatNumber(formData.get("hargaJual")),
       hargaDasar: formatNumber(formData.get("hargaDasar")),
+      isKonsinyasi: isKonsinyasi,
+      namaPenitip: isKonsinyasi ? String(formData.get("namaPenitip") || "").trim() : "",
     };
 
     if (editingItem) {
@@ -327,6 +334,36 @@ export default function ProdukPage() {
                   </div>
                 </div>
 
+                {/* Konsinyasi (Titip Jual) Option */}
+                <div className="p-3.5 bg-amber-50/70 border border-amber-200/80 rounded-2xl space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="isKonsinyasi" className="text-[10px] font-black uppercase tracking-wider text-amber-900 cursor-pointer">
+                        Barang Titip Jual (Konsinyasi)
+                      </Label>
+                      <p className="text-[8px] text-amber-700 font-medium leading-tight">
+                        Centang jika produk dari penitip luar (stok masuk & retur dikelola di Titip Jual).
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      id="isKonsinyasi"
+                      name="isKonsinyasi"
+                      defaultChecked={editingItem?.isKonsinyasi || (editingItem ? isKonsinyasiProduct(editingItem) : false)}
+                      className="h-4 w-4 rounded text-amber-600 border-amber-300 focus:ring-amber-500 cursor-pointer"
+                    />
+                  </div>
+                  <div className="space-y-1 pt-1.5 border-t border-amber-200/60">
+                    <Label className="text-[9px] font-black uppercase tracking-widest text-amber-800">Nama Penitip / Vendor</Label>
+                    <Input 
+                      name="namaPenitip" 
+                      defaultValue={editingItem?.namaPenitip || (editingItem && isKonsinyasiProduct(editingItem) ? "Penitip Soft Cookies" : "")} 
+                      placeholder="Contoh: Penitip Soft Cookies / Dapur Cookies" 
+                      className="rounded-xl border-amber-200 bg-white focus:ring-amber-500 h-9 text-xs" 
+                    />
+                  </div>
+                </div>
+
                 <div className="flex justify-end gap-3 mt-4">
                   <Button type="button" variant="ghost" onClick={() => setIsDialogOpen(false)} className="rounded-xl px-6 text-[10px] font-black uppercase tracking-widest text-slate-400">Batal</Button>
                   <Button type="submit" className="rounded-xl bg-primary px-8 font-black uppercase tracking-widest text-[10px] h-11 shadow-lg shadow-primary/20">
@@ -392,9 +429,21 @@ export default function ProdukPage() {
                       </div>
                     </td>
                     <td className="px-6 py-5 text-left">
-                      <span className="text-sm font-medium text-slate-900 block truncate max-w-[200px]">
-                        {toTitleCase(item.nama)}
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-sm font-bold text-slate-900 truncate max-w-[200px]">
+                          {toTitleCase(item.nama)}
+                        </span>
+                        {isKonsinyasiProduct(item) && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-300">
+                            Titip Jual
+                          </span>
+                        )}
+                      </div>
+                      {item.namaPenitip && (
+                        <span className="text-[9px] font-medium text-slate-400 block mt-0.5">
+                          Penitip: {item.namaPenitip}
+                        </span>
+                      )}
                     </td>
                     <td className="px-6 py-5 text-left">
                       <span className="inline-flex items-center px-3 py-1 rounded-full text-[9px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 whitespace-nowrap">
@@ -484,9 +533,16 @@ export default function ProdukPage() {
                   </div>
 
                   <div className="space-y-0.5 pr-9">
-                    <span className="text-[7px] font-black uppercase text-primary/70 tracking-tight block">
-                      {item.code || "-"}
-                    </span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[7px] font-black uppercase text-primary/70 tracking-tight block">
+                        {item.code || "-"}
+                      </span>
+                      {isKonsinyasiProduct(item) && (
+                        <span className="text-[6.5px] font-black px-1 rounded bg-amber-100 text-amber-900 border border-amber-300 uppercase leading-none">
+                          Titip Jual
+                        </span>
+                      )}
+                    </div>
                     <h4 className="text-[9px] sm:text-[10px] font-black text-slate-900 uppercase italic line-clamp-2 leading-tight">
                       {item.nama}
                     </h4>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   Archive,
   Calendar,
@@ -18,6 +18,7 @@ import {
   Loader2,
   X,
   Pencil,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -43,7 +44,7 @@ import {
   BranchId
 } from "@/lib/branch-helper";
 import { SHARED_MATERIAL_ALIASES } from "@/lib/material-mapping";
-import { orderBy, query, writeBatch, updateDoc, serverTimestamp } from "firebase/firestore";
+import { orderBy, query, writeBatch, updateDoc, serverTimestamp, deleteDoc } from "firebase/firestore";
 import { useToast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
@@ -297,6 +298,18 @@ export default function LaporanStockOpnamePage() {
     branches: [],
   });
 
+  // State Konfirmasi Hapus Opnam
+  const [deleteConfirmEntry, setDeleteConfirmEntry] = useState<{
+    id: string;
+    type: "container" | "warehouse";
+    branchId?: string;
+    warehouseId?: string;
+    note?: string;
+    dateLabel?: string;
+    itemCount?: number;
+  } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const { data: materials } = useConsolidatedCollection(
     db,
     "bahan-baku",
@@ -400,7 +413,7 @@ export default function LaporanStockOpnamePage() {
           const snapshotStockAktif = cleanNumber(item.before?.qtyKontainerKecil ?? material?.qtyKontainerKecil);
 
           // Hasil opname fisik pada waktu tersebut
-          const opnameBulk = cleanNumber(item.after?.qtyKontainerBesar ?? item.before?.qtyKontainerBesar);
+          const opnameBulk = cleanNumber(item.after?.qtyKontainerBesar ?? item.afterBulk ?? item.before?.qtyKontainerBesar);
 
           let opnameAktif = 0;
           if (item.grams !== undefined && item.grams !== null) {
@@ -408,15 +421,8 @@ export default function LaporanStockOpnamePage() {
           } else if (item.after?.grams !== undefined && item.after?.grams !== null) {
             opnameAktif = Math.max(0, cleanNumber(item.after.grams));
           } else {
-            const rawSaved = cleanNumber(item.after?.qtyKontainerKecil ?? item.before?.qtyKontainerKecil);
-            const beratBungkus = cleanNumber(material?.beratBungkusProduk);
-            if (rawSaved < 0) {
-              opnameAktif = Math.max(0, rawSaved + beratBungkus);
-            } else if (rawSaved === 0) {
-              opnameAktif = 0;
-            } else {
-              opnameAktif = Math.max(0, rawSaved + beratBungkus);
-            }
+            const rawSaved = cleanNumber(item.after?.qtyKontainerKecil ?? item.afterAktif ?? item.before?.qtyKontainerKecil);
+            opnameAktif = Math.max(0, rawSaved);
           }
 
           return {
@@ -549,7 +555,12 @@ export default function LaporanStockOpnamePage() {
     // When activeBranch === 'all' and no date/month filter, take latest entry per branch
     const branchMap = new Map<string, EnrichedContainerEntry>();
     for (const entry of allContainerEntries) {
-      const bId = normalizeBranchId(entry._branchId);
+      const bId = normalizeBranchId(
+        entry._branchId ||
+        (entry as { branch?: string; branchId?: string; cabang?: string }).branch ||
+        (entry as { branch?: string; branchId?: string; cabang?: string }).branchId ||
+        (entry as { branch?: string; branchId?: string; cabang?: string }).cabang
+      );
       if (!branchMap.has(bId)) {
         branchMap.set(bId, entry);
       }
@@ -563,7 +574,12 @@ export default function LaporanStockOpnamePage() {
     const map: Record<string, ConsolidatedContainerRow> = {};
 
     effectiveContainerEntries.forEach((entry) => {
-      const bId = normalizeBranchId(entry._branchId);
+      const bId = normalizeBranchId(
+        entry._branchId ||
+        (entry as { branch?: string; branchId?: string; cabang?: string }).branch ||
+        (entry as { branch?: string; branchId?: string; cabang?: string }).branchId ||
+        (entry as { branch?: string; branchId?: string; cabang?: string }).cabang
+      );
 
       (entry.items || []).forEach((item) => {
         const key = String(item.nama || item.code || item.id || "").trim().toLowerCase();
@@ -745,7 +761,7 @@ export default function LaporanStockOpnamePage() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [materials, allContainerEntries, allWarehouseEntries]);
 
-  const matchesMaterialFilter = (name?: string, code?: string) => {
+  const matchesMaterialFilter = useCallback((name?: string, code?: string) => {
     const n = (name || "").trim().toLowerCase();
     const c = (code || "").trim().toLowerCase();
     if (selectedMaterialName !== "all" && n !== selectedMaterialName.toLowerCase()) {
@@ -756,21 +772,21 @@ export default function LaporanStockOpnamePage() {
       return n.includes(q) || c.includes(q);
     }
     return true;
-  };
+  }, [selectedMaterialName, searchMaterial]);
 
   const displayConsolidatedContainerMatrix = useMemo(() => {
     if (selectedMaterialName === "all" && !searchMaterial.trim()) {
       return consolidatedContainerMatrix;
     }
     return consolidatedContainerMatrix.filter((item) => matchesMaterialFilter(item.nama, item.code));
-  }, [consolidatedContainerMatrix, selectedMaterialName, searchMaterial]);
+  }, [consolidatedContainerMatrix, selectedMaterialName, searchMaterial, matchesMaterialFilter]);
 
   const displayConsolidatedWarehouseMatrix = useMemo(() => {
     if (selectedMaterialName === "all" && !searchMaterial.trim()) {
       return consolidatedWarehouseMatrix;
     }
     return consolidatedWarehouseMatrix.filter((item) => matchesMaterialFilter(item.nama, item.code));
-  }, [consolidatedWarehouseMatrix, selectedMaterialName, searchMaterial]);
+  }, [consolidatedWarehouseMatrix, selectedMaterialName, searchMaterial, matchesMaterialFilter]);
 
   const displayContainerEntries = useMemo(() => {
     if (selectedMaterialName === "all" && !searchMaterial.trim()) {
@@ -782,7 +798,7 @@ export default function LaporanStockOpnamePage() {
         items: (entry.items || []).filter((item) => matchesMaterialFilter(item.nama, item.code)),
       }))
       .filter((entry) => entry.items.length > 0);
-  }, [filteredContainerEntries, selectedMaterialName, searchMaterial]);
+  }, [filteredContainerEntries, selectedMaterialName, searchMaterial, matchesMaterialFilter]);
 
   const displayWarehouseEntries = useMemo(() => {
     if (selectedMaterialName === "all" && !searchMaterial.trim()) {
@@ -794,7 +810,7 @@ export default function LaporanStockOpnamePage() {
         items: (entry.items || []).filter((item) => matchesMaterialFilter(item.nama, item.code)),
       }))
       .filter((entry) => entry.items.length > 0);
-  }, [filteredWarehouseEntries, selectedMaterialName, searchMaterial]);
+  }, [filteredWarehouseEntries, selectedMaterialName, searchMaterial, matchesMaterialFilter]);
 
   const resetFilters = () => {
     setSelectedDate("");
@@ -1227,6 +1243,44 @@ export default function LaporanStockOpnamePage() {
       });
     } finally {
       setIsSavingEdit(false);
+    }
+  };
+
+  const handleDeleteEntry = async () => {
+    if (!deleteConfirmEntry) return;
+    setIsDeleting(true);
+    try {
+      if (deleteConfirmEntry.type === "container") {
+        const bId = normalizeBranchId(deleteConfirmEntry.branchId || activeBranch);
+        const docRef = branchDoc(db, "opnam_harian", deleteConfirmEntry.id, bId);
+        await deleteDoc(docRef);
+        if (bId !== "gdm") {
+          const legacyRef = branchDoc(db, "opnam_harian", deleteConfirmEntry.id, "gdm");
+          await deleteDoc(legacyRef).catch(() => {});
+        }
+        toast({
+          title: "Berhasil Dihapus",
+          description: `Data opnam harian (${deleteConfirmEntry.dateLabel || ""}) berhasil dihapus. Histori opnam harian telah diperbarui.`,
+        });
+      } else {
+        const wId = (deleteConfirmEntry.warehouseId || activeBranch || "gdm") as "gdm" | "kedungreja" | "gembong";
+        const docRef = warehouseDoc(db, "opnam_gudang", deleteConfirmEntry.id, wId);
+        await deleteDoc(docRef);
+        toast({
+          title: "Berhasil Dihapus",
+          description: `Data opnam gudang (${deleteConfirmEntry.dateLabel || ""}) berhasil dihapus.`,
+        });
+      }
+      setDeleteConfirmEntry(null);
+    } catch (err: unknown) {
+      console.error("Gagal menghapus opname:", err);
+      toast({
+        variant: "destructive",
+        title: "Gagal Menghapus",
+        description: "Terjadi kesalahan saat menghapus data opnam.",
+      });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -2036,11 +2090,33 @@ export default function LaporanStockOpnamePage() {
                           <p className="text-sm font-black text-slate-900">{formatDateLabel(entry.entryDate)}</p>
                         </div>
                       </div>
-                      {entry.note ? (
-                        <div className="rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 shadow-sm self-start md:self-auto">
-                          {String(entry.note)}
-                        </div>
-                      ) : null}
+                      <div className="flex items-center gap-2 self-start md:self-auto">
+                        {entry.note ? (
+                          <div className="rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 shadow-sm">
+                            {String(entry.note)}
+                          </div>
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setDeleteConfirmEntry({
+                              id: entry.id,
+                              type: "container",
+                              branchId: entry._branchId,
+                              note: typeof entry.note === "string" ? entry.note : "Finalisasi Opnam Harian",
+                              dateLabel: formatDateLabel(entry.entryDate),
+                              itemCount: entry.items?.length || 0,
+                            })
+                          }
+                          className="h-7 rounded-full border border-rose-200 bg-rose-50 px-3 text-[10px] font-black uppercase tracking-wider text-rose-600 hover:bg-rose-100 hover:text-rose-700 transition-colors flex items-center gap-1.5 shadow-sm"
+                          title="Hapus opnam harian ini"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          <span>Hapus</span>
+                        </Button>
+                      </div>
                     </div>
 
                     {/* Desktop Table View */}
@@ -2381,11 +2457,33 @@ export default function LaporanStockOpnamePage() {
                           <p className="text-sm font-black text-slate-900">{formatDateLabel(entry.entryDate)}</p>
                         </div>
                       </div>
-                      {entry.note ? (
-                        <div className="rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 shadow-sm self-start md:self-auto">
-                          {String(entry.note)}
-                        </div>
-                      ) : null}
+                      <div className="flex items-center gap-2 self-start md:self-auto">
+                        {entry.note ? (
+                          <div className="rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 shadow-sm">
+                            {String(entry.note)}
+                          </div>
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setDeleteConfirmEntry({
+                              id: entry.id,
+                              type: "warehouse",
+                              warehouseId: entry._warehouseId,
+                              note: typeof entry.note === "string" ? entry.note : "Opname Gudang",
+                              dateLabel: formatDateLabel(entry.entryDate),
+                              itemCount: entry.items?.length || 0,
+                            })
+                          }
+                          className="h-7 rounded-full border border-rose-200 bg-rose-50 px-3 text-[10px] font-black uppercase tracking-wider text-rose-600 hover:bg-rose-100 hover:text-rose-700 transition-colors flex items-center gap-1.5 shadow-sm"
+                          title="Hapus opname gudang ini"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          <span>Hapus</span>
+                        </Button>
+                      </div>
                     </div>
 
                     {/* Desktop Table View */}
@@ -2946,6 +3044,74 @@ export default function LaporanStockOpnamePage() {
                 <>
                   <CheckCircle2 className="mr-2 h-4 w-4" /> Simpan Hasil Opname
                 </>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog Konfirmasi Hapus Opnam */}
+      <Dialog open={!!deleteConfirmEntry} onOpenChange={(open) => { if (!open && !isDeleting) setDeleteConfirmEntry(null); }}>
+        <DialogContent className="max-w-md rounded-[2rem] border border-slate-100 bg-white p-6 shadow-2xl">
+          <DialogHeader>
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-rose-50 text-rose-600 shadow-inner">
+                <Trash2 className="h-6 w-6" />
+              </div>
+              <div>
+                <DialogTitle className="text-base font-black text-slate-900">
+                  Apakah anda yakin menghapus ini?
+                </DialogTitle>
+                <DialogDescription className="text-xs font-semibold text-slate-500 mt-1">
+                  Data opnam tanggal <span className="font-black text-slate-800">{deleteConfirmEntry?.dateLabel || "-"}</span> ({deleteConfirmEntry?.note || "Finalisasi Opnam Harian"}) akan dihapus secara permanen.
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="mt-4 rounded-2xl bg-slate-50 p-3.5 text-xs font-medium text-slate-600 border border-slate-100 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400 font-bold">Kategori Opnam</span>
+              <span className="font-black uppercase text-slate-800">
+                {deleteConfirmEntry?.type === "container" ? "Stok Kontainer Harian" : "Stok Gudang"}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400 font-bold">Tanggal</span>
+              <span className="font-black text-slate-800">{deleteConfirmEntry?.dateLabel || "-"}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400 font-bold">Total Bahan Baku</span>
+              <span className="font-black text-slate-800">{deleteConfirmEntry?.itemCount || 0} Bahan</span>
+            </div>
+            <div className="pt-2 border-t border-slate-200/60 text-[11px] text-amber-700 font-bold">
+              ⚠️ Riwayat penyimpanan di menu Karyawan (<span className="font-mono text-[10px]">/employee/opnam-harian</span>) juga akan ikut terhapus.
+            </div>
+          </div>
+
+          <div className="mt-6 flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteConfirmEntry(null)}
+              disabled={isDeleting}
+              className="rounded-xl border-slate-200 text-xs font-bold px-5"
+            >
+              Tidak
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleDeleteEntry}
+              disabled={isDeleting}
+              className="rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black px-6 shadow-md shadow-rose-500/20"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Menghapus...
+                </>
+              ) : (
+                "Iya"
               )}
             </Button>
           </div>

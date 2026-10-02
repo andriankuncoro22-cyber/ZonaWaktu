@@ -257,11 +257,11 @@ export default function AdminStockOpnamePage() {
       filteredMaterials.forEach((it) => {
         const beforeBulk = Number(it.qtyKontainerBesar || 0);
         const beforeAktif = Number(it.qtyKontainerKecil || 0);
-        const inputBulk = bulkInputs[it.id];
-        const inputAktif = kontainerInputs[it.id]?.aktif;
+        const hasBulkInput = it.id in bulkInputs && String(bulkInputs[it.id]).trim() !== "";
+        const hasAktifInput = it.id in kontainerInputs && String(kontainerInputs[it.id]?.aktif).trim() !== "" && kontainerInputs[it.id]?.aktif !== undefined;
 
-        const afterBulk = Math.max(0, cleanNumber(inputBulk === "" || inputBulk === undefined ? beforeBulk : inputBulk));
-        const afterAktif = Math.max(0, cleanNumber(inputAktif === "" || inputAktif === undefined ? beforeAktif : inputAktif));
+        const afterBulk = hasBulkInput ? Math.max(0, cleanNumber(bulkInputs[it.id])) : 0;
+        const afterAktif = hasAktifInput ? Math.max(0, cleanNumber(kontainerInputs[it.id]?.aktif)) : 0;
 
         const ref = branchDoc(db, "bahan-baku", it.id, selectedBranch);
         batch.update(ref, { 

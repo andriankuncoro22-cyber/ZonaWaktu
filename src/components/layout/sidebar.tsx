@@ -20,7 +20,8 @@ import {
   ClipboardList,
   Store,
   AlertOctagon,
-  GitMerge
+  GitMerge,
+  Cookie
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useActiveBranch, BRANCH_LIST, getBranchTheme } from "@/lib/branch-helper";
@@ -36,6 +37,7 @@ const menuGroups = [
     title: "Operasional",
     items: [
       { name: "Operasional Toko", icon: Store, href: "/operasional/operasional-toko" },
+      { name: "Titip Jual (Konsinyasi)", icon: Cookie, href: "/operasional/titip-jual" },
       { name: "Closing Toko", icon: PlusCircle, href: "/penjualan/kasir" },
       { name: "Rekapan Stock Kritis", icon: AlertOctagon, href: "/operasional/rekapan-stock-kritis" },
     ]
@@ -73,6 +75,7 @@ const adminMenuGroups = [
     title: "Admin Menu",
     items: [
       { name: "Closing Toko", icon: PlusCircle, href: "/penjualan/kasir" },
+      { name: "Titip Jual (Konsinyasi)", icon: Cookie, href: "/operasional/titip-jual" },
       { name: "Stock Kritis", icon: AlertOctagon, href: "/operasional/rekapan-stock-kritis" },
       { name: "Stock Opname", icon: ClipboardList, href: "/admin/stock-opname" },
       { name: "Belanja Bahan Baku", icon: Truck, href: "/admin/belanja-bahan-baku" },
